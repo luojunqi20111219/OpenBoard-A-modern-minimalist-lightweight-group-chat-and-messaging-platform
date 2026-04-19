@@ -2,7 +2,11 @@ import os
 import sqlite3
 import secrets
 from fastapi import FastAPI, Request, HTTPException
+<<<<<<< HEAD
+from fastapi.responses import HTMLResponse, FileResponse
+=======
 from fastapi.responses import HTMLResponse
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from typing import Optional, List
@@ -27,12 +31,20 @@ def patch_db():
     cursor = conn.cursor()
     cursor.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password_hash TEXT, nickname TEXT, token TEXT, role INTEGER DEFAULT 0, is_banned INTEGER DEFAULT 0, avatar TEXT)")
     cursor.execute("CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, content TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, room_id INTEGER DEFAULT 0, reply TEXT, receiver TEXT)")
+<<<<<<< HEAD
+    cursor.execute("CREATE TABLE IF NOT EXISTS groups (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, is_public INTEGER DEFAULT 1, owner_id INTEGER DEFAULT 0, avatar TEXT, is_frozen INTEGER DEFAULT 0)")
+=======
     cursor.execute("CREATE TABLE IF NOT EXISTS groups (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, is_public INTEGER DEFAULT 1, owner_id INTEGER DEFAULT 0)")
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
     
     columns_to_add = {
         "users": [("token", "TEXT"), ("role", "INTEGER DEFAULT 0"), ("is_banned", "INTEGER DEFAULT 0"), ("avatar", "TEXT")],
         "messages": [("room_id", "INTEGER DEFAULT 0"), ("reply", "TEXT"), ("receiver", "TEXT")],
+<<<<<<< HEAD
+        "groups": [("owner_id", "INTEGER DEFAULT 0"), ("avatar", "TEXT"), ("is_frozen", "INTEGER DEFAULT 0")]
+=======
         "groups": [("owner_id", "INTEGER DEFAULT 0")]
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
     }
     for table, cols in columns_to_add.items():
         for col_name, col_type in cols:
@@ -48,7 +60,10 @@ def patch_db():
 
 patch_db()
 
+<<<<<<< HEAD
+=======
 # --- 数据模型 ---
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
 class LoginData(BaseModel):
     username: str
     password: str
@@ -78,12 +93,25 @@ class GroupCreate(BaseModel):
 class GroupUpdate(BaseModel):
     name: str
 
+<<<<<<< HEAD
+class GroupAvatarUpdate(BaseModel):
+    avatar: str
+
+=======
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
 class AdminAction(BaseModel):
     user_id: Optional[int] = None
     msg_id: Optional[int] = None
     msg_ids: Optional[List[int]] = None
     group_id: Optional[int] = None
     group_ids: Optional[List[int]] = None
+<<<<<<< HEAD
+    new_password: Optional[str] = None
+    filename: Optional[str] = None
+    code: Optional[str] = None
+    avatar_base64: Optional[str] = None
+
+=======
     new_password: Optional[str] = None # 用于后台重置密码
     filename: Optional[str] = None
     code: Optional[str] = None
@@ -91,6 +119,7 @@ class AdminAction(BaseModel):
 # ==========================================
 # 🔒 后端安全核心函数
 # ==========================================
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
 def is_admin(request: Request, db) -> bool:
     token = request.headers.get("Authorization")
     if not token: return False
@@ -98,6 +127,23 @@ def is_admin(request: Request, db) -> bool:
     if not user: return False
     return user['username'] in ALLOWED_ADMINS
 
+<<<<<<< HEAD
+def delete_user_and_data(db, user_id, username):
+    db.execute("DELETE FROM messages WHERE name=?", (username,))
+    groups = db.execute("SELECT id FROM groups WHERE owner_id=?", (user_id,)).fetchall()
+    for g in groups:
+        db.execute("DELETE FROM messages WHERE room_id=?", (g['id'],))
+        db.execute("DELETE FROM groups WHERE id=?", (g['id'],))
+    db.execute("DELETE FROM users WHERE id=?", (user_id,))
+
+# 【新增】图标请求接口
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    if os.path.exists("favicon.ico"):
+        return FileResponse("favicon.ico")
+    raise HTTPException(status_code=404)
+
+=======
 # 删除用户及其所有关联数据（消息、创建的群聊）的统一函数
 def delete_user_and_data(db, user_id, username):
     db.execute("DELETE FROM messages WHERE name=?", (username,)) # 删消息
@@ -110,6 +156,7 @@ def delete_user_and_data(db, user_id, username):
 # ==========================================
 # 🌐 页面路由
 # ==========================================
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     return templates.TemplateResponse(request=request, name="index.html", context={"request": request})
@@ -125,23 +172,34 @@ async def admin_page(request: Request):
         request=request, name="admin.html", context={"request": request, "messages": messages, "users": users, "groups": groups}
     )
 
+<<<<<<< HEAD
+=======
 # ==========================================
 # 💬 用户账户与社交 API
 # ==========================================
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
 @app.post("/api/register")
 async def register(data: RegisterData):
     db = get_db()
     if db.execute("SELECT id FROM users WHERE username=?", (data.username,)).fetchone():
         db.close()
+<<<<<<< HEAD
+        raise HTTPException(status_code=400, detail="用户名已被占用")
+=======
         raise HTTPException(status_code=400, detail="用户名已被占用，换一个试试吧！")
     
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
     token = secrets.token_hex(16)
     hashed_pw = generate_password_hash(data.password)
     try:
         cursor = db.execute("INSERT INTO users (username, password_hash, nickname, token) VALUES (?, ?, ?, ?)", (data.username, hashed_pw, data.nickname or data.username, token))
         user_id = cursor.lastrowid
         db.commit()
+<<<<<<< HEAD
+    except:
+=======
     except Exception as e:
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
         db.rollback()
         raise HTTPException(status_code=500, detail="注册失败")
     finally:
@@ -159,12 +217,24 @@ async def login(data: LoginData):
         return {"code": 200, "token": token, "username": user['username'], "nickname": user['nickname'], "avatar": user['avatar'], "id": user['id'], "role": user['role']}
     raise HTTPException(status_code=401, detail="账号或密码错误")
 
+<<<<<<< HEAD
+=======
 # 【新增】修改密码接口
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
 @app.put("/api/user/password")
 async def change_password(data: PasswordChangeData, request: Request):
     token = request.headers.get("Authorization")
     db = get_db()
     user = db.execute("SELECT * FROM users WHERE token=?", (token,)).fetchone()
+<<<<<<< HEAD
+    if not user: raise HTTPException(status_code=403, detail="请登录")
+    if not check_password_hash(user['password_hash'], data.old_password):
+        raise HTTPException(status_code=400, detail="原密码错误")
+    db.execute("UPDATE users SET password_hash=? WHERE id=?", (generate_password_hash(data.new_password), user['id']))
+    db.commit()
+    return {"status": "success", "msg": "密码修改成功"}
+
+=======
     if not user: raise HTTPException(status_code=403, detail="请先登录")
     
     if not check_password_hash(user['password_hash'], data.old_password):
@@ -175,12 +245,20 @@ async def change_password(data: PasswordChangeData, request: Request):
     return {"status": "success", "msg": "密码修改成功，请重新登录"}
 
 # 【新增】注销删除账号接口
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
 @app.delete("/api/user/account")
 async def delete_account(request: Request):
     token = request.headers.get("Authorization")
     db = get_db()
     user = db.execute("SELECT * FROM users WHERE token=?", (token,)).fetchone()
     if not user: raise HTTPException(status_code=403, detail="未登录")
+<<<<<<< HEAD
+    if user['username'] in ["admin", "官方账号"]:
+        raise HTTPException(status_code=403, detail="保护账号不可注销")
+    delete_user_and_data(db, user['id'], user['username'])
+    db.commit()
+    return {"status": "success", "msg": "账号已注销"}
+=======
     
     if user['username'] in ["admin", "官方账号"]:
         raise HTTPException(status_code=403, detail="系统保护账号不可注销")
@@ -188,13 +266,18 @@ async def delete_account(request: Request):
     delete_user_and_data(db, user['id'], user['username'])
     db.commit()
     return {"status": "success", "msg": "账号已彻底注销"}
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
 
 @app.post("/api/user/profile")
 async def update_profile(data: UserProfileData, request: Request):
     token = request.headers.get("Authorization")
     db = get_db()
     user = db.execute("SELECT * FROM users WHERE token=?", (token,)).fetchone()
+<<<<<<< HEAD
+    if not user: raise HTTPException(status_code=403, detail="请登录")
+=======
     if not user: raise HTTPException(status_code=403, detail="请先登录")
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
     db.execute("UPDATE users SET nickname=?, avatar=? WHERE id=?", (data.nickname, data.avatar, user['id']))
     db.commit()
     return {"status": "success"}
@@ -211,7 +294,11 @@ async def get_users(request: Request):
 @app.get("/api/groups")
 async def get_groups():
     db = get_db()
+<<<<<<< HEAD
+    groups = db.execute("SELECT id, name, owner_id, avatar, is_frozen FROM groups WHERE is_public = 1").fetchall()
+=======
     groups = db.execute("SELECT id, name, owner_id FROM groups WHERE is_public = 1").fetchall()
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
     return {"status": "success", "data": [dict(g) for g in groups]}
 
 @app.post("/api/groups")
@@ -219,7 +306,11 @@ async def create_group(data: GroupCreate, request: Request):
     token = request.headers.get("Authorization")
     db = get_db()
     user = db.execute("SELECT * FROM users WHERE token=?", (token,)).fetchone()
+<<<<<<< HEAD
+    if not user: raise HTTPException(status_code=403, detail="请登录")
+=======
     if not user: raise HTTPException(status_code=403, detail="请先登录")
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
     cursor = db.execute("INSERT INTO groups (name, is_public, owner_id) VALUES (?, ?, ?)", (data.name, data.is_public, user['id']))
     db.commit()
     return {"status": "success", "group_id": cursor.lastrowid}
@@ -236,14 +327,36 @@ async def update_group(group_id: int, data: GroupUpdate, request: Request):
     db.commit()
     return {"status": "success"}
 
-@app.delete("/api/groups/{group_id}")
-async def delete_group(group_id: int, request: Request):
-    if group_id == 0: raise HTTPException(status_code=403, detail="公共大厅不可解散")
+<<<<<<< HEAD
+@app.post("/api/groups/{group_id}/avatar")
+async def update_group_avatar(group_id: int, data: GroupAvatarUpdate, request: Request):
+    if group_id == 0: raise HTTPException(status_code=403, detail="不可修改")
     token = request.headers.get("Authorization")
     db = get_db()
     user = db.execute("SELECT * FROM users WHERE token=?", (token,)).fetchone()
     group = db.execute("SELECT * FROM groups WHERE id=?", (group_id,)).fetchone()
+    if not group or (group['owner_id'] != user['id'] and user['role'] != 1): raise HTTPException(status_code=403, detail="无权")
+    db.execute("UPDATE groups SET avatar=? WHERE id=?", (data.avatar, group_id))
+    db.commit()
+    return {"status": "success"}
+
+@app.delete("/api/groups/{group_id}")
+async def delete_group(group_id: int, request: Request):
+    if group_id == 0: raise HTTPException(status_code=403, detail="不可解散")
+=======
+@app.delete("/api/groups/{group_id}")
+async def delete_group(group_id: int, request: Request):
+    if group_id == 0: raise HTTPException(status_code=403, detail="公共大厅不可解散")
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
+    token = request.headers.get("Authorization")
+    db = get_db()
+    user = db.execute("SELECT * FROM users WHERE token=?", (token,)).fetchone()
+    group = db.execute("SELECT * FROM groups WHERE id=?", (group_id,)).fetchone()
+<<<<<<< HEAD
+    if not group or (group['owner_id'] != user['id'] and user['role'] != 1): raise HTTPException(status_code=403, detail="无权")
+=======
     if not group or (group['owner_id'] != user['id'] and user['role'] != 1): raise HTTPException(status_code=403, detail="无权操作")
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
     db.execute("DELETE FROM groups WHERE id=?", (group_id,))
     db.execute("DELETE FROM messages WHERE room_id=?", (group_id,))
     db.commit()
@@ -275,12 +388,68 @@ async def post_message(data: MessageData, request: Request):
     token = request.headers.get("Authorization")
     db = get_db()
     user = db.execute("SELECT * FROM users WHERE token=?", (token,)).fetchone()
+<<<<<<< HEAD
+    if not user: raise HTTPException(status_code=403, detail="未登录")
+    if user['is_banned']: raise HTTPException(status_code=403, detail="已被禁言")
+    if data.room_id > 0 and not data.receiver:
+        group = db.execute("SELECT is_frozen FROM groups WHERE id=?", (data.room_id,)).fetchone()
+        if group and group['is_frozen']:
+            raise HTTPException(status_code=403, detail="此群聊已被管理员冻结，全员禁言")
+=======
     if not user: raise HTTPException(status_code=403, detail="请先登录")
     if user['is_banned']: raise HTTPException(status_code=403, detail="已被禁言")
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
     db.execute("INSERT INTO messages (name, content, room_id, receiver) VALUES (?, ?, ?, ?)", (user['username'], data.content, data.room_id, data.receiver))
     db.commit()
     return {"status": "success"}
 
+<<<<<<< HEAD
+@app.post("/api/admin/toggle_freeze_group")
+async def admin_toggle_freeze_group(data: AdminAction, request: Request):
+    db = get_db()
+    if not is_admin(request, db): return {"status": "error"}
+    if data.group_id == 0: return {"status": "error", "msg": "公共大厅受保护"}
+    group = db.execute("SELECT is_frozen FROM groups WHERE id=?", (data.group_id,)).fetchone()
+    if not group: return {"status": "error"}
+    new_status = 0 if group['is_frozen'] else 1
+    db.execute("UPDATE groups SET is_frozen=? WHERE id=?", (new_status, data.group_id))
+    db.commit()
+    return {"status": "success", "msg": "已冻结" if new_status else "已解冻"}
+
+@app.post("/api/admin/update_user_avatar")
+async def admin_update_user_avatar(data: AdminAction, request: Request):
+    db = get_db()
+    if not is_admin(request, db): return {"status": "error"}
+    db.execute("UPDATE users SET avatar=? WHERE id=?", (data.avatar_base64, data.user_id))
+    db.commit()
+    return {"status": "success", "msg": "头像已强行修改"}
+
+@app.post("/api/admin/update_group_avatar")
+async def admin_update_group_avatar(data: AdminAction, request: Request):
+    db = get_db()
+    if not is_admin(request, db): return {"status": "error"}
+    db.execute("UPDATE groups SET avatar=? WHERE id=?", (data.avatar_base64, data.group_id))
+    db.commit()
+    return {"status": "success", "msg": "群头像已强行修改"}
+
+@app.post("/api/admin/delete_user")
+async def admin_delete_user(data: AdminAction, request: Request):
+    db = get_db()
+    if not is_admin(request, db): return {"status": "error"}
+    target = db.execute("SELECT * FROM users WHERE id=?", (data.user_id,)).fetchone()
+    if not target or target['username'] in ["admin", "官方账号"]: return {"status": "error"}
+    delete_user_and_data(db, target['id'], target['username'])
+    db.commit()
+    return {"status": "success"}
+
+@app.post("/api/admin/reset_password")
+async def admin_reset_password(data: AdminAction, request: Request):
+    db = get_db()
+    if not is_admin(request, db): return {"status": "error"}
+    db.execute("UPDATE users SET password_hash=? WHERE id=?", (generate_password_hash(data.new_password), data.user_id))
+    db.commit()
+    return {"status": "success"}
+=======
 # ==========================================
 # 🛡️ 管理后台专用 API
 # ==========================================
@@ -309,10 +478,18 @@ async def admin_reset_password(data: AdminAction, request: Request):
     db.execute("UPDATE users SET password_hash=? WHERE id=?", (generate_password_hash(data.new_password), data.user_id))
     db.commit()
     return {"status": "success", "msg": "密码已被强制重置"}
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
 
 @app.post("/api/admin/delete_group")
 async def admin_delete_group(data: AdminAction, request: Request):
     db = get_db()
+<<<<<<< HEAD
+    if not is_admin(request, db): return {"status": "error"}
+    db.execute("DELETE FROM groups WHERE id=?", (data.group_id,))
+    db.execute("DELETE FROM messages WHERE room_id=?", (data.group_id,))
+    db.commit()
+    return {"status": "success"}
+=======
     if not is_admin(request, db): return {"status": "error", "msg": "安全拦截"}
     if data.group_id == 0: return {"status": "error", "msg": "公共大厅受保护"}
     db.execute("DELETE FROM groups WHERE id=?", (data.group_id,))
@@ -331,13 +508,19 @@ async def admin_delete_groups(data: AdminAction, request: Request):
     db.execute(f"DELETE FROM messages WHERE room_id IN ({placeholders})", safe_group_ids)
     db.commit()
     return {"status": "success", "msg": "批量销毁成功"}
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
 
 @app.post("/api/delete_messages")
 async def delete_messages(data: AdminAction, request: Request):
     db = get_db()
     if not is_admin(request, db): return {"status": "error"}
+<<<<<<< HEAD
+    p = ', '.join(['?'] * len(data.msg_ids))
+    db.execute(f"DELETE FROM messages WHERE id IN ({p})", data.msg_ids)
+=======
     placeholders = ', '.join(['?'] * len(data.msg_ids))
     db.execute(f"DELETE FROM messages WHERE id IN ({placeholders})", data.msg_ids)
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
     db.commit()
     return {"status": "success"}
 
@@ -349,6 +532,10 @@ async def toggle_ban(data: AdminAction, request: Request):
     if user:
         db.execute("UPDATE users SET is_banned=? WHERE id=?", (0 if user['is_banned'] else 1, data.user_id))
         db.commit()
+<<<<<<< HEAD
+        return {"msg": "成功"}
+    return {"msg": "失败"}
+=======
         return {"msg": "操作成功"}
     return {"msg": "用户不存在"}
 
@@ -383,6 +570,7 @@ async def apply_changes(data: AdminAction, request: Request):
     if not is_admin(request, db): return {"status": "error"}
     with open("app.py", "w", encoding="utf-8") as f: f.write(data.code)
     return {"msg": "代码已更新，重启中..."}
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
 
 if __name__ == "__main__":
     import uvicorn

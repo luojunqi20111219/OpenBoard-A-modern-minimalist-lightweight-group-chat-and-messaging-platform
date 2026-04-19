@@ -2,7 +2,12 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
+<<<<<<< HEAD
+    <title>ROOT 管理后台 - 信语 (OpenBoard)</title>
+    <link rel="icon" href="/favicon.ico" type="image/x-icon">
+=======
     <title>ROOT 管理后台 - 高级安全版</title>
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
     <style>
         body { background: #f0f2f5; display: flex; height: 100vh; font-family: sans-serif; margin:0; overflow: hidden; }
         .sidebar { width: 220px; background: white; border-right: 1px solid #ddd; padding: 20px; display: flex; flex-direction: column; }
@@ -37,8 +42,15 @@
     </script>
 </head>
 <body>
+<<<<<<< HEAD
+    <input type="file" id="admin-avatar-upload" accept="image/*" style="display: none;">
+
+    <div class="sidebar">
+        <h2>🛡️ 信语 ROOT 系统</h2>
+=======
     <div class="sidebar">
         <h2>🛡️ ROOT 管理系统</h2>
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
         <div class="nav-item active" onclick="showPage('msgPage', this)">💬 留言管理</div>
         <div class="nav-item" onclick="showPage('groupPage', this)">🗂️ 群聊管理</div>
         <div class="nav-item" onclick="showPage('userPage', this)">👥 用户管理</div>
@@ -77,7 +89,14 @@
                 <button class="btn-batch" onclick="batchDeleteGroups()">🗑️ 批量解散选中群聊</button>
                 <table>
                     <thead>
+<<<<<<< HEAD
+                        <tr>
+                            <th><input type="checkbox" id="selectAllGroups" onclick="toggleAllGroups(this)"></th>
+                            <th>ID</th><th>群名称</th><th>群主ID</th><th>状态</th><th>操作</th>
+                        </tr>
+=======
                         <tr><th><input type="checkbox" id="selectAllGroups" onclick="toggleAllGroups(this)"></th><th>ID</th><th>群名称</th><th>群主ID</th><th>操作</th></tr>
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
                     </thead>
                     <tbody>
                         {% for g in groups %}
@@ -86,7 +105,21 @@
                             <td>{{ g.id }}</td>
                             <td style="font-weight:bold; color:#1976D2;">{{ g.name }}</td>
                             <td>{% if g.owner_id == 0 %}系统内置{% else %}{{ g.owner_id }}{% endif %}</td>
+<<<<<<< HEAD
+                            <td>
+                                {% if g.is_frozen %}<span style="color:red; font-weight:bold;">● 已冻结</span>
+                                {% else %}<span style="color:green;">● 正常</span>{% endif %}
+                            </td>
+                            <td>
+                                {% if g.id != 0 %}
+                                    <button class="btn-action" onclick="toggleFreezeGroup('{{ g.id }}')">{{ '解冻' if g.is_frozen else '冻结' }}</button>
+                                    <button class="btn-action" onclick="triggerAdminAvatarUpload('group', '{{ g.id }}')">改头像</button>
+                                    <button class="btn-action btn-delete" onclick="adminDeleteGroup('{{ g.id }}')">解散</button>
+                                {% endif %}
+                            </td>
+=======
                             <td>{% if g.id != 0 %}<button class="btn-action btn-delete" onclick="adminDeleteGroup('{{ g.id }}')">解散</button>{% endif %}</td>
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -110,6 +143,10 @@
                             <td>{% if u.is_banned %}<span style="color:red;">● 封禁</span>{% else %}<span style="color:green;">● 正常</span>{% endif %}</td>
                             <td>
                                 <button class="btn-action" onclick="toggleBan('{{ u.id }}')">{{ '解除' if u.is_banned else '封禁' }}</button>
+<<<<<<< HEAD
+                                <button class="btn-action" onclick="triggerAdminAvatarUpload('user', '{{ u.id }}')">改头像</button>
+=======
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
                                 
                                 {% if u.username not in ["admin", "官方账号"] %}
                                     <button class="btn-action" onclick="adminResetPwd('{{ u.id }}', '{{ u.username }}')">改密码</button>
@@ -135,11 +172,65 @@
             document.getElementById(pageId).classList.add('active'); element.classList.add('active');
         }
 
+<<<<<<< HEAD
+        function toggleFreezeGroup(gid) {
+            if(!confirm("确认要改变此群聊的冻结状态吗？")) return;
+            fetch('/api/admin/toggle_freeze_group', { method: 'POST', headers: authHeaders, body: JSON.stringify({ group_id: parseInt(gid) }) })
+            .then(r => r.json()).then(d => { alert(d.msg || d.detail); location.reload(); });
+        }
+
+        let pendingUploadType = ''; let pendingUploadId = 0;
+        function triggerAdminAvatarUpload(type, id) {
+            pendingUploadType = type; pendingUploadId = parseInt(id);
+            document.getElementById('admin-avatar-upload').click();
+        }
+
+        document.getElementById('admin-avatar-upload').addEventListener('change', function(e) {
+            if (!e.target.files || !e.target.files[0]) return;
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.createElement('canvas'); const ctx = canvas.getContext('2d');
+                    const maxSize = 150; let size = Math.min(img.width, img.height);
+                    canvas.width = maxSize; canvas.height = maxSize;
+                    ctx.drawImage(img, (img.width - size)/2, (img.height - size)/2, size, size, 0, 0, maxSize, maxSize);
+                    const base64 = canvas.toDataURL('image/jpeg', 0.8);
+                    
+                    const endpoint = pendingUploadType === 'user' ? '/api/admin/update_user_avatar' : '/api/admin/update_group_avatar';
+                    const payload = pendingUploadType === 'user' ? { user_id: pendingUploadId, avatar_base64: base64 } : { group_id: pendingUploadId, avatar_base64: base64 };
+                    
+                    fetch(endpoint, { method: 'POST', headers: authHeaders, body: JSON.stringify(payload) })
+                    .then(r => r.json()).then(d => { alert(d.msg); location.reload(); });
+                }
+                img.src = event.target.result;
+            }
+            reader.readAsDataURL(e.target.files[0]);
+            e.target.value = '';
+        });
+
+=======
         // --- 管理员：用户处理逻辑 ---
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
         function toggleBan(uid) {
             fetch('/api/toggle_ban_user', { method: 'POST', headers: authHeaders, body: JSON.stringify({user_id: parseInt(uid)}) })
             .then(r => r.json()).then(d => { alert(d.msg || d.detail); location.reload(); });
         }
+<<<<<<< HEAD
+        function adminResetPwd(uid, uname) {
+            const newPwd = prompt(`请输入为用户 [${uname}] 设置的新密码：`);
+            if(!newPwd) return;
+            fetch('/api/admin/reset_password', { method: 'POST', headers: authHeaders, body: JSON.stringify({user_id: parseInt(uid), new_password: newPwd}) })
+            .then(r => r.json()).then(d => { alert("密码重置成功"); });
+        }
+        function adminDeleteUser(uid, uname) {
+            if(confirm(`🚨 极端操作警告：\n你正在删除用户 [${uname}]！\n确认执行吗？`)) {
+                fetch('/api/admin/delete_user', { method: 'POST', headers: authHeaders, body: JSON.stringify({user_id: parseInt(uid)}) })
+                .then(r => r.json()).then(d => { alert("已删除"); location.reload(); });
+            }
+        }
+
+=======
 
         function adminResetPwd(uid, uname) {
             const newPwd = prompt(`请输入为用户 [${uname}] 设置的新密码：`);
@@ -160,6 +251,7 @@
         }
 
         // --- 数据清理逻辑 ---
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
         function deleteMsg(mid) { fetch('/api/delete_messages', { method: 'POST', headers: authHeaders, body: JSON.stringify({ msg_ids: [parseInt(mid)] }) }).then(()=>location.reload()); }
         function batchDeleteMessages() {
             const ids = Array.from(document.querySelectorAll('.msg-check:checked')).map(cb => parseInt(cb.value));
