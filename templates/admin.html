@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+<<<<<<< HEAD
+    <title>ROOT 管理后台 - 信语 (OpenBoard)</title>
+    <link rel="icon" href="/favicon.ico" type="image/x-icon">
+=======
+    <title>ROOT 管理后台 - 高级安全版</title>
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
+    <style>
+        body { background: #f0f2f5; display: flex; height: 100vh; font-family: sans-serif; margin:0; overflow: hidden; }
+        .sidebar { width: 220px; background: white; border-right: 1px solid #ddd; padding: 20px; display: flex; flex-direction: column; }
+        .sidebar h2 { color: #f44336; font-size: 18px; margin-bottom: 30px; }
+        .nav-item { padding: 12px; margin-bottom: 5px; border-radius: 8px; cursor: pointer; color: #555; transition: 0.3s; }
+        .nav-item:hover, .nav-item.active { background: #e3f2fd; color: #1976D2; font-weight: bold; }
+        .main { flex: 1; padding: 30px; overflow-y: auto; }
+        
+        .page { display: none; } 
+        .page.active { display: block; }
+        
+        .card { background: white; padding: 20px; border-radius: 12px; border: 1px solid #eee; box-shadow: 0 2px 8px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th { text-align: left; padding: 12px; background: #fafafa; border-bottom: 2px solid #eee; color: #666; }
+        td { padding: 12px; border-bottom: 1px solid #eee; font-size: 14px; }
+        
+        .btn-batch { background: #ff4757; color: white; border: none; padding: 8px 15px; border-radius: 6px; cursor: pointer; margin-bottom: 15px; font-weight: bold; }
+        .btn-batch:hover { background: #ff6b81; }
+        .btn-action { border: 1px solid #ddd; background: white; padding: 6px 12px; border-radius: 4px; cursor: pointer; transition: 0.3s; margin-right: 5px; }
+        .btn-action:hover { background: #eee; }
+        .btn-delete { color: #f44336; border: 1px solid #ffcdd2; background: #ffebee; }
+        .btn-delete:hover { background: #f44336; color: white; }
+    </style>
+    
+    <script>
+        const allowedAdmins = ["admin", "liuyichen", "32709", "luojunqi1219", "luojunqi", "官方账号"];
+        const currentUser = JSON.parse(localStorage.getItem('user') || 'null');
+        if (!currentUser || !allowedAdmins.includes(currentUser.username)) {
+            alert("🛑 访问被拒绝：您未登录，或者不在管理员白名单内！");
+            window.location.href = "/";
+        }
+    </script>
+</head>
+<body>
+<<<<<<< HEAD
+    <input type="file" id="admin-avatar-upload" accept="image/*" style="display: none;">
+
+    <div class="sidebar">
+        <h2>🛡️ 信语 ROOT 系统</h2>
+=======
+    <div class="sidebar">
+        <h2>🛡️ ROOT 管理系统</h2>
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
+        <div class="nav-item active" onclick="showPage('msgPage', this)">💬 留言管理</div>
+        <div class="nav-item" onclick="showPage('groupPage', this)">🗂️ 群聊管理</div>
+        <div class="nav-item" onclick="showPage('userPage', this)">👥 用户管理</div>
+        <hr style="border:0; border-top:1px solid #eee; margin:20px 0;">
+        <a href="/" style="text-decoration:none; color:#666; padding:12px; display:block;">🏠 返回首页</a>
+    </div>
+
+    <div class="main">
+        <div id="msgPage" class="page active">
+            <div class="card">
+                <h3>💬 留言管理 (共 {{ messages|length }} 条)</h3>
+                <button class="btn-batch" onclick="batchDeleteMessages()">🗑️ 批量删除选中项</button>
+                <table>
+                    <thead>
+                        <tr><th><input type="checkbox" id="selectAllMsgs" onclick="toggleAllMsgs(this)"></th><th>位置(ID)</th><th>作者</th><th>内容预览</th><th>时间</th><th>操作</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for msg in messages %}
+                        <tr>
+                            <td><input type="checkbox" class="msg-check" value="{{ msg.id }}" onclick="updateSelectAllMsgs()"></td>
+                            <td>{% if msg.room_id == 0 %}<span style="color:gray;">公共大厅</span>{% elif msg.room_id == -1 %}<span style="color:purple;">💌 私聊</span>{% else %}群: {{ msg.room_id }}{% endif %}</td>
+                            <td style="font-weight:bold; color:#1976D2;">{{ msg.name }}</td>
+                            <td title="{{ msg.content }}">{{ msg.content[:40] }}</td>
+                            <td style="color:#999; font-size:12px;">{{ msg.created_at }}</td>
+                            <td><button class="btn-action btn-delete" onclick="deleteMsg('{{ msg.id }}')">删除</button></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="groupPage" class="page">
+            <div class="card">
+                <h3>🗂️ 群聊频道管理 (共 {{ groups|length }} 个)</h3>
+                <button class="btn-batch" onclick="batchDeleteGroups()">🗑️ 批量解散选中群聊</button>
+                <table>
+                    <thead>
+<<<<<<< HEAD
+                        <tr>
+                            <th><input type="checkbox" id="selectAllGroups" onclick="toggleAllGroups(this)"></th>
+                            <th>ID</th><th>群名称</th><th>群主ID</th><th>状态</th><th>操作</th>
+                        </tr>
+=======
+                        <tr><th><input type="checkbox" id="selectAllGroups" onclick="toggleAllGroups(this)"></th><th>ID</th><th>群名称</th><th>群主ID</th><th>操作</th></tr>
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
+                    </thead>
+                    <tbody>
+                        {% for g in groups %}
+                        <tr>
+                            <td>{% if g.id != 0 %}<input type="checkbox" class="group-check" value="{{ g.id }}" onclick="updateSelectAllGroups()">{% endif %}</td>
+                            <td>{{ g.id }}</td>
+                            <td style="font-weight:bold; color:#1976D2;">{{ g.name }}</td>
+                            <td>{% if g.owner_id == 0 %}系统内置{% else %}{{ g.owner_id }}{% endif %}</td>
+<<<<<<< HEAD
+                            <td>
+                                {% if g.is_frozen %}<span style="color:red; font-weight:bold;">● 已冻结</span>
+                                {% else %}<span style="color:green;">● 正常</span>{% endif %}
+                            </td>
+                            <td>
+                                {% if g.id != 0 %}
+                                    <button class="btn-action" onclick="toggleFreezeGroup('{{ g.id }}')">{{ '解冻' if g.is_frozen else '冻结' }}</button>
+                                    <button class="btn-action" onclick="triggerAdminAvatarUpload('group', '{{ g.id }}')">改头像</button>
+                                    <button class="btn-action btn-delete" onclick="adminDeleteGroup('{{ g.id }}')">解散</button>
+                                {% endif %}
+                            </td>
+=======
+                            <td>{% if g.id != 0 %}<button class="btn-action btn-delete" onclick="adminDeleteGroup('{{ g.id }}')">解散</button>{% endif %}</td>
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="userPage" class="page">
+            <div class="card">
+                <h3>👥 用户权限管理 (共 {{ users|length }} 名)</h3>
+                <table>
+                    <thead>
+                        <tr><th>ID</th><th>账号名</th><th>昵称</th><th>状态</th><th>管理员操作</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for u in users %}
+                        <tr>
+                            <td>{{ u.id }}</td>
+                            <td style="font-weight:bold;">{{ u.username }}</td>
+                            <td>{{ u.nickname or '-' }}</td>
+                            <td>{% if u.is_banned %}<span style="color:red;">● 封禁</span>{% else %}<span style="color:green;">● 正常</span>{% endif %}</td>
+                            <td>
+                                <button class="btn-action" onclick="toggleBan('{{ u.id }}')">{{ '解除' if u.is_banned else '封禁' }}</button>
+<<<<<<< HEAD
+                                <button class="btn-action" onclick="triggerAdminAvatarUpload('user', '{{ u.id }}')">改头像</button>
+=======
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
+                                
+                                {% if u.username not in ["admin", "官方账号"] %}
+                                    <button class="btn-action" onclick="adminResetPwd('{{ u.id }}', '{{ u.username }}')">改密码</button>
+                                    <button class="btn-action btn-delete" onclick="adminDeleteUser('{{ u.id }}', '{{ u.username }}')">彻底删除</button>
+                                {% else %}
+                                    <span style="color:#aaa; font-size:12px; margin-left:10px;">系统保护</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const authHeaders = { 'Content-Type': 'application/json', 'Authorization': currentUser ? currentUser.token : '' };
+
+        function showPage(pageId, element) {
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+            document.getElementById(pageId).classList.add('active'); element.classList.add('active');
+        }
+
+<<<<<<< HEAD
+        function toggleFreezeGroup(gid) {
+            if(!confirm("确认要改变此群聊的冻结状态吗？")) return;
+            fetch('/api/admin/toggle_freeze_group', { method: 'POST', headers: authHeaders, body: JSON.stringify({ group_id: parseInt(gid) }) })
+            .then(r => r.json()).then(d => { alert(d.msg || d.detail); location.reload(); });
+        }
+
+        let pendingUploadType = ''; let pendingUploadId = 0;
+        function triggerAdminAvatarUpload(type, id) {
+            pendingUploadType = type; pendingUploadId = parseInt(id);
+            document.getElementById('admin-avatar-upload').click();
+        }
+
+        document.getElementById('admin-avatar-upload').addEventListener('change', function(e) {
+            if (!e.target.files || !e.target.files[0]) return;
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.createElement('canvas'); const ctx = canvas.getContext('2d');
+                    const maxSize = 150; let size = Math.min(img.width, img.height);
+                    canvas.width = maxSize; canvas.height = maxSize;
+                    ctx.drawImage(img, (img.width - size)/2, (img.height - size)/2, size, size, 0, 0, maxSize, maxSize);
+                    const base64 = canvas.toDataURL('image/jpeg', 0.8);
+                    
+                    const endpoint = pendingUploadType === 'user' ? '/api/admin/update_user_avatar' : '/api/admin/update_group_avatar';
+                    const payload = pendingUploadType === 'user' ? { user_id: pendingUploadId, avatar_base64: base64 } : { group_id: pendingUploadId, avatar_base64: base64 };
+                    
+                    fetch(endpoint, { method: 'POST', headers: authHeaders, body: JSON.stringify(payload) })
+                    .then(r => r.json()).then(d => { alert(d.msg); location.reload(); });
+                }
+                img.src = event.target.result;
+            }
+            reader.readAsDataURL(e.target.files[0]);
+            e.target.value = '';
+        });
+
+=======
+        // --- 管理员：用户处理逻辑 ---
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
+        function toggleBan(uid) {
+            fetch('/api/toggle_ban_user', { method: 'POST', headers: authHeaders, body: JSON.stringify({user_id: parseInt(uid)}) })
+            .then(r => r.json()).then(d => { alert(d.msg || d.detail); location.reload(); });
+        }
+<<<<<<< HEAD
+        function adminResetPwd(uid, uname) {
+            const newPwd = prompt(`请输入为用户 [${uname}] 设置的新密码：`);
+            if(!newPwd) return;
+            fetch('/api/admin/reset_password', { method: 'POST', headers: authHeaders, body: JSON.stringify({user_id: parseInt(uid), new_password: newPwd}) })
+            .then(r => r.json()).then(d => { alert("密码重置成功"); });
+        }
+        function adminDeleteUser(uid, uname) {
+            if(confirm(`🚨 极端操作警告：\n你正在删除用户 [${uname}]！\n确认执行吗？`)) {
+                fetch('/api/admin/delete_user', { method: 'POST', headers: authHeaders, body: JSON.stringify({user_id: parseInt(uid)}) })
+                .then(r => r.json()).then(d => { alert("已删除"); location.reload(); });
+            }
+        }
+
+=======
+
+        function adminResetPwd(uid, uname) {
+            const newPwd = prompt(`请输入为用户 [${uname}] 设置的新密码：`);
+            if(!newPwd) return;
+            fetch('/api/admin/reset_password', { 
+                method: 'POST', headers: authHeaders, 
+                body: JSON.stringify({user_id: parseInt(uid), new_password: newPwd}) 
+            }).then(r => r.json()).then(d => { alert(d.msg); });
+        }
+
+        function adminDeleteUser(uid, uname) {
+            if(confirm(`🚨 极端操作警告：\n你正在删除用户 [${uname}]！\n此操作将连带删除该用户发过的所有消息以及他创建的所有群聊！\n\n确认执行吗？`)) {
+                fetch('/api/admin/delete_user', { 
+                    method: 'POST', headers: authHeaders, 
+                    body: JSON.stringify({user_id: parseInt(uid)}) 
+                }).then(r => r.json()).then(d => { alert(d.msg); location.reload(); });
+            }
+        }
+
+        // --- 数据清理逻辑 ---
+>>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
+        function deleteMsg(mid) { fetch('/api/delete_messages', { method: 'POST', headers: authHeaders, body: JSON.stringify({ msg_ids: [parseInt(mid)] }) }).then(()=>location.reload()); }
+        function batchDeleteMessages() {
+            const ids = Array.from(document.querySelectorAll('.msg-check:checked')).map(cb => parseInt(cb.value));
+            if(ids.length) fetch('/api/delete_messages', { method: 'POST', headers: authHeaders, body: JSON.stringify({ msg_ids: ids }) }).then(()=>location.reload());
+        }
+        function toggleAllMsgs(source) { document.querySelectorAll('.msg-check').forEach(cb => cb.checked = source.checked); }
+        function updateSelectAllMsgs() { document.getElementById('selectAllMsgs').checked = Array.from(document.querySelectorAll('.msg-check')).every(cb => cb.checked); }
+
+        function adminDeleteGroup(gid) { fetch('/api/admin/delete_group', { method: 'POST', headers: authHeaders, body: JSON.stringify({ group_id: parseInt(gid) }) }).then(()=>location.reload()); }
+        function batchDeleteGroups() {
+            const ids = Array.from(document.querySelectorAll('.group-check:checked')).map(cb => parseInt(cb.value));
+            if(ids.length) fetch('/api/admin/delete_groups', { method: 'POST', headers: authHeaders, body: JSON.stringify({ group_ids: ids }) }).then(()=>location.reload());
+        }
+        function toggleAllGroups(source) { document.querySelectorAll('.group-check').forEach(cb => cb.checked = source.checked); }
+        function updateSelectAllGroups() { document.getElementById('selectAllGroups').checked = Array.from(document.querySelectorAll('.group-check')).every(cb => cb.checked); }
+    </script>
+</body>
+</html>
