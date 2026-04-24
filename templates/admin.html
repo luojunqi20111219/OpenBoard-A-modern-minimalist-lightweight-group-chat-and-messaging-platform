@@ -2,12 +2,8 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
-<<<<<<< HEAD
     <title>ROOT 管理后台 - 信语 (OpenBoard)</title>
     <link rel="icon" href="/favicon.ico" type="image/x-icon">
-=======
-    <title>ROOT 管理后台 - 高级安全版</title>
->>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
     <style>
         body { background: #f0f2f5; display: flex; height: 100vh; font-family: sans-serif; margin:0; overflow: hidden; }
         .sidebar { width: 220px; background: white; border-right: 1px solid #ddd; padding: 20px; display: flex; flex-direction: column; }
@@ -42,18 +38,14 @@
     </script>
 </head>
 <body>
-<<<<<<< HEAD
     <input type="file" id="admin-avatar-upload" accept="image/*" style="display: none;">
 
     <div class="sidebar">
         <h2>🛡️ 信语 ROOT 系统</h2>
-=======
-    <div class="sidebar">
-        <h2>🛡️ ROOT 管理系统</h2>
->>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
         <div class="nav-item active" onclick="showPage('msgPage', this)">💬 留言管理</div>
-        <div class="nav-item" onclick="showPage('groupPage', this)">🗂️ 群聊管理</div>
-        <div class="nav-item" onclick="showPage('userPage', this)">👥 用户管理</div>
+        <div id="nav-group" class="nav-item" onclick="showPage('groupPage', this)">🗂️ 群聊管理</div>
+        <div id="nav-user" class="nav-item" onclick="showPage('userPage', this)">👥 用户管理</div>
+        <div id="nav-notice" class="nav-item" onclick="showPage('noticePage', this)">📢 系统公告</div>
         <hr style="border:0; border-top:1px solid #eee; margin:20px 0;">
         <a href="/" style="text-decoration:none; color:#666; padding:12px; display:block;">🏠 返回首页</a>
     </div>
@@ -89,14 +81,10 @@
                 <button class="btn-batch" onclick="batchDeleteGroups()">🗑️ 批量解散选中群聊</button>
                 <table>
                     <thead>
-<<<<<<< HEAD
                         <tr>
                             <th><input type="checkbox" id="selectAllGroups" onclick="toggleAllGroups(this)"></th>
                             <th>ID</th><th>群名称</th><th>群主ID</th><th>状态</th><th>操作</th>
                         </tr>
-=======
-                        <tr><th><input type="checkbox" id="selectAllGroups" onclick="toggleAllGroups(this)"></th><th>ID</th><th>群名称</th><th>群主ID</th><th>操作</th></tr>
->>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
                     </thead>
                     <tbody>
                         {% for g in groups %}
@@ -105,7 +93,6 @@
                             <td>{{ g.id }}</td>
                             <td style="font-weight:bold; color:#1976D2;">{{ g.name }}</td>
                             <td>{% if g.owner_id == 0 %}系统内置{% else %}{{ g.owner_id }}{% endif %}</td>
-<<<<<<< HEAD
                             <td>
                                 {% if g.is_frozen %}<span style="color:red; font-weight:bold;">● 已冻结</span>
                                 {% else %}<span style="color:green;">● 正常</span>{% endif %}
@@ -117,9 +104,6 @@
                                     <button class="btn-action btn-delete" onclick="adminDeleteGroup('{{ g.id }}')">解散</button>
                                 {% endif %}
                             </td>
-=======
-                            <td>{% if g.id != 0 %}<button class="btn-action btn-delete" onclick="adminDeleteGroup('{{ g.id }}')">解散</button>{% endif %}</td>
->>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -143,10 +127,7 @@
                             <td>{% if u.is_banned %}<span style="color:red;">● 封禁</span>{% else %}<span style="color:green;">● 正常</span>{% endif %}</td>
                             <td>
                                 <button class="btn-action" onclick="toggleBan('{{ u.id }}')">{{ '解除' if u.is_banned else '封禁' }}</button>
-<<<<<<< HEAD
                                 <button class="btn-action" onclick="triggerAdminAvatarUpload('user', '{{ u.id }}')">改头像</button>
-=======
->>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
                                 
                                 {% if u.username not in ["admin", "官方账号"] %}
                                     <button class="btn-action" onclick="adminResetPwd('{{ u.id }}', '{{ u.username }}')">改密码</button>
@@ -161,6 +142,15 @@
                 </table>
             </div>
         </div>
+
+        <div id="noticePage" class="page">
+            <div class="card">
+                <h3>📢 发布系统全局公告</h3>
+                <p style="color:#666; font-size:14px;">发出的公告将出现在所有用户的右上角消息图标中。</p>
+                <textarea id="broadcast-content" style="width: 100%; height: 100px; padding: 10px; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 10px; font-family: inherit;" placeholder="请输入公告内容..."></textarea>
+                <button class="btn-batch" style="background:#1976D2; margin-bottom:0;" onclick="sendBroadcast()">🚀 立即发布全局公告</button>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -172,7 +162,6 @@
             document.getElementById(pageId).classList.add('active'); element.classList.add('active');
         }
 
-<<<<<<< HEAD
         function toggleFreezeGroup(gid) {
             if(!confirm("确认要改变此群聊的冻结状态吗？")) return;
             fetch('/api/admin/toggle_freeze_group', { method: 'POST', headers: authHeaders, body: JSON.stringify({ group_id: parseInt(gid) }) })
@@ -209,14 +198,10 @@
             e.target.value = '';
         });
 
-=======
-        // --- 管理员：用户处理逻辑 ---
->>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
         function toggleBan(uid) {
             fetch('/api/toggle_ban_user', { method: 'POST', headers: authHeaders, body: JSON.stringify({user_id: parseInt(uid)}) })
             .then(r => r.json()).then(d => { alert(d.msg || d.detail); location.reload(); });
         }
-<<<<<<< HEAD
         function adminResetPwd(uid, uname) {
             const newPwd = prompt(`请输入为用户 [${uname}] 设置的新密码：`);
             if(!newPwd) return;
@@ -230,28 +215,6 @@
             }
         }
 
-=======
-
-        function adminResetPwd(uid, uname) {
-            const newPwd = prompt(`请输入为用户 [${uname}] 设置的新密码：`);
-            if(!newPwd) return;
-            fetch('/api/admin/reset_password', { 
-                method: 'POST', headers: authHeaders, 
-                body: JSON.stringify({user_id: parseInt(uid), new_password: newPwd}) 
-            }).then(r => r.json()).then(d => { alert(d.msg); });
-        }
-
-        function adminDeleteUser(uid, uname) {
-            if(confirm(`🚨 极端操作警告：\n你正在删除用户 [${uname}]！\n此操作将连带删除该用户发过的所有消息以及他创建的所有群聊！\n\n确认执行吗？`)) {
-                fetch('/api/admin/delete_user', { 
-                    method: 'POST', headers: authHeaders, 
-                    body: JSON.stringify({user_id: parseInt(uid)}) 
-                }).then(r => r.json()).then(d => { alert(d.msg); location.reload(); });
-            }
-        }
-
-        // --- 数据清理逻辑 ---
->>>>>>> 3da6c8f5379ddaf793da4d788383fcb9cc996169
         function deleteMsg(mid) { fetch('/api/delete_messages', { method: 'POST', headers: authHeaders, body: JSON.stringify({ msg_ids: [parseInt(mid)] }) }).then(()=>location.reload()); }
         function batchDeleteMessages() {
             const ids = Array.from(document.querySelectorAll('.msg-check:checked')).map(cb => parseInt(cb.value));
@@ -267,6 +230,16 @@
         }
         function toggleAllGroups(source) { document.querySelectorAll('.group-check').forEach(cb => cb.checked = source.checked); }
         function updateSelectAllGroups() { document.getElementById('selectAllGroups').checked = Array.from(document.querySelectorAll('.group-check')).every(cb => cb.checked); }
+
+        function sendBroadcast() {
+            const content = document.getElementById('broadcast-content').value.trim();
+            if(!content) return alert("请输入内容");
+            fetch('/api/admin/broadcast', { method: 'POST', headers: authHeaders, body: JSON.stringify({ content: content }) })
+            .then(r => r.json()).then(d => {
+                if(d.status === 'success') { alert("✅ 公告已成功发布！"); document.getElementById('broadcast-content').value = ''; }
+                else alert("❌ 发布失败：" + d.detail);
+            });
+        }
     </script>
 </body>
 </html>
