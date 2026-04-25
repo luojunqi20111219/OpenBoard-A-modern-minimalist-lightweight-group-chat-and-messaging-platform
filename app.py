@@ -15,6 +15,9 @@ from werkzeug.security import check_password_hash, generate_password_hash
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 DB_FILE = "board.db"
+CURRENT_VERSION = "2.0.1"
+REPO_URL = "luojunqi20111219/OpenBoard-A-modern-minimalist-lightweight-group-chat-and-messaging-platform"
+
 
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -671,6 +674,37 @@ async def recall_message(msg_id: int, request: Request):
     
     db.close()
     return {"status": "success"}
+
+@app.get("/api/check_update")
+async def check_update():
+    """从 GitHub API 检查最新版本"""
+    import httpx
+    try:
+        url = f"https://api.github.com/repos/{REPO_URL}/releases/latest"
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            headers = {"User-Agent": "OpenBoard-Update-Checker"}
+            response = await client.get(url, headers=headers)
+            if response.status_code == 200:
+                data = response.json()
+                latest_tag = data.get("tag_name", "")
+                latest_version = latest_tag.replace("v", "").strip()
+                current_version = CURRENT_VERSION.replace("v", "").strip()
+                
+                # 简单对比：如果不一致且不包含当前版本，则认为有更新
+                has_update = latest_version != current_version and latest_version > current_version
+                
+                return {
+                    "status": "success",
+                    "current": CURRENT_VERSION,
+                    "latest": latest_tag,
+                    "has_update": has_update,
+                    "url": data.get("html_url"),
+                    "body": data.get("body")
+                }
+            else:
+                return {"status": "error", "msg": "无法连接到 GitHub"}
+    except Exception as e:
+        return {"status": "error", "msg": str(e)}
 
 # ==========================================
 # 🛰️ WebSocket 路由

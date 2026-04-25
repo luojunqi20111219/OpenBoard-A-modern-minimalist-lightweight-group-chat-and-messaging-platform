@@ -42,6 +42,11 @@
 
     <div class="sidebar">
         <h2>🛡️ 信语 ROOT 系统</h2>
+        <div style="font-size: 12px; color: #999; margin-top: -25px; margin-bottom: 20px;">
+            当前版本: <span id="current-ver-label">v2.0.1</span>
+            <div id="update-badge" style="display:none; color: #ff4757; font-weight: bold; margin-top: 5px; cursor: pointer;" onclick="showUpdateDetail()">✨ 发现新版本!</div>
+        </div>
+
         <div class="nav-item active" onclick="showPage('msgPage', this)">💬 留言管理</div>
         <div id="nav-group" class="nav-item" onclick="showPage('groupPage', this)">🗂️ 群聊管理</div>
         <div id="nav-user" class="nav-item" onclick="showPage('userPage', this)">👥 用户管理</div>
@@ -161,6 +166,33 @@
             document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
             document.getElementById(pageId).classList.add('active'); element.classList.add('active');
         }
+
+        // 自动检查更新逻辑
+        let updateData = null;
+        function checkUpdate() {
+            fetch('/api/check_update')
+            .then(r => r.json())
+            .then(d => {
+                if (d.status === 'success' && d.has_update) {
+                    updateData = d;
+                    document.getElementById('update-badge').style.display = 'block';
+                    document.getElementById('update-badge').innerHTML = `✨ 发现新版本: ${d.latest}`;
+                }
+            });
+        }
+
+        function showUpdateDetail() {
+            if (!updateData) return;
+            const msg = `🚀 发现新版本: ${updateData.latest}\n\n更新内容:\n${updateData.body || '暂无详细说明'}\n\n是否前往 GitHub 查看并更新？`;
+            if (confirm(msg)) {
+                window.open(updateData.url, '_blank');
+            }
+        }
+
+        // 页面加载后执行
+        window.onload = function() {
+            checkUpdate();
+        };
 
         function toggleFreezeGroup(gid) {
             if(!confirm("确认要改变此群聊的冻结状态吗？")) return;
