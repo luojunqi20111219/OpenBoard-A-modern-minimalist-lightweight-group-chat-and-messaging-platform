@@ -10,12 +10,13 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional, List, Dict
 import json
+import subprocess
 from werkzeug.security import check_password_hash, generate_password_hash
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 DB_FILE = "board.db"
-CURRENT_VERSION = "2.0.1"
+CURRENT_VERSION = "2.0.2"
 REPO_URL = "luojunqi20111219/OpenBoard-A-modern-minimalist-lightweight-group-chat-and-messaging-platform"
 
 
@@ -436,7 +437,15 @@ async def get_messages(request: Request, room_id: int = 0, target_user: Optional
 
 @app.post("/api/messages")
 async def post_message(data: MessageData, request: Request):
+    token = request.headers.get("Authorization")
+    db = get_db()
     try:
+        user = db.execute("SELECT * FROM users WHERE token=?", (token,)).fetchone()
+        if not user: 
+            raise HTTPException(status_code=403, detail="未登录")
+        if user['is_banned']: 
+            raise HTTPException(status_code=403, detail="已被禁言")
+
         if data.receiver:
             receiver_user = db.execute("SELECT blocked_users FROM users WHERE username=?", (data.receiver,)).fetchone()
             if receiver_user:
@@ -541,10 +550,26 @@ async def admin_reset_password(data: AdminAction, request: Request):
 @app.post("/api/admin/delete_group")
 async def admin_delete_group(data: AdminAction, request: Request):
     db = get_db()
-    if not is_admin(request, db): return {"status": "error"}
+    if not is_admin(request, db):
+        db.close()
+        return {"status": "error"}
     db.execute("DELETE FROM groups WHERE id=?", (data.group_id,))
     db.execute("DELETE FROM messages WHERE room_id=?", (data.group_id,))
     db.commit()
+    db.close()
+    return {"status": "success"}
+
+@app.post("/api/admin/delete_groups")
+async def admin_delete_groups(data: AdminAction, request: Request):
+    db = get_db()
+    if not is_admin(request, db):
+        db.close()
+        return {"status": "error"}
+    p = ', '.join(['?'] * len(data.group_ids))
+    db.execute(f"DELETE FROM groups WHERE id IN ({p})", data.group_ids)
+    db.execute(f"DELETE FROM messages WHERE room_id IN ({p})", data.group_ids)
+    db.commit()
+    db.close()
     return {"status": "success"}
 
 @app.post("/api/delete_messages")
@@ -570,11 +595,13 @@ async def toggle_ban(data: AdminAction, request: Request):
 @app.post("/api/admin/broadcast")
 async def admin_broadcast(data: MessageData, request: Request):
     db = get_db()
-    if not is_admin(request, db): raise HTTPException(status_code=403, detail="无权操作")
-    db.execute("INSERT INTO notifications (content, sender) VALUES (?, ?)", (data.content, "系统"))
-    db.commit()
-    db.close()
-    return {"status": "success"}
+    try:
+        if not is_admin(request, db): raise HTTPException(status_code=403, detail="无权操作")
+        db.execute("INSERT INTO notifications (content, sender) VALUES (?, ?)", (data.content, "系统"))
+        db.commit()
+        return {"status": "success"}
+    finally:
+        db.close()
 
 @app.get("/api/notifications")
 async def get_notifications(request: Request):
@@ -703,6 +730,32 @@ async def check_update():
                 }
             else:
                 return {"status": "error", "msg": "无法连接到 GitHub"}
+    except Exception as e:
+        return {"status": "error", "msg": str(e)}
+
+@app.post("/api/admin/pull_update")
+async def pull_update(request: Request):
+    """管理员强制执行 git pull 更新代码"""
+    db = get_db()
+    if not is_admin(request, db):
+        db.close()
+        raise HTTPException(status_code=403, detail="无权操作")
+    db.close()
+    
+    try:
+        # 执行 git pull
+        result = subprocess.run(["git", "pull"], capture_output=True, text=True, check=True)
+        return {
+            "status": "success",
+            "msg": "代码同步成功！服务器正在通过热重载重启...",
+            "output": result.stdout
+        }
+    except subprocess.CalledProcessError as e:
+        return {
+            "status": "error",
+            "msg": "Git 同步失败，请检查服务器网络或 Git 配置",
+            "detail": e.stderr
+        }
     except Exception as e:
         return {"status": "error", "msg": str(e)}
 
