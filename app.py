@@ -1,6 +1,8 @@
 import os
 import sqlite3
 import secrets
+import re
+from datetime import datetime
 from fastapi import FastAPI, Request, HTTPException, UploadFile, File, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.templating import Jinja2Templates
@@ -89,6 +91,10 @@ def patch_db():
     cursor.execute("CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, content TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, room_id INTEGER DEFAULT 0, reply TEXT, receiver TEXT)")
     cursor.execute("CREATE TABLE IF NOT EXISTS groups (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, is_public INTEGER DEFAULT 1, owner_id INTEGER DEFAULT 0, avatar TEXT, is_frozen INTEGER DEFAULT 0)")
     cursor.execute("CREATE TABLE IF NOT EXISTS notifications (id INTEGER PRIMARY KEY AUTOINCREMENT, content TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, sender TEXT, target_user TEXT)")
+    # 新增表情回应表
+    cursor.execute("CREATE TABLE IF NOT EXISTS reactions (id INTEGER PRIMARY KEY AUTOINCREMENT, msg_id INTEGER, user TEXT, emoji TEXT, time TEXT)")
+    # 已读回执表
+    cursor.execute("CREATE TABLE IF NOT EXISTS message_reads (msg_id INTEGER, user TEXT, read_at TEXT, PRIMARY KEY (msg_id, user))")
     
     columns_to_add = {
         "users": [("token", "TEXT"), ("role", "INTEGER DEFAULT 0"), ("is_banned", "INTEGER DEFAULT 0"), ("avatar", "TEXT"), ("blocked_users", "TEXT DEFAULT ''"), ("last_read_notice_id", "INTEGER DEFAULT 0")],
@@ -130,6 +136,7 @@ class MessageData(BaseModel):
     content: str
     room_id: int = 0
     receiver: Optional[str] = None
+    reply_to: Optional[int] = None
 
 class UserProfileData(BaseModel):
     nickname: Optional[str] = None
@@ -405,84 +412,82 @@ async def get_messages(request: Request, room_id: int = 0, target_user: Optional
     me = db.execute("SELECT username, blocked_users FROM users WHERE token=?", (token,)).fetchone() if token else None
     blocked_list = [u.strip() for u in (me['blocked_users'] or '').split(',') if u.strip()] if me else []
     
-    if target_user:
-        if not me: return {"status": "error", "data": []}
-        my_name = me['username']
-        rows = db.execute("""
-            SELECT m.id, m.content, m.created_at as time, u.nickname, u.username as name, u.avatar
-            FROM messages m LEFT JOIN users u ON m.name = u.username 
-            WHERE (m.name = ? AND m.receiver = ?) OR (m.name = ? AND m.receiver = ?) ORDER BY m.id ASC LIMIT 100
-        """, (my_name, target_user, target_user, my_name)).fetchall()
-    else:
-        rows = db.execute("""
-            SELECT m.id, m.content, m.created_at as time, u.nickname, u.username as name, u.avatar
-            FROM messages m LEFT JOIN users u ON m.name = u.username 
-            WHERE m.room_id = ? AND m.receiver IS NULL ORDER BY m.id ASC LIMIT 100
-        """, (room_id,)).fetchall()
-    return {"status": "success", "data": [dict(r) for r in rows if r['name'] not in blocked_list]}
+    try:
+        if target_user:
+            if not me: return {"status": "error", "data": []}
+            my_name = me['username']
+            rows = db.execute("""
+                SELECT m.id, m.content, m.created_at as time, u.nickname, u.username as name, u.avatar
+                FROM messages m LEFT JOIN users u ON m.name = u.username 
+                WHERE (m.name = ? AND m.receiver = ?) OR (m.name = ? AND m.receiver = ?) ORDER BY m.id ASC LIMIT 100
+            """, (my_name, target_user, target_user, my_name)).fetchall()
+        else:
+            rows = db.execute("""
+                SELECT m.id, m.content, m.created_at as time, u.nickname, u.username as name, u.avatar
+                FROM messages m LEFT JOIN users u ON m.name = u.username 
+                WHERE m.room_id = ? AND m.receiver IS NULL ORDER BY m.id ASC LIMIT 100
+            """, (room_id,)).fetchall()
+        return {"status": "success", "data": [dict(r) for r in rows if r['name'] not in blocked_list]}
+    finally:
+        db.close()
 
 @app.post("/api/messages")
 async def post_message(data: MessageData, request: Request):
-    token = request.headers.get("Authorization")
-    db = get_db()
-    user = db.execute("SELECT * FROM users WHERE token=?", (token,)).fetchone()
-    if not user: 
-        db.close()
-        raise HTTPException(status_code=403, detail="未登录")
-    if user['is_banned']: 
-        db.close()
-        raise HTTPException(status_code=403, detail="已被禁言")
-        
-    if data.receiver:
-        receiver_user = db.execute("SELECT blocked_users FROM users WHERE username=?", (data.receiver,)).fetchone()
-        if receiver_user:
-            receiver_blocked_list = [u.strip() for u in (receiver_user['blocked_users'] or '').split(',') if u.strip()]
-            if user['username'] in receiver_blocked_list:
-                db.close()
-                raise HTTPException(status_code=403, detail="对方已将您拉黑，无法发送消息")
+    try:
+        if data.receiver:
+            receiver_user = db.execute("SELECT blocked_users FROM users WHERE username=?", (data.receiver,)).fetchone()
+            if receiver_user:
+                receiver_blocked_list = [u.strip() for u in (receiver_user['blocked_users'] or '').split(',') if u.strip()]
+                if user['username'] in receiver_blocked_list:
+                    raise HTTPException(status_code=403, detail="对方已将您拉黑，无法发送消息")
 
-    if data.room_id > 0 and not data.receiver:
-        group = db.execute("SELECT * FROM groups WHERE id=?", (data.room_id,)).fetchone()
-        if group:
-            if group['is_frozen']:
-                db.close()
-                raise HTTPException(status_code=403, detail="此群聊已被管理员冻结，全员禁言")
-            if group['owner_id'] != user['id'] and user['role'] != 1:
-                if group['speak_mode'] == 1:
-                    w_list = [u.strip() for u in (group['white_speak'] or '').split(',') if u.strip()]
-                    if user['username'] not in w_list:
-                        db.close()
-                        raise HTTPException(status_code=403, detail="您不在该群的发言白名单中")
-                else:
-                    b_list = [u.strip() for u in (group['black_speak'] or '').split(',') if u.strip()]
-                    if user['username'] in b_list:
-                        db.close()
-                        raise HTTPException(status_code=403, detail="您已被群主禁言")
-                        
-    cursor = db.execute("INSERT INTO messages (name, content, room_id, receiver) VALUES (?, ?, ?, ?)", (user['username'], data.content, data.room_id, data.receiver))
-    msg_id = cursor.lastrowid
-    db.commit()
-    
-    # 获取发送者完整信息用于广播
-    sender_info = db.execute("SELECT nickname, avatar FROM users WHERE username=?", (user['username'],)).fetchone()
-    
-    # WebSocket 广播新消息
-    await manager.broadcast({
-        "type": "message",
-        "data": {
-            "id": msg_id,
-            "content": data.content,
-            "time": "刚刚", # 这里简单处理，前端会自动刷新或显示
-            "nickname": sender_info['nickname'],
-            "name": user['username'],
-            "avatar": sender_info['avatar'],
-            "room_id": data.room_id,
-            "receiver": data.receiver
-        }
-    }, room_id=data.room_id, receiver=data.receiver, sender=user['username'])
-    
-    db.close()
-    return {"status": "success"}
+        if data.room_id > 0 and not data.receiver:
+            group = db.execute("SELECT * FROM groups WHERE id=?", (data.room_id,)).fetchone()
+            if group:
+                if group['is_frozen']:
+                    raise HTTPException(status_code=403, detail="此群聊已被管理员冻结，全员禁言")
+                if group['owner_id'] != user['id'] and user['role'] != 1:
+                    if group['speak_mode'] == 1:
+                        w_list = [u.strip() for u in (group['white_speak'] or '').split(',') if u.strip()]
+                        if user['username'] not in w_list:
+                            raise HTTPException(status_code=403, detail="您不在该群的发言白名单中")
+                    else:
+                        b_list = [u.strip() for u in (group['black_speak'] or '').split(',') if u.strip()]
+                        if user['username'] in b_list:
+                            raise HTTPException(status_code=403, detail="您已被群主禁言")
+                            
+        if data.reply_to:
+            cursor = db.execute("INSERT INTO messages (name, content, room_id, receiver, reply) VALUES (?, ?, ?, ?, ?)", (user['username'], data.content, data.room_id, data.receiver, data.reply_to))
+        else:
+            cursor = db.execute("INSERT INTO messages (name, content, room_id, receiver) VALUES (?, ?, ?, ?)", (user['username'], data.content, data.room_id, data.receiver))
+        msg_id = cursor.lastrowid
+        db.commit()
+        
+        # 获取发送者完整信息用于广播
+        sender_info = db.execute("SELECT nickname, avatar FROM users WHERE username=?", (user['username'],)).fetchone()
+        
+        # WebSocket 广播新消息
+        await manager.broadcast({
+            "type": "message",
+            "data": {
+                "id": msg_id,
+                "reply_to": data.reply_to,
+                "mentions": [m.group(1) for m in re.finditer(r"@([\w]+)", data.content)],
+                "content": data.content,
+                "time": "刚刚", 
+                "nickname": sender_info['nickname'],
+                "name": user['username'],
+                "avatar": sender_info['avatar'],
+                "room_id": data.room_id,
+                "receiver": data.receiver
+            }
+        }, room_id=data.room_id, receiver=data.receiver, sender=user['username'])
+        
+        return {"status": "success"}
+    finally:
+        db.close()
+
+# 已移除冗余的撤回接口，请统一使用 /api/messages/{msg_id} (recall_message)
 
 @app.post("/api/admin/toggle_freeze_group")
 async def admin_toggle_freeze_group(data: AdminAction, request: Request):
@@ -617,14 +622,17 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
         "status": "success", 
         "url": f"/uploads/{filename}", 
         "filename": file.filename,
-        "download_url": f"/api/download/{filename}"
+        "download_url": f"/api/download/{filename}?name={file.filename}"
     }
 
 @app.get("/api/download/{filename}")
-async def download_file(filename: str):
-    filepath = os.path.join(UPLOAD_DIR, filename)
+async def download_file(filename: str, name: Optional[str] = None):
+    # 使用 basename 防止路径遍历
+    safe_filename = os.path.basename(filename)
+    filepath = os.path.join(UPLOAD_DIR, safe_filename)
     if os.path.exists(filepath):
-        return FileResponse(filepath, filename=filename)
+        # 如果提供了原始文件名，则在下载时使用它
+        return FileResponse(filepath, filename=name or safe_filename)
     raise HTTPException(status_code=404, detail="文件不存在")
 
 @app.delete("/api/messages/{msg_id}")
