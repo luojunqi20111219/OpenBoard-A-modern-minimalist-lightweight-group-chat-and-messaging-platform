@@ -64,7 +64,11 @@
                         <button id="room-manage-btn" onclick="showManageGroup()" class="ml-2 text-gray-400 hover:text-blue-500 hidden transition"><i class="fa-solid fa-gear"></i></button>
                         <button id="user-block-btn" onclick="toggleBlockUser()" class="ml-2 text-gray-400 hover:text-red-500 hidden transition" title="拉黑/取消拉黑"><i class="fa-solid fa-ban"></i></button>
                     </h2>
-                    <p class="text-xs text-green-500 flex items-center"><span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-1.5 animate-pulse"></span>实时连接中</p>
+                    <p class="text-xs text-gray-400 flex items-center" id="connection-status">
+                        <span class="w-1.5 h-1.5 bg-gray-400 rounded-full mr-1.5" id="status-dot"></span>
+                        <span id="status-text">未连接</span>
+                    </p>
+                    <div id="typing-indicator" class="text-[10px] text-blue-500 mt-0.5 hidden animate-pulse italic">有人正在输入...</div>
                 </div>
             </div>
 
@@ -209,9 +213,10 @@
 
     <script>
         let currentUser = JSON.parse(localStorage.getItem('user') || 'null');
-        let currentRoomId = 0; let currentTargetUser = null; let pollTimer;
+        let currentRoomId = 0; let currentTargetUser = null; 
         let pendingAvatarBase64 = null; let pendingGroupAvatarBase64 = null; 
         let globalGroups = []; let authMode = 'login'; let globalBlockedUsers = [];
+        let ws = null; let onlineUsers = []; let typingTimer = null;
 
         function getAvatarHtml(avatarStr, name, sizeClass = "w-10 h-10 text-base") {
             const displayName = name || "?";
@@ -236,11 +241,99 @@
                     </div>
                 `;
                 loadUsers(); 
+                setupWebSocket();
             }
             loadGroups().then(() => switchRoom(0, '公共大厅'));
             if (currentUser) {
-                loadNotices(); setInterval(loadNotices, 10000);
+                loadNotices(); setInterval(loadNotices, 30000); // 降低系统公告请求频率
             }
+        }
+
+        function setupWebSocket() {
+            if (!currentUser) return;
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${protocol}//${window.location.host}/ws/${currentUser.token}`);
+            
+            ws.onopen = () => {
+                const statusDot = document.getElementById('status-dot');
+                const statusText = document.getElementById('status-text');
+                statusDot.className = "w-1.5 h-1.5 bg-green-500 rounded-full mr-1.5 animate-pulse";
+                statusText.innerText = "在线";
+                statusText.className = "text-green-500";
+            };
+
+            ws.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
+                if (msg.type === 'message') {
+                    handleNewMessage(msg.data);
+                } else if (msg.type === 'online_status') {
+                    onlineUsers = msg.users;
+                    updateOnlineDisplay();
+                } else if (msg.type === 'typing') {
+                    handleTyping(msg);
+                } else if (msg.type === 'recall') {
+                    handleRecall(msg.msg_id);
+                }
+            };
+
+            ws.onclose = () => {
+                const statusDot = document.getElementById('status-dot');
+                const statusText = document.getElementById('status-text');
+                statusDot.className = "w-1.5 h-1.5 bg-gray-400 rounded-full mr-1.5";
+                statusText.innerText = "已断开 (重连中...)";
+                statusText.className = "text-gray-400";
+                setTimeout(setupWebSocket, 3000);
+            };
+        }
+
+        function handleNewMessage(data) {
+            // 如果消息属于当前房间或当前私信对象，则追加到页面
+            const isCurrentRoom = !data.receiver && data.room_id === currentRoomId;
+            const isCurrentPrivate = data.receiver && (
+                (data.name === currentTargetUser && data.receiver === currentUser.username) ||
+                (data.name === currentUser.username && data.receiver === currentTargetUser)
+            );
+
+            if (isCurrentRoom || isCurrentPrivate) {
+                if (globalBlockedUsers.includes(data.name)) return;
+                appendMessage(data);
+            }
+            // 收到新消息时，如果是其他房间的消息，可以加一个小红点逻辑（暂未实现）
+        }
+
+        function handleTyping(msg) {
+            const isRelevant = (msg.room_id === currentRoomId && !msg.receiver) || (msg.receiver === currentUser.username && msg.user === currentTargetUser);
+            if (isRelevant && msg.user !== currentUser.username) {
+                const indicator = document.getElementById('typing-indicator');
+                indicator.innerText = `${msg.user} 正在输入...`;
+                indicator.classList.remove('hidden');
+                clearTimeout(typingTimer);
+                typingTimer = setTimeout(() => indicator.classList.add('hidden'), 3000);
+            }
+        }
+
+        function handleRecall(msgId) {
+            const msgElement = document.querySelector(`[data-msg-id="${msgId}"]`);
+            if (msgElement) {
+                loadMsgs(); // 简单处理：直接重新加载当前列表
+            }
+        }
+
+        function updateOnlineDisplay() {
+            // 更新用户列表中的在线状态
+            document.querySelectorAll('[id^="user-btn-"]').forEach(btn => {
+                const username = btn.id.replace('user-btn-', '');
+                const dot = btn.querySelector('.online-dot');
+                if (onlineUsers.includes(username)) {
+                    if (!dot) {
+                        const newDot = document.createElement('div');
+                        newDot.className = "online-dot w-2 h-2 bg-green-500 rounded-full absolute -bottom-0.5 -right-0.5 border border-gray-900";
+                        btn.querySelector('.relative-container').appendChild(newDot);
+                    }
+                } else if (dot) {
+                    dot.remove();
+                }
+            });
         }
 
         function hideModal(id) { document.getElementById(id).classList.add('hidden'); }
@@ -281,7 +374,7 @@
                 : (group ? getAvatarHtml(group.avatar, name, "w-full h-full text-xl") : '<i class="fa-solid fa-hashtag text-xl"></i>');
             document.getElementById('header-icon').innerHTML = avatarHtml;
 
-            updateActiveBtn(`room-btn-${id}`); checkGroupOwnership(id); startPolling();
+            updateActiveBtn(`room-btn-${id}`); checkGroupOwnership(id); loadMsgs();
         }
 
         function switchPrivateChat(username, displayName, avatar) {
@@ -305,7 +398,7 @@
                 blockBtn.classList.remove('text-red-500'); blockBtn.classList.add('text-gray-400');
             }
             
-            startPolling();
+            loadMsgs();
         }
 
         function updateActiveBtn(btnId) {
@@ -429,7 +522,13 @@
                 const btn = document.createElement('button'); btn.id = `user-btn-${u.username}`;
                 const blockIcon = globalBlockedUsers.includes(u.username) ? '<i class="fa-solid fa-ban text-red-500 ml-auto text-xs"></i>' : '';
                 btn.className = "room-btn w-full text-left p-2 rounded-lg text-gray-300 hover:bg-gray-800 transition flex items-center gap-3";
-                btn.innerHTML = `${getAvatarHtml(u.avatar, name, "w-6 h-6 text-[10px] shrink-0")}<span class="truncate text-sm flex-1">${name}</span>${blockIcon}`;
+                btn.innerHTML = `
+                    <div class="relative relative-container">
+                        ${getAvatarHtml(u.avatar, name, "w-6 h-6 text-[10px] shrink-0")}
+                        ${onlineUsers.includes(u.username) ? '<div class="online-dot w-2 h-2 bg-green-500 rounded-full absolute -bottom-0.5 -right-0.5 border border-gray-900"></div>' : ''}
+                    </div>
+                    <span class="truncate text-sm flex-1">${name}</span>${blockIcon}
+                `;
                 btn.onclick = () => switchPrivateChat(u.username, name, u.avatar);
                 list.appendChild(btn);
             });
@@ -470,8 +569,34 @@
         }
 
         function startPolling() {
-            document.getElementById('msg-list').innerHTML = '<div class="text-center py-20 text-gray-400">正在同步...</div>';
-            if(pollTimer) clearInterval(pollTimer); loadMsgs(); pollTimer = setInterval(loadMsgs, 3000);
+            // 已废弃，改用 WebSocket
+        }
+
+        function appendMessage(msg) {
+            const list = document.getElementById('msg-list');
+            const noMsg = list.querySelector('.text-center.py-20');
+            if (noMsg) noMsg.remove();
+            
+            const isMe = currentUser && (msg.name === currentUser.username);
+            const name = msg.nickname || msg.name;
+            const div = document.createElement('div');
+            div.setAttribute('data-msg-id', msg.id);
+            div.className = `flex ${isMe ? 'justify-end' : 'justify-start'} msg-appear mb-4`;
+            
+            div.innerHTML = `
+                ${!isMe ? `<div class="mr-2 mt-1 shrink-0">${getAvatarHtml(msg.avatar, name, "w-8 h-8 text-xs")}</div>` : ''}
+                <div class="max-w-[80%] sm:max-w-[70%] flex flex-col ${isMe ? 'items-end' : 'items-start'} group">
+                    ${!isMe ? `<div class="text-[10px] text-gray-400 mb-1 ml-1">${name}</div>` : ''}
+                    <div class="${isMe ? 'bg-blue-600 text-white rounded-2xl rounded-tr-none' : 'bg-white text-gray-800 rounded-2xl rounded-tl-none border border-gray-100 shadow-sm'} p-3 px-4 text-sm break-words leading-relaxed">${renderContent(msg.content)}</div>
+                    <div class="text-[10px] text-gray-300 mt-1 ${isMe ? 'mr-1' : 'ml-1'} flex items-center gap-2">
+                        刚刚
+                        ${isMe ? `<button onclick="recallMsg(${msg.id})" class="text-red-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity focus:opacity-100">撤回</button>` : ''}
+                    </div>
+                </div>
+                ${isMe ? `<div class="ml-2 mt-1 shrink-0">${getAvatarHtml(msg.avatar, name, "w-8 h-8 text-xs")}</div>` : ''}
+            `;
+            list.appendChild(div);
+            list.scrollTop = list.scrollHeight;
         }
 
         function renderContent(content) {
@@ -521,7 +646,10 @@
                     `;
                 });
             }
-            if (list.innerHTML !== html) { list.innerHTML = html; list.scrollTop = list.scrollHeight; }
+            if (list.innerHTML !== html) { 
+                list.innerHTML = html; 
+                setTimeout(() => list.scrollTop = list.scrollHeight, 100);
+            }
         }
 
         // --- 通知系统逻辑 ---
@@ -648,7 +776,23 @@
             }
         }
 
-        document.getElementById('msg-input').addEventListener('keydown', (e) => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); } });
+        let lastTypingTime = 0;
+        document.getElementById('msg-input').addEventListener('keydown', (e) => { 
+            if(e.key === 'Enter' && !e.shiftKey) { 
+                e.preventDefault(); sendMsg(); 
+            } else {
+                // 发送输入提示
+                const now = Date.now();
+                if (now - lastTypingTime > 2000 && ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({
+                        type: 'typing',
+                        room_id: currentRoomId,
+                        receiver: currentTargetUser
+                    }));
+                    lastTypingTime = now;
+                }
+            }
+        });
 
         // --- 表情包逻辑 ---
         let emojiPickerVisible = false;
