@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+board.db
+uploads/
+.env
+.vscode/
