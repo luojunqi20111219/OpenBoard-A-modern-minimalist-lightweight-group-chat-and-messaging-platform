@@ -53,7 +53,7 @@ async def admin_delete_user(
     current_admin = Depends(get_current_admin)
 ):
     target = db.execute("SELECT * FROM users WHERE id=?", (data.user_id,)).fetchone()
-    if not target or target['username'] in ["admin", "官方账号"]:
+    if not target or target['username'] == "官方账号":
         raise HTTPException(status_code=403, detail="系统保护账号不可删除")
         
     delete_user_and_data(db, target['id'], target['username'])
@@ -128,7 +128,7 @@ async def toggle_ban(
 ):
     user = db.execute("SELECT username, is_banned FROM users WHERE id=?", (data.user_id,)).fetchone()
     if user:
-        if user['username'] in ["admin", "官方账号"]:
+        if user['username'] == "官方账号":
             return {"status": "error", "msg": "保护账号不可封禁"}
             
         new_status = 0 if user['is_banned'] else 1

@@ -125,7 +125,7 @@ async def toggle_block_user(data: BlockUserData, current_user = Depends(get_curr
 
 @router.delete("/user/account")
 async def delete_account(response: Response, current_user = Depends(get_current_user), db = Depends(get_db)):
-    if current_user['username'] in ["admin", "官方账号"]:
+    if current_user['username'] == "官方账号":
         raise HTTPException(status_code=403, detail="保护账号不可注销")
         
     delete_user_and_data(db, current_user['id'], current_user['username'])
