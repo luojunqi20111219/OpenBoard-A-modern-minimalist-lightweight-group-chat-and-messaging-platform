@@ -294,57 +294,7 @@
 #### 3. 查询 GitHub 仓库新版本
 * **接口**：`GET /api/check_update`
 
----
 
-### 五、 管理后台专属 API 模块 (Admin Panel)
-> ⚠️ **鉴权要求**：以下所有接口不仅需要有效的 JWT Token，且操作用户的 `role` 必须为 `1`（或者属于超级免疫的 `"官方账号"`）。
-
-#### 1. 一键冻结/解冻群聊
-* **接口**：`POST /api/admin/toggle_freeze_group`
-* **Payload**：`{"group_id": 123}`
-* **动作**：全员禁言，冻结后群内普通用户无法发送任何消息。
-
-#### 2. 管理员强行修改用户头像
-* **接口**：`POST /api/admin/update_user_avatar`
-* **Payload**：`{"user_id": 12, "avatar_base64": "..."}`
-
-#### 3. 管理员强行修改群组头像
-* **接口**：`POST /api/admin/update_group_avatar`
-* **Payload**：`{"group_id": 5, "avatar_base64": "..."}`
-
-#### 4. 彻底删除违规用户
-* **接口**：`POST /api/admin/delete_user`
-* **Payload**：`{"user_id": 12}`
-* **注意**：自动清理该用户所发的一切言论、解散该用户拥有的所有群。超级免疫账户 `"官方账号"` 受到拦截保护，无法被删除。
-
-#### 5. 重置用户密码
-* **接口**：`POST /api/admin/reset_password`
-* **Payload**：`{"user_id": 12, "new_password": "新密码"}`
-
-#### 6. 强行解散单群
-* **接口**：`POST /api/admin/delete_group`
-* **Payload**：`{"group_id": 5}`
-
-#### 7. 批量解散多个群组
-* **接口**：`POST /api/admin/delete_groups`
-* **Payload**：`{"group_ids": [5, 6, 7]}`
-* **安全兜底**：空参数自动拦截，自动剔除公共大厅 (ID: 0)。
-
-#### 8. 批量删除留言/消息
-* **接口**：`POST /api/delete_messages`
-* **Payload**：`{"msg_ids": [101, 102, 103]}`
-* **安全兜底**：空参数自动拦截，防范 SQL IN 报错。
-
-#### 9. 封禁/解封违规账户
-* **接口**：`POST /api/toggle_ban_user`
-* **Payload**：`{"user_id": 12}`
-* **联动动作**：封禁时将自动强行失效该用户当前的 JWT 登录凭证（清除数据库 token 缓存）。系统保护账号 `"官方账号"` 无法被封禁。
-
-#### 10. 发布全局系统公告
-* **接口**：`POST /api/admin/broadcast`
-* **Payload**：`{"content": "公告内容"}`
-
----
 
 ## 🛠️ 后端升级、接口推荐与功能开发规范
 
