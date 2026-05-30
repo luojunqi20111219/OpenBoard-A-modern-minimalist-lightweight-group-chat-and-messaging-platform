@@ -44,6 +44,33 @@
 > - 接口前缀统一为 `/api`
 > - 所有需要授权的接口，必须在 HTTP Header 中携带：`Authorization: Your-JWT-Token`
 
+### 📋 全功能映射表 (18大核心功能与接口对照)
+
+为了方便多端开发者快速实现与网页端完全一致的完整功能，以下是全站 **18 大核心功能** 与对应 API 接口及参数的 1:1 对照表：
+
+| 序号 | 核心功能需求 | 接口端点 / 通信通道 | 请求方法 | 核心参数及开发说明 |
+|:---:|:---|:---|:---:|:---|
+| **1** | 注册用户 | `/api/register` | `POST` | `username`, `password`, `nickname` (选填) |
+| **2** | 登录 | `/api/login` | `POST` | `username`, `password` |
+| **3** | 在公共大厅发送信息 | `/api/messages` | `POST` | `room_id = 0`, `receiver = null` |
+| **4** | 在群聊发送信息 | `/api/messages` | `POST` | `room_id = 目标群聊ID`, `receiver = null` |
+| **5** | 在私信发送信息 | `/api/messages` | `POST` | `room_id = 0`, `receiver = "对方用户名"` |
+| **6** | 群聊管理员修改发言黑/白名单 | `/api/groups/{group_id}/permissions` | `PUT` | `speak_mode` (0/1), `black_speak`, `white_speak` (以逗号分隔) |
+| **7** | 群聊管理员修改入群(查看)黑/白名单 | `/api/groups/{group_id}/permissions` | `PUT` | `view_mode` (0/1), `black_view`, `white_view` (以逗号分隔) |
+| **8** | 群聊管理员修改群聊头像 | `/api/groups/{group_id}/avatar` | `POST` | `avatar` (图片 Base64 字符串) |
+| **9** | 设置昵称 | `/api/user/profile` | `POST` | `nickname` (新昵称字符串) |
+| **10** | 设置头像 | `/api/user/profile` | `POST` | `avatar` (图片 Base64 字符串) |
+| **11** | 修改密码 | `/api/user/password` | `PUT` | `old_password`, `new_password` |
+| **12** | 查看对方是否在线 | `WS /ws/{token}` | `WebSocket` | 监听 `type == "online_status"` 在线列表广播，挂载 UI 绿点 |
+| **13** | 拉黑/解黑用户 | `/api/user/block` | `POST` | `target_username` |
+| **14** | 永久注销账号 | `/api/user/account` | `DELETE` | 注销当前登录用户（系统被保护账号除外） |
+| **15** | 查看是否正在输入 | `WS /ws/{token}` | `WebSocket` | 客户端发送与监听 `type == "typing"` 广播帧，UI 配合 3s 定时器 |
+| **16** | 获取全站用户列表 | `/api/users` | `GET` | 载入全站用户的昵称、头像，以及当前用户的拉黑名单 |
+| **17** | 获取已加入及公开群聊列表 | `/api/groups` | `GET` | 自动根据用户权限黑白名单进行权限过滤后返回列表 |
+| **18** | 创建新群组 | `/api/groups` | `POST` | `name` (群聊名称), `is_public` (默认1) |
+
+---
+
 ### 一、 用户与认证模块 (Auth & User)
 
 #### 1. 用户注册
