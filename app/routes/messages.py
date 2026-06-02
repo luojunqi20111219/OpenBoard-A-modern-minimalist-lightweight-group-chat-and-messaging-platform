@@ -14,7 +14,12 @@ from app.websocket import manager
 router = APIRouter(prefix="/api")
 
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
-ALLOWED_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif', 'pdf', 'docx', 'txt', 'zip'}
+BLOCKED_EXTENSIONS = {
+    'ade', 'adp', 'apk', 'app', 'appx', 'bat', 'bin', 'cmd', 'com', 'cpl',
+    'dll', 'dmg', 'exe', 'gadget', 'hta', 'ins', 'iso', 'jar', 'js', 'jse',
+    'lnk', 'msi', 'msp', 'pif', 'ps1', 'scr', 'sh', 'svg', 'vb', 'vbe',
+    'vbs', 'ws', 'wsc', 'wsf', 'wsh', 'xhtml', 'html', 'htm', 'php', 'py'
+}
 
 # XSS protection using bleach (safe fallback to standard html.escape)
 try:
@@ -30,7 +35,7 @@ def allowed_file(filename: str) -> bool:
     if '.' not in filename:
         return False
     ext = filename.rsplit('.', 1)[1].lower()
-    return ext in ALLOWED_EXTENSIONS
+    return ext not in BLOCKED_EXTENSIONS
 
 @router.get("/messages")
 async def get_messages(
@@ -163,7 +168,7 @@ async def upload_file(file: UploadFile = File(...), current_user = Depends(get_c
         raise HTTPException(status_code=400, detail="文件大小超出10MB限制")
         
     if not allowed_file(file.filename):
-        raise HTTPException(status_code=400, detail="文件格式安全审查未通过。仅支持图片、pdf、docx、txt及zip包")
+        raise HTTPException(status_code=400, detail="文件格式安全审查未通过，请不要上传可执行文件或脚本文件")
         
     ext = file.filename.rsplit('.', 1)[1].lower()
     secure_filename = f"{uuid.uuid4().hex}.{ext}"

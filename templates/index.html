@@ -765,7 +765,8 @@
                         alert(errData.detail || "文件已上传，但消息发送失败，后台出问题");
                     }
                 } else {
-                    alert("文件上传失败");
+                    const errData = await res.json().catch(() => ({}));
+                    alert(errData.detail || "文件上传失败");
                 }
             } catch(e) {
                 alert("上传出错: " + e.message);
