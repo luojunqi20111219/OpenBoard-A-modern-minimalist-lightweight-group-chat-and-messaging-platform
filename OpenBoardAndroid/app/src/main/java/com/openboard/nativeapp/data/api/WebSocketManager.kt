@@ -13,7 +13,9 @@ import okhttp3.*
  */
 object WebSocketManager {
     private const val TAG = "WebSocketManager"
-    private val client = OkHttpClient()
+    private val client = OkHttpClient.Builder()
+        .pingInterval(30, java.util.concurrent.TimeUnit.SECONDS)
+        .build()
     private val gson = Gson()
     private var webSocket: WebSocket? = null
     

@@ -21,6 +21,7 @@ object SessionManager {
     private const val KEY_CONVERSATIONS = "conversations"
     private const val KEY_SERVER_URL = "server_url"
     private const val KEY_ROLE = "role"
+    private const val KEY_BLOCKED_USERS = "blocked_users"
 
     private lateinit var prefs: SharedPreferences
     private val gson = Gson()
@@ -164,6 +165,21 @@ object SessionManager {
             saveConversations(list)
         }
     }
+
+    var blockedUsers: Set<String>
+        get() {
+            val json = prefs.getString(KEY_BLOCKED_USERS, null) ?: return emptySet()
+            val type = object : TypeToken<Set<String>>() {}.type
+            return try {
+                gson.fromJson(json, type) ?: emptySet()
+            } catch (e: Exception) {
+                emptySet()
+            }
+        }
+        set(value) {
+            val json = gson.toJson(value)
+            prefs.edit().putString(KEY_BLOCKED_USERS, json).apply()
+        }
 
     fun clear() {
         prefs.edit().clear().apply()

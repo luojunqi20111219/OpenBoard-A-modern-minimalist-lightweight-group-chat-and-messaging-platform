@@ -10,6 +10,8 @@ import com.openboard.nativeapp.data.local.SessionManager
 import com.openboard.nativeapp.data.model.WsMessage
 import com.openboard.nativeapp.databinding.ActivityMainBinding
 import com.openboard.nativeapp.ui.chat.ChatActivity
+import android.os.Build
+import com.openboard.nativeapp.service.MessageService
 import com.openboard.nativeapp.ui.login.LoginActivity
 
 /**
@@ -26,36 +28,6 @@ class MainActivity : AppCompatActivity() {
 
     private val wsListener = object : WebSocketManager.WsListener {
         override fun onMessage(msg: WsMessage) {
-            val me = SessionManager.username ?: return
-            if (msg.type == "message" && msg.data != null) {
-                val data = msg.data
-                val isGroup = (data.roomId ?: 0) > 0
-                val id = data.roomId ?: 0
-                val target = if (isGroup) null else (if (data.name == me) data.receiver else data.name)
-                val name = if (isGroup) "群组 #$id" else (if (data.name == me) (data.receiver ?: "聊天") else (data.nickname ?: data.name ?: "聊天"))
-                
-                SessionManager.updateConversation(
-                    id = id,
-                    targetUser = target,
-                    name = name,
-                    lastMsg = data.content ?: "",
-                    time = data.time ?: "刚刚",
-                    avatar = if (isGroup) null else data.avatar,
-                    increaseUnread = true
-                )
-            } else if (msg.type == "recall") {
-                val isGroup = (msg.roomId ?: 0) > 0
-                val target = if (isGroup) null else (if (msg.user == me) msg.receiver else msg.user)
-                SessionManager.updateConversation(
-                    id = msg.roomId ?: 0,
-                    targetUser = target,
-                    name = if (isGroup) "群组 #${msg.roomId}" else (target ?: "聊天"),
-                    lastMsg = "[system_recalled]",
-                    time = "刚刚",
-                    avatar = null,
-                    increaseUnread = false
-                )
-            }
             runOnUiThread {
                 recentChatsListener?.onWsMessageReceived(msg)
             }
@@ -95,7 +67,21 @@ class MainActivity : AppCompatActivity() {
         }
 
         WebSocketManager.addListener(wsListener)
-        WebSocketManager.connect()
+
+        // 请求 Android 13+ 的通知权限
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 102)
+            }
+        }
+
+        // 启动后台消息监听前台服务
+        val serviceIntent = Intent(this, MessageService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent)
+        } else {
+            startService(serviceIntent)
+        }
 
         loadFragment(ChatListFragment())
     }
@@ -135,6 +121,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun logout() {
+        // 停止后台消息接收服务
+        val serviceIntent = Intent(this, MessageService::class.java)
+        stopService(serviceIntent)
+
         SessionManager.clear()
         WebSocketManager.disconnect()
         redirectToLogin()

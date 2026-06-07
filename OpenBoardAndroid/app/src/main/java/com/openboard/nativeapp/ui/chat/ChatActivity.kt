@@ -19,6 +19,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.gson.Gson
+import com.openboard.nativeapp.OpenBoardApp
 import com.openboard.nativeapp.R
 import com.openboard.nativeapp.data.api.RetrofitClient
 import com.openboard.nativeapp.data.api.WebSocketManager
@@ -400,6 +401,7 @@ class ChatActivity : AppCompatActivity() {
             val result = repository.getUsersEnvelope()
             result.onSuccess { resp ->
                 val blockedList = resp.blockedUsers ?: emptyList()
+                SessionManager.blockedUsers = blockedList.toSet()
                 isTargetUserBlocked = blockedList.contains(target)
                 updateBlockButtonUI()
             }
@@ -415,6 +417,13 @@ class ChatActivity : AppCompatActivity() {
             val result = repository.blockUser(target)
             result.onSuccess { resp ->
                 isTargetUserBlocked = resp.isBlocked
+                val currentBlocked = SessionManager.blockedUsers.toMutableSet()
+                if (isTargetUserBlocked) {
+                    currentBlocked.add(target)
+                } else {
+                    currentBlocked.remove(target)
+                }
+                SessionManager.blockedUsers = currentBlocked
                 updateBlockButtonUI()
                 Toast.makeText(
                     this@ChatActivity, 
@@ -645,6 +654,24 @@ class ChatActivity : AppCompatActivity() {
     private fun scrollToBottom() {
         if (messagesList.isNotEmpty()) {
             binding.recyclerView.scrollToPosition(messagesList.size - 1)
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // 设置当前活跃的聊天室，防止在此房间时弹出推送通知
+        val app = application as OpenBoardApp
+        app.activeRoomId = roomId
+        app.activeTargetUser = targetUser
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // 清除活跃的聊天室
+        val app = application as OpenBoardApp
+        if (app.activeRoomId == roomId && app.activeTargetUser == targetUser) {
+            app.activeRoomId = -1
+            app.activeTargetUser = null
         }
     }
 
