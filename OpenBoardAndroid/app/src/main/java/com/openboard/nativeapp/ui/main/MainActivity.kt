@@ -75,6 +75,21 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // 动态申请忽略电池省电优化（保活核心）
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val powerManager = getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
+            if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
+                try {
+                    val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                        data = android.net.Uri.parse("package:$packageName")
+                    }
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    android.util.Log.e("MainActivity", "Failed to request ignore battery optimizations: ${e.message}")
+                }
+            }
+        }
+
         // 启动后台消息监听前台服务
         val serviceIntent = Intent(this, MessageService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
