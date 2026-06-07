@@ -42,10 +42,19 @@ interface ApiService {
     fun deleteGroup(@Path("groupId") groupId: Int): Call<ApiResponse<Any>>
 
     @GET("api/notifications")
-    fun getNotifications(): Call<ApiResponse<List<Any>>>
+    fun getNotifications(): Call<ApiResponse<List<Notification>>>
+
+    @POST("api/notifications/read")
+    fun markNotificationsRead(): Call<ApiResponse<Any>>
 
     @POST("api/user/profile")
     fun updateProfile(@Body profile: Map<String, String>): Call<ApiResponse<Any>>
+
+    @PUT("api/groups/{group_id}")
+    fun updateGroup(
+        @Path("group_id") groupId: Int,
+        @Body data: Map<String, String>
+    ): Call<ApiResponse<Any>>
 
     @PUT("api/groups/{group_id}/permissions")
     fun updateGroupPermissions(

@@ -9,6 +9,7 @@ import com.openboard.nativeapp.data.model.Conversation
 object SessionManager {
     private const val PREFS_NAME = "openboard_prefs"
     private const val KEY_TOKEN = "token"
+    private const val KEY_USER_ID = "user_id"
     private const val KEY_USERNAME = "username"
     private const val KEY_NICKNAME = "nickname"
     private const val KEY_AVATAR = "avatar"
@@ -44,6 +45,10 @@ object SessionManager {
             RetrofitClient.setToken(value)
         }
 
+    var userId: Int
+        get() = prefs.getInt(KEY_USER_ID, 0)
+        set(value) = prefs.edit().putInt(KEY_USER_ID, value).apply()
+
     var username: String?
         get() = prefs.getString(KEY_USERNAME, null)
         set(value) = prefs.edit().putString(KEY_USERNAME, value).apply()
@@ -60,12 +65,14 @@ object SessionManager {
         get() = !token.isNullOrEmpty()
 
     fun saveUser(user: User) {
+        userId = user.id
         username = user.username
         nickname = user.nickname
         avatar = user.avatar
     }
 
     fun getUser(): User = User(
+        id = userId,
         username = username ?: "",
         nickname = nickname,
         avatar = avatar
@@ -95,7 +102,7 @@ object SessionManager {
         avatar: String?,
         increaseUnread: Boolean,
         isCurrentChat: Boolean = false,
-        createdBy: String? = null
+        ownerId: Int = 0
     ) {
         val list = getConversations()
         val index = list.indexOfFirst { it.id == id && it.targetUser == targetUser }
@@ -114,7 +121,7 @@ object SessionManager {
             conv.lastMessage = cleanPreview
             conv.time = time
             if (avatar != null) conv.avatar = avatar
-            if (createdBy != null) conv.createdBy = createdBy
+            if (ownerId != 0) conv.ownerId = ownerId
             if (increaseUnread && !isCurrentChat) {
                 conv.unreadCount += 1
             }
@@ -130,7 +137,7 @@ object SessionManager {
                 time = time,
                 avatar = avatar,
                 unreadCount = unread,
-                createdBy = createdBy
+                ownerId = ownerId
             )
             list.add(0, newConv)
         }

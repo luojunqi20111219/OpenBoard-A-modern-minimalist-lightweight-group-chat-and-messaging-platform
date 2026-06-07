@@ -24,7 +24,7 @@ class GroupAdapter(
     inner class VH(private val b: ItemGroupBinding) : RecyclerView.ViewHolder(b.root) {
         fun bind(group: Group) {
             b.tvGroupName.text = group.name
-            b.tvMemberCount.text = "${group.memberCount} members"
+            b.tvMemberCount.text = if (group.isPublic == 1) "公开群组" else "私密群组"
             b.root.setOnClickListener { onClick(group) }
         }
     }

@@ -7,6 +7,7 @@ import android.view.ViewGroup
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
+import com.openboard.nativeapp.data.model.Notification
 import com.openboard.nativeapp.data.api.WebSocketManager
 import com.openboard.nativeapp.data.local.SessionManager
 import com.openboard.nativeapp.data.model.WsMessage
@@ -42,6 +43,14 @@ class ChatListFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
         setupRecyclerView()
         setupBottomNav()
+        
+        binding.btnNotifications.setOnClickListener {
+            val sheet = NotificationsBottomSheet {
+                binding.noticeBadge.visibility = View.GONE
+            }
+            sheet.show(childFragmentManager, "Notifications")
+        }
+        
         loadData()
     }
 
@@ -49,6 +58,23 @@ class ChatListFragment : Fragment() {
         super.onStart()
         (activity as? MainActivity)?.recentChatsListener = wsListener
         loadConversations()
+        checkNotifications()
+    }
+
+    private fun checkNotifications() {
+        lifecycleScope.launch {
+            val result = repository.getNotifications()
+            result.onSuccess { response ->
+                val list = response.data ?: emptyList()
+                val lastReadId = response.lastReadId ?: 0
+                val hasUnread = list.any { it.id > lastReadId }
+                if (hasUnread) {
+                    binding.noticeBadge.visibility = View.VISIBLE
+                } else {
+                    binding.noticeBadge.visibility = View.GONE
+                }
+            }
+        }
     }
 
     override fun onStop() {
@@ -62,7 +88,8 @@ class ChatListFragment : Fragment() {
             (activity as? MainActivity)?.navigateToChat(
                 roomId = conv.id,
                 roomName = conv.name,
-                targetUser = conv.targetUser
+                targetUser = conv.targetUser,
+                ownerId = conv.ownerId
             )
         }
         binding.recyclerView.layoutManager = LinearLayoutManager(requireContext())

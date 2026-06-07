@@ -40,7 +40,7 @@ class GroupsFragment : Fragment() {
             (activity as? MainActivity)?.navigateToChat(
                 roomId = group.id,
                 roomName = group.name,
-                createdBy = group.createdBy
+                ownerId = group.ownerId
             )
         }
         binding.recyclerView.layoutManager = LinearLayoutManager(requireContext())

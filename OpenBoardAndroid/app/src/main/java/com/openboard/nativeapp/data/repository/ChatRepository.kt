@@ -71,6 +71,27 @@ class ChatRepository {
             cont.invokeOnCancellation { c.cancel() }
         }
 
+    // Returns the full ApiResponse envelope to access metadata like last_read_id
+    private suspend fun <T> apiCallEnvelope(call: () -> Call<ApiResponse<T>>): Result<ApiResponse<T>> =
+        suspendCancellableCoroutine { cont ->
+            val c = call()
+            c.enqueue(object : Callback<ApiResponse<T>> {
+                override fun onResponse(retroCall: Call<ApiResponse<T>>, response: Response<ApiResponse<T>>) {
+                    val body = response.body()
+                    if (response.isSuccessful && body != null && (body.code == 200 || body.status == "success")) {
+                        cont.resume(Result.success(body))
+                    } else {
+                        cont.resume(Result.failure(Exception("API error: ${response.code()} ${body?.msg ?: ""}")))
+                    }
+                }
+                override fun onFailure(retroCall: Call<ApiResponse<T>>, t: Throwable) {
+                    cont.resume(Result.failure(t))
+                }
+            })
+            cont.invokeOnCancellation { c.cancel() }
+        }
+
+
     suspend fun login(username: String, password: String): Result<AuthResponse> =
         apiCallRaw { api.login(LoginRequest(username, password)) }
 
@@ -92,11 +113,17 @@ class ChatRepository {
     suspend fun getUsers(): Result<List<User>> =
         apiCallWrapped { api.getUsers() }
 
+    suspend fun getUsersEnvelope(): Result<ApiResponse<List<User>>> =
+        apiCallEnvelope { api.getUsers() }
+
     suspend fun getGroups(): Result<List<Group>> =
         apiCallWrapped { api.getGroups() }
 
     suspend fun createGroup(name: String, description: String?): Result<Group> =
         apiCallWrapped { api.createGroup(CreateGroupRequest(name, description)) }
+
+    suspend fun updateGroup(groupId: Int, name: String): Result<Unit> =
+        apiCallVoid { api.updateGroup(groupId, mapOf("name" to name)) }
 
     suspend fun deleteGroup(groupId: Int): Result<Unit> =
         apiCallVoid { api.deleteGroup(groupId) }
@@ -122,4 +149,10 @@ class ChatRepository {
 
     suspend fun deleteAccount(): Result<Unit> =
         apiCallVoid { api.deleteAccount() }
+
+    suspend fun getNotifications(): Result<ApiResponse<List<Notification>>> =
+        apiCallEnvelope { api.getNotifications() }
+
+    suspend fun markNotificationsRead(): Result<Unit> =
+        apiCallVoid { api.markNotificationsRead() }
 }

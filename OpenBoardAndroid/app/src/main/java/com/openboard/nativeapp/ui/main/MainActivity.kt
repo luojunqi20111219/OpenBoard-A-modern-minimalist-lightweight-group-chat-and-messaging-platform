@@ -93,12 +93,12 @@ class MainActivity : AppCompatActivity() {
             .commit()
     }
 
-    fun navigateToChat(roomId: Int, roomName: String, targetUser: String? = null, createdBy: String? = null) {
+    fun navigateToChat(roomId: Int, roomName: String, targetUser: String? = null, ownerId: Int = 0) {
         val intent = android.content.Intent(this, com.openboard.nativeapp.ui.chat.ChatActivity::class.java).apply {
             putExtra("room_id", roomId)
             putExtra("room_name", roomName)
             targetUser?.let { putExtra("target_user", it) }
-            createdBy?.let { putExtra("created_by", it) }
+            putExtra("owner_id", ownerId)
         }
         startActivity(intent)
     }

@@ -65,6 +65,7 @@ class LoginActivity : AppCompatActivity() {
                 if (resp.code == 200 && resp.token != null) {
                     SessionManager.token = resp.token
                     val user = User(
+                        id = resp.id,
                         username = resp.username ?: username,
                         nickname = resp.nickname,
                         avatar = resp.avatar
@@ -106,6 +107,7 @@ class LoginActivity : AppCompatActivity() {
                 if (resp.code == 200 && resp.token != null) {
                     SessionManager.token = resp.token
                     val user = User(
+                        id = resp.id,
                         username = resp.username ?: username,
                         nickname = resp.nickname,
                         avatar = resp.avatar

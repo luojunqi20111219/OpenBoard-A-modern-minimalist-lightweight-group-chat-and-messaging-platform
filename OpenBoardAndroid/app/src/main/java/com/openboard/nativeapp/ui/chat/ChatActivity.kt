@@ -15,6 +15,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.openboard.nativeapp.data.api.WebSocketManager
 import com.openboard.nativeapp.data.local.SessionManager
 import com.openboard.nativeapp.data.model.Message
+import com.openboard.nativeapp.data.model.Group
 import com.openboard.nativeapp.data.model.SendMessageRequest
 import com.openboard.nativeapp.data.model.WsMessage
 import com.openboard.nativeapp.data.repository.ChatRepository
@@ -33,6 +34,7 @@ class ChatActivity : AppCompatActivity() {
     private var roomId: Int = 0
     private var roomName: String = "Chat"
     private var targetUser: String? = null
+    private var currentGroup: Group? = null
 
     private var lastTypingSentTime: Long = 0L
     private val typingHandler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -118,9 +120,13 @@ class ChatActivity : AppCompatActivity() {
         }
     }
 
-    private fun showTypingIndicator() {
+    private fun showTypingIndicator(username: String?) {
         typingHandler.removeCallbacks(clearTypingRunnable)
-        binding.tvTitle.text = "$roomName (正在输入...)"
+        if (targetUser != null) {
+            binding.tvTitle.text = "$roomName (正在输入...)"
+        } else {
+            binding.tvTitle.text = "$roomName ($username 正在输入...)"
+        }
         typingHandler.postDelayed(clearTypingRunnable, 3000)
     }
 
@@ -440,7 +446,7 @@ class ChatActivity : AppCompatActivity() {
             }
 
             if (isForMe && wsMsg.user != me) {
-                showTypingIndicator()
+                showTypingIndicator(wsMsg.user)
             }
         }
     }
@@ -453,49 +459,128 @@ class ChatActivity : AppCompatActivity() {
 
     private var isBlocked = false
 
-    private fun setupAction() {
-        val createdBy = intent.getStringExtra("created_by")
-        val me = SessionManager.username
-        
-        if (targetUser != null) {
-            binding.btnAction.visibility = View.VISIBLE
-            binding.btnAction.text = "拉黑"
-            binding.btnAction.setOnClickListener {
-                lifecycleScope.launch {
-                    val result = repository.blockUser(targetUser!!)
-                    result.onSuccess { map ->
-                        val blocked = map["is_blocked"] as? Boolean ?: false
-                        isBlocked = blocked
-                        binding.btnAction.text = if (isBlocked) "取消拉黑" else "拉黑"
-                        Toast.makeText(this@ChatActivity, if (isBlocked) "已拉黑该用户" else "已取消拉黑", Toast.LENGTH_SHORT).show()
-                    }.onFailure {
-                        Toast.makeText(this@ChatActivity, "操作失败", Toast.LENGTH_SHORT).show()
+    private fun checkBlockStatus() {
+        lifecycleScope.launch {
+            repository.getUsersEnvelope().onSuccess { response ->
+                val blocked = response.blockedUsers ?: emptyList()
+                isBlocked = blocked.contains(targetUser)
+                binding.btnAction.text = if (isBlocked) "取消拉黑" else "拉黑"
+            }
+        }
+    }
+
+    private fun loadGroupDetails() {
+        if (roomId > 0) {
+            lifecycleScope.launch {
+                repository.getGroups().onSuccess { groups ->
+                    currentGroup = groups.find { it.id == roomId }
+                    currentGroup?.let { group ->
+                        val myId = SessionManager.userId
+                        if (group.ownerId == myId) {
+                            binding.btnAction.visibility = View.VISIBLE
+                            binding.btnAction.text = "设置"
+                            binding.btnAction.setOnClickListener {
+                                showGroupSettingsDialog()
+                            }
+                        } else {
+                            binding.btnAction.visibility = View.GONE
+                        }
                     }
                 }
             }
-        } else if (roomId > 0 && createdBy == me) {
+        }
+    }
+
+    private fun setupAction() {
+        val ownerId = intent.getIntExtra("owner_id", 0)
+        val myId = SessionManager.userId
+
+        if (targetUser != null) {
             binding.btnAction.visibility = View.VISIBLE
-            binding.btnAction.text = "设置"
+            binding.btnAction.text = "拉黑"
+            checkBlockStatus()
             binding.btnAction.setOnClickListener {
-                showGroupSettingsDialog()
+                toggleBlock()
             }
+        } else if (roomId > 0) {
+            if (ownerId == myId && ownerId > 0) {
+                binding.btnAction.visibility = View.VISIBLE
+                binding.btnAction.text = "设置"
+                binding.btnAction.setOnClickListener {
+                    showGroupSettingsDialog()
+                }
+            } else {
+                binding.btnAction.visibility = View.GONE
+            }
+            loadGroupDetails()
         } else {
             binding.btnAction.visibility = View.GONE
         }
     }
 
+    private fun toggleBlock() {
+        lifecycleScope.launch {
+            val result = repository.blockUser(targetUser!!)
+            result.onSuccess { map ->
+                val blocked = map["is_blocked"] as? Boolean ?: false
+                isBlocked = blocked
+                binding.btnAction.text = if (isBlocked) "取消拉黑" else "拉黑"
+                Toast.makeText(this@ChatActivity, if (isBlocked) "已拉黑该用户" else "已取消拉黑", Toast.LENGTH_SHORT).show()
+            }.onFailure {
+                Toast.makeText(this@ChatActivity, "操作失败", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     private fun showGroupSettingsDialog() {
-        val options = arrayOf("发言权限", "查看权限", "修改群头像", "解散群组")
+        val options = arrayOf("修改群名", "发言权限", "查看权限", "修改群头像", "解散群组")
         AlertDialog.Builder(this)
             .setTitle("群组设置")
             .setItems(options) { _, which ->
                 when (which) {
-                    0 -> showPermissionsDialog(isSpeak = true)
-                    1 -> showPermissionsDialog(isSpeak = false)
-                    2 -> pickGroupAvatar.launch("image/*")
-                    3 -> showDissolveGroupDialog()
+                    0 -> showGroupNameDialog()
+                    1 -> showPermissionsDialog(isSpeak = true)
+                    2 -> showPermissionsDialog(isSpeak = false)
+                    3 -> pickGroupAvatar.launch("image/*")
+                    4 -> showDissolveGroupDialog()
                 }
             }
+            .show()
+    }
+
+    private fun showGroupNameDialog() {
+        val etName = EditText(this).apply {
+            hint = "新的群名称"
+            setText(currentGroup?.name ?: roomName)
+        }
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(40, 20, 40, 20)
+            addView(etName, LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("修改群名")
+            .setView(layout)
+            .setPositiveButton("保存") { _, _ ->
+                val newName = etName.text.toString().trim()
+                if (newName.isNotEmpty()) {
+                    binding.progressBar.visibility = View.VISIBLE
+                    lifecycleScope.launch {
+                        val result = repository.updateGroup(roomId, newName)
+                        binding.progressBar.visibility = View.GONE
+                        result.onSuccess {
+                            Toast.makeText(this@ChatActivity, "群名更新成功！", Toast.LENGTH_SHORT).show()
+                            roomName = newName
+                            binding.tvTitle.text = newName
+                            currentGroup = currentGroup?.copy(name = newName)
+                        }.onFailure { e ->
+                            Toast.makeText(this@ChatActivity, "修改失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            }
+            .setNegativeButton("取消", null)
             .show()
     }
 
@@ -536,12 +621,15 @@ class ChatActivity : AppCompatActivity() {
         val etMode = EditText(this).apply {
             hint = "模式 (0: 公开, 1: 私有/白名单)"
             inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setText(if (isSpeak) (currentGroup?.speakMode?.toString() ?: "0") else (currentGroup?.viewMode?.toString() ?: "0"))
         }
         val etBlack = EditText(this).apply {
             hint = "黑名单 (用户名，逗号分隔)"
+            setText(if (isSpeak) (currentGroup?.blackSpeak ?: "") else (currentGroup?.blackView ?: ""))
         }
         val etWhite = EditText(this).apply {
             hint = "白名单 (用户名，逗号分隔)"
+            setText(if (isSpeak) (currentGroup?.whiteSpeak ?: "") else (currentGroup?.whiteView ?: ""))
         }
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -576,6 +664,11 @@ class ChatActivity : AppCompatActivity() {
                     binding.progressBar.visibility = View.GONE
                     result.onSuccess {
                         Toast.makeText(this@ChatActivity, "权限更新成功！", Toast.LENGTH_SHORT).show()
+                        currentGroup = if (isSpeak) {
+                            currentGroup?.copy(speakMode = mode, blackSpeak = black, whiteSpeak = white)
+                        } else {
+                            currentGroup?.copy(viewMode = mode, blackView = black, whiteView = white)
+                        }
                     }.onFailure {
                         Toast.makeText(this@ChatActivity, "更新失败: ${it.message}", Toast.LENGTH_SHORT).show()
                     }

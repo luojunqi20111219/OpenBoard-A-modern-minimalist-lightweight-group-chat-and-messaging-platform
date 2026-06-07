@@ -8,5 +8,5 @@ data class Conversation(
     var time: String,
     var avatar: String? = null,
     var unreadCount: Int = 0,
-    var createdBy: String? = null
+    var ownerId: Int = 0
 )
