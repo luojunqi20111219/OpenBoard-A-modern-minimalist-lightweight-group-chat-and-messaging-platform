@@ -56,9 +56,6 @@ class ProfileFragment : Fragment() {
      */
     private fun setupUI() {
         binding.toolbar.title = "个人资料"
-        binding.toolbar.setNavigationOnClickListener {
-            (activity as? MainActivity)?.loadFragment(ChatListFragment())
-        }
 
         // 修改头像点击
         binding.ivAvatar.setOnClickListener {

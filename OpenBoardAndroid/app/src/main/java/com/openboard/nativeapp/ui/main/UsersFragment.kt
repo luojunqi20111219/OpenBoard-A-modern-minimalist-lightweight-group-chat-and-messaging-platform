@@ -44,9 +44,6 @@ class UsersFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         binding.toolbar.title = "用户列表"
-        binding.toolbar.setNavigationOnClickListener {
-            (activity as? MainActivity)?.loadFragment(ChatListFragment())
-        }
 
         adapter = UserAdapter { user ->
             val nickname = user.nickname ?: user.username

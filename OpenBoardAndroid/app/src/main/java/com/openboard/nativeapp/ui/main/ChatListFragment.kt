@@ -43,7 +43,6 @@ class ChatListFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         setupRecyclerView()
-        setupBottomNav()
         
         binding.btnNotifications.setOnClickListener {
             val sheet = NotificationsBottomSheet {
@@ -81,17 +80,7 @@ class ChatListFragment : Fragment() {
         binding.recyclerView.adapter = adapter
     }
 
-    private fun setupBottomNav() {
-        binding.btnUsers.setOnClickListener {
-            (activity as? MainActivity)?.loadUsersList()
-        }
-        binding.btnGroups.setOnClickListener {
-            (activity as? MainActivity)?.loadGroupsList()
-        }
-        binding.btnProfile.setOnClickListener {
-            (activity as? MainActivity)?.loadFragment(ProfileFragment())
-        }
-    }
+
 
     private fun loadConversations() {
         val list = SessionManager.getConversations()

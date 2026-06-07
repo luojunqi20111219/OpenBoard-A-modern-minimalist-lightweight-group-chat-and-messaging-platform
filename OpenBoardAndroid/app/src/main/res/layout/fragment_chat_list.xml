@@ -149,41 +149,4 @@
 
     </FrameLayout>
 
-    <!-- Bottom Nav -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="56dp"
-        android:background="@color/surface"
-        android:orientation="horizontal"
-        android:elevation="8dp">
-
-        <Button
-            android:id="@+id/btn_users"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:text="联系人"
-            android:textAllCaps="false"
-            style="@style/Widget.MaterialComponents.Button.TextButton"/>
-
-        <Button
-            android:id="@+id/btn_groups"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:text="群组列表"
-            android:textAllCaps="false"
-            style="@style/Widget.MaterialComponents.Button.TextButton"/>
-
-        <Button
-            android:id="@+id/btn_profile"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:text="个人资料"
-            android:textAllCaps="false"
-            style="@style/Widget.MaterialComponents.Button.TextButton"/>
-
-    </LinearLayout>
-
 </LinearLayout>

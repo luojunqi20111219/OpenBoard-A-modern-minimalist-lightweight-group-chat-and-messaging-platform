@@ -44,11 +44,8 @@ class GroupsFragment : Fragment() {
      * 初始化界面组件、工具栏、适配器与事件监听器
      */
     private fun setupUI() {
-        // 设置标题及返回按钮
+        // 设置标题
         binding.toolbar.title = "群组列表"
-        binding.toolbar.setNavigationOnClickListener {
-            (activity as? MainActivity)?.loadFragment(ChatListFragment())
-        }
 
         // 显示浮动操作按钮（用于创建群聊）
         binding.fab.visibility = View.VISIBLE

@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
+import com.openboard.nativeapp.R
 import com.openboard.nativeapp.data.api.WebSocketManager
 import com.openboard.nativeapp.data.local.SessionManager
 import com.openboard.nativeapp.data.model.WsMessage
@@ -71,6 +72,28 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        binding.bottomNavigation.setOnItemSelectedListener { item ->
+            when (item.itemId) {
+                R.id.menu_chats -> {
+                    loadFragment(ChatListFragment())
+                    true
+                }
+                R.id.menu_users -> {
+                    loadFragment(UsersFragment())
+                    true
+                }
+                R.id.menu_groups -> {
+                    loadFragment(GroupsFragment())
+                    true
+                }
+                R.id.menu_profile -> {
+                    loadFragment(ProfileFragment())
+                    true
+                }
+                else -> false
+            }
+        }
+
         WebSocketManager.addListener(wsListener)
         WebSocketManager.connect()
 
@@ -104,11 +127,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun loadUsersList() {
-        loadFragment(UsersFragment())
+        binding.bottomNavigation.selectedItemId = R.id.menu_users
     }
 
     fun loadGroupsList() {
-        loadFragment(GroupsFragment())
+        binding.bottomNavigation.selectedItemId = R.id.menu_groups
     }
 
     fun logout() {

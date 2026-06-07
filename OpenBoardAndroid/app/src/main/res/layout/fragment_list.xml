@@ -16,8 +16,7 @@
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
             android:background="@color/primary"
-            app:titleTextColor="@android:color/white"
-            app:navigationIcon="@drawable/ic_back"/>
+            app:titleTextColor="@android:color/white"/>
 
         <!-- List Content -->
         <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
