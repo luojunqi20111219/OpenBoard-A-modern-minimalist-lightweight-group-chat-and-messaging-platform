@@ -99,14 +99,14 @@ class ChatRepository {
     suspend fun getMessages(roomId: Int = 0, targetUser: String? = null): Result<List<Message>> =
         apiCallWrapped { api.getMessages(roomId, targetUser) }
 
-    suspend fun sendMessage(request: SendMessageRequest): Result<Message> =
-        apiCallWrapped { api.sendMessage(request) }
+    suspend fun sendMessage(request: SendMessageRequest): Result<Unit> =
+        apiCallVoid { api.sendMessage(request) }
 
     suspend fun recallMessage(msgId: Int): Result<Unit> =
         apiCallVoid { api.recallMessage(msgId) }
 
-    suspend fun uploadFile(file: MultipartBody.Part): Result<Map<String, String>> =
-        apiCallWrapped { api.uploadFile(file) }
+    suspend fun uploadFile(file: MultipartBody.Part): Result<UploadResponse> =
+        apiCallRaw { api.uploadFile(file) }
 
     suspend fun getUsers(): Result<List<User>> =
         apiCallWrapped { api.getUsers() }
@@ -117,8 +117,8 @@ class ChatRepository {
     suspend fun getGroups(): Result<List<Group>> =
         apiCallWrapped { api.getGroups() }
 
-    suspend fun createGroup(name: String, description: String?): Result<Group> =
-        apiCallWrapped { api.createGroup(CreateGroupRequest(name, description)) }
+    suspend fun createGroup(name: String, description: String?): Result<CreateGroupResponse> =
+        apiCallRaw { api.createGroup(CreateGroupRequest(name, description)) }
 
     suspend fun updateGroup(groupId: Int, name: String): Result<Unit> =
         apiCallVoid { api.updateGroup(groupId, mapOf("name" to name)) }
@@ -135,8 +135,8 @@ class ChatRepository {
     suspend fun updatePassword(oldPassword: String, newPassword: String): Result<Unit> =
         apiCallVoid { api.updatePassword(mapOf("old_password" to oldPassword, "new_password" to newPassword)) }
 
-    suspend fun blockUser(targetUsername: String): Result<Map<String, Any>> =
-        apiCallWrapped { api.blockUser(mapOf("target_username" to targetUsername)) }
+    suspend fun blockUser(targetUsername: String): Result<BlockUserResponse> =
+        apiCallRaw { api.blockUser(mapOf("target_username" to targetUsername)) }
 
     suspend fun updateProfile(nickname: String, avatar: String?): Result<Unit> {
         val map = mutableMapOf<String, String>()

@@ -235,10 +235,10 @@ class ChatActivity : AppCompatActivity() {
 
                 val result = repository.uploadFile(part)
                 binding.progressBar.visibility = View.GONE
-                result.onSuccess { data ->
-                    val url = data["url"] ?: ""
-                    val downloadUrl = data["download_url"] ?: ""
-                    val filename = data["filename"] ?: "file"
+                result.onSuccess { resp ->
+                    val url = resp.url ?: ""
+                    val downloadUrl = resp.downloadUrl ?: ""
+                    val filename = resp.filename ?: "file"
                     
                     // 判断是否为图片类型
                     val mimeType = contentResolver.getType(uri) ?: ""
@@ -413,8 +413,8 @@ class ChatActivity : AppCompatActivity() {
         val target = targetUser ?: return
         lifecycleScope.launch {
             val result = repository.blockUser(target)
-            result.onSuccess { data ->
-                isTargetUserBlocked = data["is_blocked"] as? Boolean ?: !isTargetUserBlocked
+            result.onSuccess { resp ->
+                isTargetUserBlocked = resp.isBlocked
                 updateBlockButtonUI()
                 Toast.makeText(
                     this@ChatActivity, 

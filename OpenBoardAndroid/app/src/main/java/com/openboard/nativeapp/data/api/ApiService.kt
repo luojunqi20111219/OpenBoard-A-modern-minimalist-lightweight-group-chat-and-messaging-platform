@@ -23,14 +23,14 @@ interface ApiService {
     ): Call<ApiResponse<List<Message>>>
 
     @POST("api/messages")
-    fun sendMessage(@Body request: SendMessageRequest): Call<ApiResponse<Message>>
+    fun sendMessage(@Body request: SendMessageRequest): Call<ApiResponse<Any>>
 
     @DELETE("api/messages/{msgId}")
     fun recallMessage(@Path("msgId") msgId: Int): Call<ApiResponse<Any>>
 
     @Multipart
     @POST("api/upload")
-    fun uploadFile(@Part file: MultipartBody.Part): Call<ApiResponse<Map<String, String>>>
+    fun uploadFile(@Part file: MultipartBody.Part): Call<UploadResponse>
 
     @GET("api/users")
     fun getUsers(): Call<ApiResponse<List<User>>>
@@ -39,7 +39,7 @@ interface ApiService {
     fun getGroups(): Call<ApiResponse<List<Group>>>
 
     @POST("api/groups")
-    fun createGroup(@Body request: CreateGroupRequest): Call<ApiResponse<Group>>
+    fun createGroup(@Body request: CreateGroupRequest): Call<CreateGroupResponse>
 
     @PUT("api/groups/{group_id}")
     fun updateGroup(
@@ -75,7 +75,7 @@ interface ApiService {
     fun updatePassword(@Body data: Map<String, String>): Call<ApiResponse<Any>>
 
     @POST("api/user/block")
-    fun blockUser(@Body data: Map<String, String>): Call<ApiResponse<Map<String, Any>>>
+    fun blockUser(@Body data: Map<String, String>): Call<BlockUserResponse>
 
     @DELETE("api/user/account")
     fun deleteAccount(): Call<ApiResponse<Any>>

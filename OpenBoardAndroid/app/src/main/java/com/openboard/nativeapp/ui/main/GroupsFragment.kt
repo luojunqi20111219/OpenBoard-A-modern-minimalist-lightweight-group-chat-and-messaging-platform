@@ -9,6 +9,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
+import com.openboard.nativeapp.data.local.SessionManager
 import com.openboard.nativeapp.data.repository.ChatRepository
 import com.openboard.nativeapp.databinding.DialogCreateGroupBinding
 import com.openboard.nativeapp.databinding.FragmentListBinding
@@ -123,15 +124,15 @@ class GroupsFragment : Fragment() {
     private fun createGroup(name: String, description: String?) {
         lifecycleScope.launch {
             val result = repository.createGroup(name, description)
-            result.onSuccess { group ->
+            result.onSuccess { resp ->
                 Toast.makeText(requireContext(), "群组创建成功", Toast.LENGTH_SHORT).show()
                 loadGroups() // 刷新列表
                 
-                // 自动进入新创建 the 群聊
+                // 自动进入新创建的群聊
                 (activity as? MainActivity)?.navigateToChat(
-                    roomId = group.id,
-                    roomName = group.name,
-                    ownerId = group.ownerId
+                    roomId = resp.groupId,
+                    roomName = name,
+                    ownerId = SessionManager.userId
                 )
             }.onFailure { e ->
                 Toast.makeText(
