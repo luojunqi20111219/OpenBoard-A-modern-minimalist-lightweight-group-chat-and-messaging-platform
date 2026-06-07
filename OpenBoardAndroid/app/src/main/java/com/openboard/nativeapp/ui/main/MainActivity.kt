@@ -1,0 +1,122 @@
+package com.openboard.nativeapp.ui.main
+
+import android.os.Bundle
+import android.view.View
+import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
+import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.LinearLayoutManager
+import com.openboard.nativeapp.data.api.WebSocketManager
+import com.openboard.nativeapp.data.local.SessionManager
+import com.openboard.nativeapp.data.model.Group
+import com.openboard.nativeapp.data.model.User
+import com.openboard.nativeapp.data.model.WsMessage
+import com.openboard.nativeapp.data.repository.ChatRepository
+import com.openboard.nativeapp.databinding.ActivityMainBinding
+import com.openboard.nativeapp.ui.adapter.GroupAdapter
+import com.openboard.nativeapp.ui.adapter.UserAdapter
+import kotlinx.coroutines.launch
+
+class MainActivity : AppCompatActivity() {
+    private lateinit var binding: ActivityMainBinding
+    private val repository = ChatRepository()
+
+    interface WsMessageListener {
+        fun onWsMessageReceived(msg: WsMessage)
+    }
+
+    var recentChatsListener: WsMessageListener? = null
+
+    private val wsListener = object : WebSocketManager.WsListener {
+        override fun onMessage(msg: WsMessage) {
+            val me = SessionManager.username ?: return
+            if (msg.type == "message" && msg.data != null) {
+                val data = msg.data
+                val isGroup = (data.roomId ?: 0) > 0
+                val id = data.roomId ?: 0
+                val target = if (isGroup) null else (if (data.name == me) data.receiver else data.name)
+                val name = if (isGroup) "群组 #$id" else (if (data.name == me) (data.receiver ?: "聊天") else (data.nickname ?: data.name ?: "聊天"))
+                
+                SessionManager.updateConversation(
+                    id = id,
+                    targetUser = target,
+                    name = name,
+                    lastMsg = data.content ?: "",
+                    time = data.time ?: "刚刚",
+                    avatar = if (isGroup) null else data.avatar,
+                    increaseUnread = true
+                )
+            } else if (msg.type == "recall") {
+                val isGroup = (msg.roomId ?: 0) > 0
+                val target = if (isGroup) null else (if (msg.user == me) msg.receiver else msg.user)
+                SessionManager.updateConversation(
+                    id = msg.roomId ?: 0,
+                    targetUser = target,
+                    name = if (isGroup) "群组 #${msg.roomId}" else (target ?: "聊天"),
+                    lastMsg = "[system_recalled]",
+                    time = "刚刚",
+                    avatar = null,
+                    increaseUnread = false
+                )
+            }
+            runOnUiThread {
+                recentChatsListener?.onWsMessageReceived(msg)
+            }
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        binding = ActivityMainBinding.inflate(layoutInflater)
+        setContentView(binding.root)
+
+        if (!SessionManager.isLoggedIn) {
+            finish()
+            return
+        }
+
+        WebSocketManager.addListener(wsListener)
+        WebSocketManager.connect()
+
+        loadFragment(ChatListFragment())
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        WebSocketManager.removeListener(wsListener)
+    }
+
+    fun loadFragment(fragment: Fragment) {
+        supportFragmentManager.beginTransaction()
+            .replace(binding.fragmentContainer.id, fragment)
+            .commit()
+    }
+
+    fun navigateToChat(roomId: Int, roomName: String, targetUser: String? = null, createdBy: String? = null) {
+        val intent = android.content.Intent(this, com.openboard.nativeapp.ui.chat.ChatActivity::class.java).apply {
+            putExtra("room_id", roomId)
+            putExtra("room_name", roomName)
+            targetUser?.let { putExtra("target_user", it) }
+            createdBy?.let { putExtra("created_by", it) }
+        }
+        startActivity(intent)
+    }
+
+    fun loadUsersList() {
+        val frag = UsersFragment()
+        loadFragment(frag)
+    }
+
+    fun loadGroupsList() {
+        val frag = GroupsFragment()
+        loadFragment(frag)
+    }
+
+    fun logout() {
+        SessionManager.clear()
+        WebSocketManager.disconnect()
+        startActivity(android.content.Intent(this, com.openboard.nativeapp.ui.login.LoginActivity::class.java))
+        finish()
+    }
+}

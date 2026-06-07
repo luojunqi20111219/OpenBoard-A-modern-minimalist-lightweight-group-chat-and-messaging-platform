@@ -343,6 +343,91 @@
         let ws = null; let onlineUsers = []; let typingTimer = null;
         let mobileHistoryActive = false;
 
+        // Message Notification & Tab Flash Logic
+        let originalTitle = document.title;
+        let titleFlashInterval = null;
+        let unreadCount = 0;
+
+        function requestNotificationPermission() {
+            if ("Notification" in window && Notification.permission !== "denied" && Notification.permission !== "granted") {
+                Notification.requestPermission();
+            }
+        }
+
+        function startTitleFlash() {
+            if (!document.hidden && document.hasFocus()) {
+                return;
+            }
+            unreadCount++;
+            if (titleFlashInterval) clearInterval(titleFlashInterval);
+            let showUnread = true;
+            titleFlashInterval = setInterval(() => {
+                if (showUnread) {
+                    document.title = `💬 [新消息 ${unreadCount}条] - 信语`;
+                } else {
+                    document.title = originalTitle;
+                }
+                showUnread = !showUnread;
+            }, 1000);
+        }
+
+        function showNotification(msgData) {
+            if (currentUser && msgData.name === currentUser.username) return;
+            if (!("Notification" in window) || Notification.permission !== "granted") return;
+
+            const senderName = msgData.nickname || msgData.name;
+            let title = "";
+            let bodyText = msgData.content || "";
+            if (bodyText.startsWith("[img:")) {
+                bodyText = "[图片]";
+            } else if (bodyText.startsWith("[file:")) {
+                bodyText = "[文件]";
+            }
+            
+            if (msgData.receiver) {
+                title = `💬 来自 ${senderName} 的私信`;
+            } else {
+                const room = globalGroups.find(g => g.id === msgData.room_id);
+                const roomName = room ? room.name : "未知群聊";
+                title = `👥 #${roomName} 中的新消息`;
+                if (!msgData.receiver) {
+                    bodyText = `${senderName}: ${bodyText}`;
+                }
+            }
+
+            const options = {
+                body: bodyText,
+                icon: "/favicon.ico",
+                tag: msgData.receiver ? `p2p-${msgData.name}` : `room-${msgData.room_id}`,
+                renotify: true
+            };
+
+            const notification = new Notification(title, options);
+
+            notification.onclick = function() {
+                window.focus();
+                if (msgData.receiver) {
+                    switchPrivateChat(msgData.name, senderName, msgData.avatar);
+                } else {
+                    const room = globalGroups.find(g => g.id === msgData.room_id);
+                    if (room) {
+                        switchRoom(msgData.room_id, room.name);
+                    }
+                }
+                notification.close();
+            };
+        }
+
+        // Clear title flash when window receives focus
+        window.addEventListener('focus', () => {
+            if (titleFlashInterval) {
+                clearInterval(titleFlashInterval);
+                titleFlashInterval = null;
+            }
+            unreadCount = 0;
+            document.title = originalTitle;
+        });
+
         function getAvatarHtml(avatarStr, name, sizeClass = "w-10 h-10 text-base") {
             const displayName = name || "?";
             if (avatarStr && avatarStr.startsWith('data:image')) {
@@ -425,6 +510,9 @@
                 `;
                 loadUsers(); 
                 setupWebSocket();
+                requestNotificationPermission();
+            } else {
+                requestNotificationPermission();
             }
             loadGroups().then(() => switchRoom(0, '公共大厅', true));
             if (currentUser) {
@@ -481,7 +569,16 @@
                 if (globalBlockedUsers.includes(data.name)) return;
                 appendMessage(data);
             }
-            // 收到新消息时，如果是其他房间的消息，可以加一个小红点逻辑（暂未实现）
+
+            // 新消息提醒
+            if (currentUser && data.name !== currentUser.username) {
+                const isTabActive = !document.hidden && document.hasFocus();
+                const isMessageInActiveChat = isCurrentRoom || isCurrentPrivate;
+                if (!isTabActive || !isMessageInActiveChat) {
+                    startTitleFlash();
+                    showNotification(data);
+                }
+            }
         }
 
         function handleTyping(msg) {
