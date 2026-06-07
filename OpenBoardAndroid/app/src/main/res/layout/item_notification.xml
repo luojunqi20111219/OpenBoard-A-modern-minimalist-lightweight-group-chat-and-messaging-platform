@@ -12,7 +12,6 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content">
 
-        <!-- Unread indicator dot -->
         <View
             android:id="@+id/unread_dot"
             android:layout_width="8dp"

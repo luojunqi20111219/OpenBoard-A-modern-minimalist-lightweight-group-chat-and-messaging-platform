@@ -1,5 +1,8 @@
 package com.openboard.nativeapp.data.model
 
+/**
+ * 本地会话列表实体类
+ */
 data class Conversation(
     val id: Int, // roomId, or 0 for direct chat
     val targetUser: String?, // username of target for direct chat, null for groups

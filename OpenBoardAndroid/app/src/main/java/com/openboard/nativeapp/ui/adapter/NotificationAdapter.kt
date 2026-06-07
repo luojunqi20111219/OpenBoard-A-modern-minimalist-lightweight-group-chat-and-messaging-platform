@@ -8,7 +8,7 @@ import com.openboard.nativeapp.data.model.Notification
 import com.openboard.nativeapp.databinding.ItemNotificationBinding
 
 /**
- * 系统通知/公告列表适配器
+ * 公告消息卡片适配器，未读公告展示红点
  */
 class NotificationAdapter(
     private val items: MutableList<Notification> = mutableListOf(),
@@ -18,11 +18,6 @@ class NotificationAdapter(
     fun updateData(newItems: List<Notification>, newLastReadId: Int) {
         items.clear()
         items.addAll(newItems)
-        lastReadId = newLastReadId
-        notifyDataSetChanged()
-    }
-
-    fun markAllRead(newLastReadId: Int) {
         lastReadId = newLastReadId
         notifyDataSetChanged()
     }
@@ -48,7 +43,6 @@ class NotificationAdapter(
             binding.tvTime.text = item.createdAt
             binding.tvContent.text = item.content
 
-            // 判断是否未读：如果公告ID大于用户已读的最后公告ID，显示红点
             if (item.id > lastReadId) {
                 binding.unreadDot.visibility = View.VISIBLE
             } else {

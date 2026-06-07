@@ -2,11 +2,12 @@ package com.openboard.nativeapp.data.model
 
 import com.google.gson.annotations.SerializedName
 
+/**
+ * WebSocket 数据广播帧结构
+ */
 data class WsMessage(
     val type: String? = null,
     val data: WsData? = null,
-    
-    // For root-level control/status events (recall, typing, online_status)
     val user: String? = null,
     @SerializedName("msg_id")
     val msgId: Int? = null,

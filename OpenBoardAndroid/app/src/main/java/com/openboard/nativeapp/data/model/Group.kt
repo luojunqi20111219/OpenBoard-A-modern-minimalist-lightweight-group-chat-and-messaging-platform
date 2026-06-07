@@ -2,6 +2,9 @@ package com.openboard.nativeapp.data.model
 
 import com.google.gson.annotations.SerializedName
 
+/**
+ * 聊天群组/频道实体类
+ */
 data class Group(
     val id: Int = 0,
     val name: String = "",

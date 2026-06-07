@@ -2,10 +2,15 @@ package com.openboard.nativeapp.data.local
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import com.openboard.nativeapp.data.api.RetrofitClient
 import com.openboard.nativeapp.data.model.User
 import com.openboard.nativeapp.data.model.Conversation
 
+/**
+ * 存放登录信息、缓存的会话列表及服务器地址的本地首选项管理器
+ */
 object SessionManager {
     private const val PREFS_NAME = "openboard_prefs"
     private const val KEY_TOKEN = "token"
@@ -15,14 +20,15 @@ object SessionManager {
     private const val KEY_AVATAR = "avatar"
     private const val KEY_CONVERSATIONS = "conversations"
     private const val KEY_SERVER_URL = "server_url"
+    private const val KEY_ROLE = "role"
 
     private lateinit var prefs: SharedPreferences
-    private val gson = com.google.gson.Gson()
+    private val gson = Gson()
 
     fun init(context: Context) {
         prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         
-        // Load custom Server URL if saved
+        // 载入保存的自定义服务器地址
         val savedServerUrl = prefs.getString(KEY_SERVER_URL, null)
         if (!savedServerUrl.isNullOrEmpty()) {
             RetrofitClient.setBaseUrl(savedServerUrl)
@@ -61,6 +67,10 @@ object SessionManager {
         get() = prefs.getString(KEY_AVATAR, null)
         set(value) = prefs.edit().putString(KEY_AVATAR, value).apply()
 
+    var role: Int
+        get() = prefs.getInt(KEY_ROLE, 0)
+        set(value) = prefs.edit().putInt(KEY_ROLE, value).apply()
+
     val isLoggedIn: Boolean
         get() = !token.isNullOrEmpty()
 
@@ -69,18 +79,20 @@ object SessionManager {
         username = user.username
         nickname = user.nickname
         avatar = user.avatar
+        role = user.role
     }
 
     fun getUser(): User = User(
         id = userId,
         username = username ?: "",
         nickname = nickname,
-        avatar = avatar
+        avatar = avatar,
+        role = role
     )
 
     fun getConversations(): MutableList<Conversation> {
         val json = prefs.getString(KEY_CONVERSATIONS, null) ?: return mutableListOf()
-        val type = object : com.google.gson.reflect.TypeToken<List<Conversation>>() {}.type
+        val type = object : TypeToken<List<Conversation>>() {}.type
         return try {
             gson.fromJson(json, type) ?: mutableListOf()
         } catch (e: Exception) {
@@ -107,7 +119,7 @@ object SessionManager {
         val list = getConversations()
         val index = list.indexOfFirst { it.id == id && it.targetUser == targetUser }
 
-        // Clean up markdown/Base64/recall tags for a premium preview
+        // 对消息摘要进行净化，剔除多媒体标签和撤回标识
         val cleanPreview = when {
             lastMsg.contains("[img:") -> "[图片]"
             lastMsg.contains("[file:") -> "[文件]"

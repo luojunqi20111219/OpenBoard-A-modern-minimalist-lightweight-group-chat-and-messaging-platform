@@ -1,79 +1,106 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:background="@color/background">
 
-    <!-- Toolbar -->
-    <LinearLayout
+    <!-- Header Toolbar -->
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/toolbar"
         android:layout_width="match_parent"
-        android:layout_height="56dp"
-        android:background="@color/surface"
+        android:layout_height="?attr/actionBarSize"
+        android:background="@color/primary"
         android:elevation="4dp"
-        android:gravity="center_vertical"
-        android:paddingHorizontal="8dp">
+        app:theme="@style/ThemeOverlay.AppCompat.Dark.ActionBar"
+        app:popupTheme="@style/ThemeOverlay.AppCompat.Light">
 
-        <ImageButton
-            android:id="@+id/btn_back"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@drawable/ic_back"
-            android:contentDescription="Back"/>
+        <RelativeLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
 
-        <TextView
-            android:id="@+id/tv_title"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="8dp"
-            android:text="聊天"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:textColor="@color/text_primary"/>
+            <ImageButton
+                android:id="@+id/btn_back"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_alignParentStart="true"
+                android:layout_centerVertical="true"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_back"
+                android:contentDescription="返回"
+                android:tint="@android:color/white"/>
 
-        <Button
-            android:id="@+id/btn_action"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="操作"
-            android:textAllCaps="false"
-            android:visibility="gone"
-            style="@style/Widget.MaterialComponents.Button.TextButton"/>
+            <TextView
+                android:id="@+id/tv_title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_toEndOf="@id/btn_back"
+                android:layout_marginStart="8dp"
+                android:layout_centerVertical="true"
+                android:text="聊天房间"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:textColor="@android:color/white"
+                android:ellipsize="end"
+                android:singleLine="true"/>
 
-    </LinearLayout>
+            <Button
+                android:id="@+id/btn_action"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_alignParentEnd="true"
+                android:layout_centerVertical="true"
+                android:layout_marginEnd="16dp"
+                android:text="设置"
+                android:textAllCaps="false"
+                android:textColor="@android:color/white"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:visibility="gone"/>
 
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/recycler_view"
+        </RelativeLayout>
+    </androidx.appcompat.widget.Toolbar>
+
+    <!-- Message Recycler View -->
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"
-        android:padding="8dp"
-        android:clipToPadding="false"/>
+        android:layout_weight="1">
 
-    <ProgressBar
-        android:id="@+id/progress_bar"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center"
-        android:visibility="gone"/>
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/recycler_view"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:padding="8dp"/>
 
-    <!-- Input -->
+        <ProgressBar
+            android:id="@+id/progress_bar"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:visibility="gone"/>
+
+    </FrameLayout>
+
+    <!-- Composer Bar -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@color/surface"
+        android:orientation="horizontal"
         android:padding="8dp"
-        android:gravity="center_vertical">
+        android:background="@color/surface"
+        android:gravity="center_vertical"
+        android:elevation="8dp">
 
         <ImageButton
             android:id="@+id/btn_attach"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:src="@drawable/ic_attach"
-            android:contentDescription="Attach"/>
+            android:contentDescription="附件"
+            android:tint="@color/text_secondary"/>
 
         <EditText
             android:id="@+id/et_message"
@@ -81,12 +108,13 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:layout_marginHorizontal="8dp"
+            android:paddingHorizontal="16dp"
+            android:paddingVertical="10dp"
             android:background="@drawable/bg_input"
-            android:hint="输入消息..."
-            android:padding="12dp"
-            android:textSize="14sp"
-            android:inputType="textMultiLine"
-            android:maxLines="4"/>
+            android:hint="说点什么吧..."
+            android:textSize="15sp"
+            android:maxLines="4"
+            android:inputType="textMultiLine"/>
 
         <ImageButton
             android:id="@+id/btn_send"
@@ -94,7 +122,9 @@
             android:layout_height="48dp"
             android:background="@drawable/bg_send_btn"
             android:src="@drawable/ic_send"
-            android:contentDescription="Send"/>
+            android:contentDescription="发送"
+            android:tint="@android:color/white"/>
 
     </LinearLayout>
+
 </LinearLayout>

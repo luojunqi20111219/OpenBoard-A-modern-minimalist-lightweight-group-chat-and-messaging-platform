@@ -10,13 +10,15 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.openboard.nativeapp.data.api.WebSocketManager
 import com.openboard.nativeapp.data.local.SessionManager
-import com.openboard.nativeapp.data.model.User
 import com.openboard.nativeapp.data.model.WsMessage
 import com.openboard.nativeapp.data.repository.ChatRepository
 import com.openboard.nativeapp.databinding.FragmentListBinding
 import com.openboard.nativeapp.ui.adapter.UserAdapter
 import kotlinx.coroutines.launch
 
+/**
+ * 全站用户/联系人列表页面，展示全站活跃的私聊用户、黑名单标识与在线状态
+ */
 class UsersFragment : Fragment() {
     private var _binding: FragmentListBinding? = null
     private val binding get() = _binding!!
@@ -62,10 +64,13 @@ class UsersFragment : Fragment() {
     private fun loadUsers() {
         binding.swipeRefresh.isRefreshing = true
         lifecycleScope.launch {
-            val result = repository.getUsers()
+            val result = repository.getUsersEnvelope()
             binding.swipeRefresh.isRefreshing = false
-            result.onSuccess { users ->
+            result.onSuccess { response ->
+                val users = response.data ?: emptyList()
+                val blocked = response.blockedUsers ?: emptyList()
                 val me = SessionManager.username
+                adapter.updateBlockedUsers(blocked)
                 adapter.submitList(users.filter { it.username != me })
             }.onFailure {
                 Toast.makeText(requireContext(), "加载用户列表失败", Toast.LENGTH_SHORT).show()

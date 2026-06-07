@@ -4,7 +4,6 @@ import android.content.Intent
 import android.os.Bundle
 import android.view.View
 import android.widget.Toast
-import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.openboard.nativeapp.data.local.SessionManager
@@ -14,29 +13,56 @@ import com.openboard.nativeapp.databinding.ActivityLoginBinding
 import com.openboard.nativeapp.ui.main.MainActivity
 import kotlinx.coroutines.launch
 
+/**
+ * 登录/注册页面，负责用户身份校验与动态设置服务器 API URL
+ */
 class LoginActivity : AppCompatActivity() {
     private lateinit var binding: ActivityLoginBinding
     private val repository = ChatRepository()
+    private var isLoginMode = true
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        binding = ActivityLoginBinding.inflate(layoutInflater)
-        setContentView(binding.root)
-
-        binding.etServerUrl.setText(SessionManager.serverUrl)
-
+        
+        // 自动登录判定
         if (SessionManager.isLoggedIn) {
             navigateToMain()
             return
         }
 
-        binding.btnLogin.setOnClickListener { doLogin() }
-        binding.btnRegister.setOnClickListener { doRegister() }
+        binding = ActivityLoginBinding.inflate(layoutInflater)
+        setContentView(binding.root)
 
-        binding.tvSwitchLogin.setOnClickListener {
-            val isLogin = binding.layoutLogin.visibility == View.VISIBLE
-            binding.layoutLogin.visibility = if (isLogin) View.GONE else View.VISIBLE
-            binding.layoutRegister.visibility = if (isLogin) View.VISIBLE else View.GONE
+        // 预载入保存的自定义服务器地址
+        binding.etServerUrl.setText(SessionManager.serverUrl)
+
+        setupListeners()
+    }
+
+    private fun setupListeners() {
+        binding.btnTabLogin.setOnClickListener {
+            switchMode(true)
+        }
+        binding.btnTabRegister.setOnClickListener {
+            switchMode(false)
+        }
+        binding.btnAction.setOnClickListener {
+            if (isLoginMode) doLogin() else doRegister()
+        }
+    }
+
+    private fun switchMode(loginMode: Boolean) {
+        isLoginMode = loginMode
+        if (isLoginMode) {
+            binding.btnTabLogin.setTextColor(resources.getColor(com.openboard.nativeapp.R.color.primary, null))
+            binding.btnTabRegister.setTextColor(resources.getColor(com.openboard.nativeapp.R.color.text_secondary, null))
+            binding.tilNickname.visibility = View.GONE
+            binding.btnAction.text = "立即登录"
+        } else {
+            binding.btnTabLogin.setTextColor(resources.getColor(com.openboard.nativeapp.R.color.text_secondary, null))
+            binding.btnTabRegister.setTextColor(resources.getColor(com.openboard.nativeapp.R.color.primary, null))
+            binding.tilNickname.visibility = View.VISIBLE
+            binding.btnAction.text = "立即注册"
         }
     }
 
@@ -51,16 +77,17 @@ class LoginActivity : AppCompatActivity() {
         val username = binding.etUsername.text.toString().trim()
         val password = binding.etPassword.text.toString()
         if (username.isEmpty() || password.isEmpty()) {
-            Toast.makeText(this, "请填写所有字段", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "用户名或密码不能为空", Toast.LENGTH_SHORT).show()
             return
         }
+
         binding.progressBar.visibility = View.VISIBLE
-        binding.btnLogin.isEnabled = false
+        binding.btnAction.isEnabled = false
 
         lifecycleScope.launch {
             val result = repository.login(username, password)
             binding.progressBar.visibility = View.GONE
-            binding.btnLogin.isEnabled = true
+            binding.btnAction.isEnabled = true
             result.onSuccess { resp ->
                 if (resp.code == 200 && resp.token != null) {
                     SessionManager.token = resp.token
@@ -89,20 +116,21 @@ class LoginActivity : AppCompatActivity() {
         }
         SessionManager.serverUrl = serverUrl
 
-        val username = binding.etRegUsername.text.toString().trim()
-        val password = binding.etRegPassword.text.toString()
-        val nickname = binding.etRegNickname.text.toString().trim()
+        val username = binding.etUsername.text.toString().trim()
+        val password = binding.etPassword.text.toString()
+        val nickname = binding.etNickname.text.toString().trim()
         if (username.isEmpty() || password.isEmpty() || nickname.isEmpty()) {
             Toast.makeText(this, "请填写所有字段", Toast.LENGTH_SHORT).show()
             return
         }
+
         binding.progressBar.visibility = View.VISIBLE
-        binding.btnRegister.isEnabled = false
+        binding.btnAction.isEnabled = false
 
         lifecycleScope.launch {
             val result = repository.register(username, password, nickname)
             binding.progressBar.visibility = View.GONE
-            binding.btnRegister.isEnabled = true
+            binding.btnAction.isEnabled = true
             result.onSuccess { resp ->
                 if (resp.code == 200 && resp.token != null) {
                     SessionManager.token = resp.token

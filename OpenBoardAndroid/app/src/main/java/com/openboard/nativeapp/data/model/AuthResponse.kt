@@ -1,5 +1,8 @@
 package com.openboard.nativeapp.data.model
 
+/**
+ * 登录/注册请求的响应实体类
+ */
 data class AuthResponse(
     val code: Int = 0,
     val token: String? = null,

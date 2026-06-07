@@ -3,33 +3,22 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="16dp">
+    android:padding="20dp">
 
-    <com.google.android.material.textfield.TextInputLayout
+    <EditText
+        android:id="@+id/et_group_name"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="12dp"
-        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
-        <com.google.android.material.textfield.TextInputEditText
-            android:id="@+id/et_group_name"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="群组名称"
-            android:inputType="text"
-            android:maxLines="1"/>
-    </com.google.android.material.textfield.TextInputLayout>
+        android:hint="给群聊起个名字"
+        android:inputType="text"
+        android:layout_marginBottom="16dp"/>
 
-    <com.google.android.material.textfield.TextInputLayout
+    <EditText
+        android:id="@+id/et_group_desc"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
-        <com.google.android.material.textfield.TextInputEditText
-            android:id="@+id/et_group_desc"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="群组描述 (可选)"
-            android:inputType="textMultiLine"
-            android:maxLines="3"/>
-    </com.google.android.material.textfield.TextInputLayout>
+        android:hint="群描述 (选填)"
+        android:inputType="textMultiLine"
+        android:maxLines="3"/>
 
 </LinearLayout>

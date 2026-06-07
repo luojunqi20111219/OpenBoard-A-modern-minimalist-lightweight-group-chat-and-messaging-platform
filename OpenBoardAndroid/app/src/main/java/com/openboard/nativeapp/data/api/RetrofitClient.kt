@@ -2,68 +2,67 @@ package com.openboard.nativeapp.data.api
 
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
+import okhttp3.Response
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 
+/**
+ * Retrofit 客户端单例，支持动态修改 baseUrl 与登录授权 Token
+ */
 object RetrofitClient {
-    private var base_url = "http://liuyan.luojunqi.xyz:5000/"
-
-    private var retrofit: Retrofit? = null
+    private var baseUrl = "http://liuyan.luojunqi.xyz:5000/"
     private var token: String? = null
+    private var retrofit: Retrofit? = null
+
+    fun getBaseUrl(): String = baseUrl
 
     fun setBaseUrl(url: String) {
-        var cleanUrl = url.trim()
-        if (!cleanUrl.endsWith("/")) {
-            cleanUrl += "/"
-        }
-        if (base_url != cleanUrl) {
-            base_url = cleanUrl
-            retrofit = null // Force recreate
+        val cleanUrl = if (url.endsWith("/")) url else "$url/"
+        if (baseUrl != cleanUrl) {
+            baseUrl = cleanUrl
+            retrofit = null // 强制重新初始化 Retrofit
         }
     }
 
     fun setToken(t: String?) {
         token = t
-        retrofit = null // Force recreate
+    }
+
+    private fun getClient(): OkHttpClient {
+        val logging = HttpLoggingInterceptor().apply {
+            level = HttpLoggingInterceptor.Level.BODY
+        }
+
+        val authInterceptor = object : Interceptor {
+            override fun intercept(chain: Interceptor.Chain): Response {
+                val req = chain.request().newBuilder()
+                token?.let {
+                    // 直接传递原始 JWT Token (后端 verify_token 不过滤 'Bearer ' 前缀)
+                    req.addHeader("Authorization", it)
+                }
+                return chain.proceed(req.build())
+            }
+        }
+
+        return OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .writeTimeout(15, TimeUnit.SECONDS)
+            .addInterceptor(authInterceptor)
+            .addInterceptor(logging)
+            .build()
     }
 
     fun getApiService(): ApiService {
         if (retrofit == null) {
-            val logging = HttpLoggingInterceptor().apply {
-                level = HttpLoggingInterceptor.Level.BODY
-            }
-
-            val authInterceptor = Interceptor { chain ->
-                val request = chain.request().newBuilder().apply {
-                    token?.let { addHeader("Authorization", it) }
-                }.build()
-                chain.proceed(request)
-            }
-
-            val client = OkHttpClient.Builder()
-                .addInterceptor(authInterceptor)
-                .addInterceptor(logging)
-                .connectTimeout(15, TimeUnit.SECONDS)
-                .readTimeout(30, TimeUnit.SECONDS)
-                .writeTimeout(30, TimeUnit.SECONDS)
-                .build()
-
             retrofit = Retrofit.Builder()
-                .baseUrl(base_url)
-                .client(client)
+                .baseUrl(baseUrl)
+                .client(getClient())
                 .addConverterFactory(GsonConverterFactory.create())
                 .build()
         }
         return retrofit!!.create(ApiService::class.java)
     }
-
-    fun getWsUrl(): String {
-        val base = base_url.replace("http://", "ws://").replace("https://", "wss://")
-        val cleanBase = if (base.endsWith("/")) base.substring(0, base.length - 1) else base
-        return "$cleanBase/ws/${token ?: ""}"
-    }
-
-    fun getBaseUrl(): String = base_url
 }

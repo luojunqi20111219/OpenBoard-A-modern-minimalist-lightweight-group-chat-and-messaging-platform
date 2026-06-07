@@ -9,10 +9,12 @@ import retrofit2.Response
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
+/**
+ * 集中管理数据请求的 Repository 类，将 Retrofit 的异步 Callback 桥接为协程挂起函数
+ */
 class ChatRepository {
     private val api = RetrofitClient.getApiService()
 
-    // Auth calls return AuthResponse directly (no ApiResponse wrapper)
     private suspend fun <T> apiCallRaw(call: () -> Call<T>): Result<T> =
         suspendCancellableCoroutine { cont ->
             val c = call()
@@ -30,7 +32,6 @@ class ChatRepository {
             cont.invokeOnCancellation { c.cancel() }
         }
 
-    // Wrapped calls return ApiResponse<T> - check code==200
     private suspend fun <T> apiCallWrapped(call: () -> Call<ApiResponse<T>>): Result<T> =
         suspendCancellableCoroutine { cont ->
             val c = call()
@@ -51,27 +52,6 @@ class ChatRepository {
             cont.invokeOnCancellation { c.cancel() }
         }
 
-    // For void/unit API calls (no data expected)
-    private suspend fun apiCallVoid(call: () -> Call<ApiResponse<Any>>): Result<Unit> =
-        suspendCancellableCoroutine { cont ->
-            val c = call()
-            c.enqueue(object : Callback<ApiResponse<Any>> {
-                override fun onResponse(retroCall: Call<ApiResponse<Any>>, response: Response<ApiResponse<Any>>) {
-                    val body = response.body()
-                    if (response.isSuccessful && body != null && (body.code == 200 || body.status == "success")) {
-                        cont.resume(Result.success(Unit))
-                    } else {
-                        cont.resume(Result.failure(Exception("API error: ${response.code()} ${body?.msg ?: ""}")))
-                    }
-                }
-                override fun onFailure(retroCall: Call<ApiResponse<Any>>, t: Throwable) {
-                    cont.resume(Result.failure(t))
-                }
-            })
-            cont.invokeOnCancellation { c.cancel() }
-        }
-
-    // Returns the full ApiResponse envelope to access metadata like last_read_id
     private suspend fun <T> apiCallEnvelope(call: () -> Call<ApiResponse<T>>): Result<ApiResponse<T>> =
         suspendCancellableCoroutine { cont ->
             val c = call()
@@ -91,6 +71,24 @@ class ChatRepository {
             cont.invokeOnCancellation { c.cancel() }
         }
 
+    private suspend fun apiCallVoid(call: () -> Call<ApiResponse<Any>>): Result<Unit> =
+        suspendCancellableCoroutine { cont ->
+            val c = call()
+            c.enqueue(object : Callback<ApiResponse<Any>> {
+                override fun onResponse(retroCall: Call<ApiResponse<Any>>, response: Response<ApiResponse<Any>>) {
+                    val body = response.body()
+                    if (response.isSuccessful && body != null && (body.code == 200 || body.status == "success")) {
+                        cont.resume(Result.success(Unit))
+                    } else {
+                        cont.resume(Result.failure(Exception("API error: ${response.code()} ${body?.msg ?: ""}")))
+                    }
+                }
+                override fun onFailure(retroCall: Call<ApiResponse<Any>>, t: Throwable) {
+                    cont.resume(Result.failure(t))
+                }
+            })
+            cont.invokeOnCancellation { c.cancel() }
+        }
 
     suspend fun login(username: String, password: String): Result<AuthResponse> =
         apiCallRaw { api.login(LoginRequest(username, password)) }

@@ -1,85 +1,100 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="72dp"
-    android:orientation="horizontal"
-    android:padding="12dp"
-    android:gravity="center_vertical"
-    android:background="?attr/selectableItemBackground">
+    android:paddingHorizontal="16dp"
+    android:background="?attr/selectableItemBackground"
+    android:clickable="true"
+    android:focusable="true">
 
+    <!-- Avatar Frame -->
     <FrameLayout
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content">
+        android:id="@+id/avatar_frame"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_alignParentStart="true"
+        android:layout_centerVertical="true">
+
         <ImageView
             android:id="@+id/iv_avatar"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:src="@drawable/ic_person"/>
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:src="@drawable/ic_person"
+            android:background="@drawable/bg_avatar_circle"
+            android:scaleType="centerCrop"
+            android:contentDescription="头像"/>
+
         <View
-            android:id="@+id/view_online_indicator"
-            android:layout_width="14dp"
-            android:layout_height="14dp"
+            android:id="@+id/online_dot"
+            android:layout_width="12dp"
+            android:layout_height="12dp"
             android:layout_gravity="bottom|end"
             android:background="@drawable/bg_online_dot"
             android:visibility="gone"/>
+
     </FrameLayout>
 
-    <LinearLayout
-        android:layout_width="0dp"
+    <!-- Time -->
+    <TextView
+        android:id="@+id/tv_time"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_weight="1"
+        android:layout_alignParentEnd="true"
+        android:layout_alignTop="@id/layout_text"
+        android:textSize="12sp"
+        android:textColor="@color/text_secondary"
+        android:text="12:00"/>
+
+    <!-- Unread Badge -->
+    <TextView
+        android:id="@+id/tv_unread_count"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentEnd="true"
+        android:layout_alignBottom="@id/layout_text"
+        android:background="@drawable/badge_dot"
+        android:textColor="@android:color/white"
+        android:textSize="10sp"
+        android:textStyle="bold"
+        android:paddingHorizontal="6dp"
+        android:paddingVertical="2dp"
+        android:text="1"
+        android:visibility="gone"/>
+
+    <!-- Text Group -->
+    <LinearLayout
+        android:id="@+id/layout_text"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_toEndOf="@id/avatar_frame"
+        android:layout_toStartOf="@id/tv_time"
         android:layout_marginStart="12dp"
+        android:layout_marginEnd="8dp"
+        android:layout_centerVertical="true"
         android:orientation="vertical">
 
         <TextView
             android:id="@+id/tv_name"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:textSize="16sp"
             android:textStyle="bold"
             android:textColor="@color/text_primary"
             android:singleLine="true"
-            android:ellipsize="end"/>
+            android:ellipsize="end"
+            android:text="群聊 / 用户"/>
 
         <TextView
-            android:id="@+id/tv_last_msg"
+            android:id="@+id/tv_last_message"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textSize="13sp"
+            android:textSize="14sp"
             android:textColor="@color/text_secondary"
             android:layout_marginTop="4dp"
             android:singleLine="true"
-            android:ellipsize="end"/>
+            android:ellipsize="end"
+            android:text="预览最后一条消息..."/>
 
     </LinearLayout>
 
-    <LinearLayout
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:gravity="end"
-        android:layout_marginStart="8dp">
-
-        <TextView
-            android:id="@+id/tv_time"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textSize="11sp"
-            android:textColor="@color/text_secondary"/>
-
-        <TextView
-            android:id="@+id/tv_unread"
-            android:layout_width="20dp"
-            android:layout_height="20dp"
-            android:layout_marginTop="6dp"
-            android:background="@drawable/bg_online_dot"
-            android:backgroundTint="@color/red"
-            android:gravity="center"
-            android:textColor="@android:color/white"
-            android:textSize="10sp"
-            android:textStyle="bold"
-            android:visibility="invisible"/>
-
-    </LinearLayout>
-
-</LinearLayout>
+</RelativeLayout>

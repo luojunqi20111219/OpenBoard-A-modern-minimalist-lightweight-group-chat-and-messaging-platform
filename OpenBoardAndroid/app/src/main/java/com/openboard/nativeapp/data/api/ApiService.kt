@@ -5,6 +5,9 @@ import okhttp3.MultipartBody
 import retrofit2.Call
 import retrofit2.http.*
 
+/**
+ * Retrofit API 接口列表
+ */
 interface ApiService {
 
     @POST("api/login")
@@ -38,6 +41,12 @@ interface ApiService {
     @POST("api/groups")
     fun createGroup(@Body request: CreateGroupRequest): Call<ApiResponse<Group>>
 
+    @PUT("api/groups/{group_id}")
+    fun updateGroup(
+        @Path("group_id") groupId: Int,
+        @Body data: Map<String, String>
+    ): Call<ApiResponse<Any>>
+
     @DELETE("api/groups/{groupId}")
     fun deleteGroup(@Path("groupId") groupId: Int): Call<ApiResponse<Any>>
 
@@ -49,12 +58,6 @@ interface ApiService {
 
     @POST("api/user/profile")
     fun updateProfile(@Body profile: Map<String, String>): Call<ApiResponse<Any>>
-
-    @PUT("api/groups/{group_id}")
-    fun updateGroup(
-        @Path("group_id") groupId: Int,
-        @Body data: Map<String, String>
-    ): Call<ApiResponse<Any>>
 
     @PUT("api/groups/{group_id}/permissions")
     fun updateGroupPermissions(

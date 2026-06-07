@@ -1,5 +1,6 @@
 package com.openboard.nativeapp.ui.adapter
 
+import android.graphics.BitmapFactory
 import android.util.Base64
 import android.view.LayoutInflater
 import android.view.View
@@ -11,15 +12,25 @@ import com.openboard.nativeapp.R
 import com.openboard.nativeapp.data.model.User
 import com.openboard.nativeapp.databinding.ItemUserBinding
 
+/**
+ * 联系人列表适配器，支持展示拉黑状态与在线绿点
+ */
 class UserAdapter(
     private val onClick: (User) -> Unit
 ) : ListAdapter<User, UserAdapter.VH>(UserDiff()) {
 
-    val onlineUsers = mutableSetOf<String>()
+    private val onlineUsers = mutableSetOf<String>()
+    private val blockedUsers = mutableSetOf<String>()
 
-    fun updateOnlineUsers(users: Collection<String>) {
+    fun updateOnlineUsers(usersList: List<String>) {
         onlineUsers.clear()
-        onlineUsers.addAll(users)
+        onlineUsers.addAll(usersList)
+        notifyDataSetChanged()
+    }
+
+    fun updateBlockedUsers(usersList: List<String>) {
+        blockedUsers.clear()
+        blockedUsers.addAll(usersList)
         notifyDataSetChanged()
     }
 
@@ -35,8 +46,22 @@ class UserAdapter(
     inner class VH(private val b: ItemUserBinding) : RecyclerView.ViewHolder(b.root) {
         fun bind(user: User) {
             b.tvName.text = user.nickname ?: user.username
-            b.tvUsername.text = "@${user.username}"
 
+            // 在线标识
+            if (onlineUsers.contains(user.username)) {
+                b.onlineDot.visibility = View.VISIBLE
+            } else {
+                b.onlineDot.visibility = View.GONE
+            }
+
+            // 拉黑标识
+            if (blockedUsers.contains(user.username)) {
+                b.ivBlocked.visibility = View.VISIBLE
+            } else {
+                b.ivBlocked.visibility = View.GONE
+            }
+
+            // 头像 Base64 渲染
             val avatarStr = user.avatar
             if (!avatarStr.isNullOrEmpty()) {
                 try {
@@ -46,19 +71,13 @@ class UserAdapter(
                         avatarStr
                     }
                     val bytes = Base64.decode(base64Data, Base64.DEFAULT)
-                    val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                     b.ivAvatar.setImageBitmap(bmp)
                 } catch (e: Exception) {
                     b.ivAvatar.setImageResource(R.drawable.ic_person)
                 }
             } else {
                 b.ivAvatar.setImageResource(R.drawable.ic_person)
-            }
-
-            if (onlineUsers.contains(user.username)) {
-                b.viewOnlineIndicator.visibility = View.VISIBLE
-            } else {
-                b.viewOnlineIndicator.visibility = View.GONE
             }
 
             b.root.setOnClickListener { onClick(user) }

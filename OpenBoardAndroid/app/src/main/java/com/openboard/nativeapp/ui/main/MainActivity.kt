@@ -1,26 +1,21 @@
 package com.openboard.nativeapp.ui.main
 
+import android.content.Intent
 import android.os.Bundle
-import android.view.View
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
-import androidx.lifecycle.lifecycleScope
-import androidx.recyclerview.widget.LinearLayoutManager
 import com.openboard.nativeapp.data.api.WebSocketManager
 import com.openboard.nativeapp.data.local.SessionManager
-import com.openboard.nativeapp.data.model.Group
-import com.openboard.nativeapp.data.model.User
 import com.openboard.nativeapp.data.model.WsMessage
-import com.openboard.nativeapp.data.repository.ChatRepository
 import com.openboard.nativeapp.databinding.ActivityMainBinding
-import com.openboard.nativeapp.ui.adapter.GroupAdapter
-import com.openboard.nativeapp.ui.adapter.UserAdapter
-import kotlinx.coroutines.launch
+import com.openboard.nativeapp.ui.chat.ChatActivity
+import com.openboard.nativeapp.ui.login.LoginActivity
 
+/**
+ * 主 Activity 壳容器，负责 WebSocket 事件的分发和子页面的切换
+ */
 class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
-    private val repository = ChatRepository()
 
     interface WsMessageListener {
         fun onWsMessageReceived(msg: WsMessage)
@@ -72,7 +67,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         if (!SessionManager.isLoggedIn) {
-            finish()
+            redirectToLogin()
             return
         }
 
@@ -80,6 +75,11 @@ class MainActivity : AppCompatActivity() {
         WebSocketManager.connect()
 
         loadFragment(ChatListFragment())
+    }
+
+    private fun redirectToLogin() {
+        startActivity(Intent(this, LoginActivity::class.java))
+        finish()
     }
 
     override fun onDestroy() {
@@ -94,7 +94,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun navigateToChat(roomId: Int, roomName: String, targetUser: String? = null, ownerId: Int = 0) {
-        val intent = android.content.Intent(this, com.openboard.nativeapp.ui.chat.ChatActivity::class.java).apply {
+        val intent = Intent(this, ChatActivity::class.java).apply {
             putExtra("room_id", roomId)
             putExtra("room_name", roomName)
             targetUser?.let { putExtra("target_user", it) }
@@ -104,19 +104,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun loadUsersList() {
-        val frag = UsersFragment()
-        loadFragment(frag)
+        loadFragment(UsersFragment())
     }
 
     fun loadGroupsList() {
-        val frag = GroupsFragment()
-        loadFragment(frag)
+        loadFragment(GroupsFragment())
     }
 
     fun logout() {
         SessionManager.clear()
         WebSocketManager.disconnect()
-        startActivity(android.content.Intent(this, com.openboard.nativeapp.ui.login.LoginActivity::class.java))
-        finish()
+        redirectToLogin()
     }
 }

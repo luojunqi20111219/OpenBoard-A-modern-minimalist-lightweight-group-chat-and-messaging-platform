@@ -1,51 +1,59 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:orientation="horizontal"
-    android:padding="12dp"
-    android:gravity="center_vertical"
-    android:background="?attr/selectableItemBackground">
+    android:layout_height="64dp"
+    android:paddingHorizontal="16dp"
+    android:background="?attr/selectableItemBackground"
+    android:clickable="true"
+    android:focusable="true">
 
     <FrameLayout
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content">
+        android:id="@+id/avatar_frame"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_alignParentStart="true"
+        android:layout_centerVertical="true">
+
         <ImageView
             android:id="@+id/iv_avatar"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:src="@drawable/ic_person"/>
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:src="@drawable/ic_person"
+            android:background="@drawable/bg_avatar_circle"
+            android:scaleType="centerCrop"
+            android:contentDescription="头像"/>
+
         <View
-            android:id="@+id/view_online_indicator"
-            android:layout_width="14dp"
-            android:layout_height="14dp"
+            android:id="@+id/online_dot"
+            android:layout_width="10dp"
+            android:layout_height="10dp"
             android:layout_gravity="bottom|end"
             android:background="@drawable/bg_online_dot"
             android:visibility="gone"/>
+
     </FrameLayout>
 
-    <LinearLayout
-        android:layout_width="0dp"
+    <TextView
+        android:id="@+id/tv_name"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_weight="1"
+        android:layout_toEndOf="@id/avatar_frame"
+        android:layout_centerVertical="true"
         android:layout_marginStart="12dp"
-        android:orientation="vertical">
+        android:textSize="16sp"
+        android:textColor="@color/text_primary"
+        android:textStyle="bold"
+        android:text="用户名 / 昵称"/>
 
-        <TextView
-            android:id="@+id/tv_name"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textSize="16sp"
-            android:textStyle="bold"
-            android:textColor="@color/text_primary"/>
+    <ImageView
+        android:id="@+id/iv_blocked"
+        android:layout_width="20dp"
+        android:layout_height="20dp"
+        android:layout_alignParentEnd="true"
+        android:layout_centerVertical="true"
+        android:src="@drawable/ic_notifications"
+        android:contentDescription="已拉黑"
+        android:tint="#FF3B30"
+        android:visibility="gone"/>
 
-        <TextView
-            android:id="@+id/tv_username"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textSize="12sp"
-            android:textColor="@color/text_secondary"/>
-
-    </LinearLayout>
-
-</LinearLayout>
+</RelativeLayout>

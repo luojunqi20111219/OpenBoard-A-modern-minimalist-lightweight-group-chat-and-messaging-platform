@@ -1,6 +1,7 @@
 package com.openboard.nativeapp.ui.adapter
 
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Base64
 import android.view.LayoutInflater
@@ -17,6 +18,9 @@ import com.openboard.nativeapp.data.model.Message
 import com.openboard.nativeapp.databinding.ItemMessageOtherBinding
 import com.openboard.nativeapp.databinding.ItemMessageSelfBinding
 
+/**
+ * 聊天消息气泡渲染适配器，支持文字、图片展示、文件下载与已撤回系统文本渲染
+ */
 class ChatAdapter(
     private val messages: List<Message>,
     private val currentUser: String
@@ -56,7 +60,7 @@ class ChatAdapter(
         content: String,
         isRecalled: Boolean,
         tvContent: TextView,
-        ivImage: ImageView,
+        ivImageNormal: ImageView,
         defaultTextColor: Int
     ) {
         val context = tvContent.context
@@ -66,7 +70,7 @@ class ChatAdapter(
             tvContent.visibility = View.VISIBLE
             tvContent.text = "对方撤回了一条消息"
             tvContent.setTextColor(0xFF888888.toInt())
-            ivImage.visibility = View.GONE
+            ivImageNormal.visibility = View.GONE
             return
         }
 
@@ -77,20 +81,20 @@ class ChatAdapter(
             imgMatch != null -> {
                 val url = imgMatch.groupValues[1]
                 tvContent.visibility = View.GONE
-                ivImage.visibility = View.VISIBLE
+                ivImageNormal.visibility = View.VISIBLE
                 
                 if (url.startsWith("data:image")) {
                     try {
                         val base64Data = url.substringAfter("base64,")
                         val bytes = Base64.decode(base64Data, Base64.DEFAULT)
-                        val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                        ivImage.setImageBitmap(bmp)
+                        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        ivImageNormal.setImageBitmap(bmp)
                     } catch (e: Exception) {
-                        ivImage.setImageResource(R.drawable.ic_attach)
+                        ivImageNormal.setImageResource(R.drawable.ic_attach)
                     }
                 } else {
                     val fullUrl = if (url.startsWith("http")) url else RetrofitClient.getBaseUrl() + url.removePrefix("/")
-                    ivImage.load(fullUrl) {
+                    ivImageNormal.load(fullUrl) {
                         placeholder(R.drawable.ic_attach)
                         error(R.drawable.ic_attach)
                     }
@@ -101,12 +105,11 @@ class ChatAdapter(
                 val filename = fileMatch.groupValues[2]
                 val fullUrl = if (relativeUrl.startsWith("http")) relativeUrl else RetrofitClient.getBaseUrl() + relativeUrl.removePrefix("/")
 
-                ivImage.visibility = View.GONE
+                ivImageNormal.visibility = View.GONE
                 tvContent.visibility = View.VISIBLE
                 tvContent.text = "📎 文件: $filename\n(点击下载)"
-                tvContent.setTextColor(0xFF00E5FF.toInt()) // elegant cyan link for self or link color
+                tvContent.setTextColor(0xFF00E5FF.toInt())
                 
-                // If it's other message, we might want it blue
                 if (tvContent.id == R.id.tv_content && tvContent.parent.parent is ViewGroup) {
                     tvContent.setTextColor(0xFF1976D2.toInt())
                 }
@@ -121,7 +124,7 @@ class ChatAdapter(
                 }
             }
             else -> {
-                ivImage.visibility = View.GONE
+                ivImageNormal.visibility = View.GONE
                 tvContent.visibility = View.VISIBLE
                 tvContent.text = content
                 tvContent.setTextColor(defaultTextColor)
@@ -138,7 +141,7 @@ class ChatAdapter(
                     avatarStr
                 }
                 val bytes = Base64.decode(base64Data, Base64.DEFAULT)
-                val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                 ivAvatar.setImageBitmap(bmp)
             } catch (e: Exception) {
                 ivAvatar.setImageResource(R.drawable.ic_person)

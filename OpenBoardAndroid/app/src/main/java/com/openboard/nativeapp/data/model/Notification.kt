@@ -3,7 +3,7 @@ package com.openboard.nativeapp.data.model
 import com.google.gson.annotations.SerializedName
 
 /**
- * 对应后端 notifications 表的系统通知/公告数据模型
+ * 系统公告/通知数据模型
  */
 data class Notification(
     val id: Int,

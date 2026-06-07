@@ -1,97 +1,110 @@
 package com.openboard.nativeapp.data.api
 
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import com.google.gson.Gson
+import com.openboard.nativeapp.data.local.SessionManager
 import com.openboard.nativeapp.data.model.WsMessage
 import okhttp3.*
-import java.util.concurrent.TimeUnit
 
+/**
+ * WebSocket 管理器，处理长连接生命周期、心跳与重连
+ */
 object WebSocketManager {
-    private const val TAG = "WebSocket"
-    private const val MAX_RECONNECT = 10
-
-    private var webSocket: WebSocket? = null
-    private var isConnected = false
-    private var reconnectCount = 0
+    private const val TAG = "WebSocketManager"
+    private val client = OkHttpClient()
     private val gson = Gson()
+    private var webSocket: WebSocket? = null
+    
+    interface WsListener {
+        fun onMessage(msg: WsMessage)
+    }
+
     private val listeners = mutableListOf<WsListener>()
+    private var isConnected = false
+    private val handler = Handler(Looper.getMainLooper())
+    private val reconnectRunnable = Runnable { connect() }
+
+    fun addListener(l: WsListener) {
+        synchronized(listeners) {
+            if (!listeners.contains(l)) listeners.add(l)
+        }
+    }
+
+    fun removeListener(l: WsListener) {
+        synchronized(listeners) {
+            listeners.remove(l)
+        }
+    }
 
     fun connect() {
-        if (isConnected) return
-        val client = OkHttpClient.Builder()
-            .readTimeout(0, TimeUnit.MILLISECONDS)
-            .build()
+        val token = SessionManager.token
+        if (token.isNullOrEmpty()) {
+            Log.w(TAG, "No token found, skipping WS connection")
+            return
+        }
 
-        val request = Request.Builder()
-            .url(RetrofitClient.getWsUrl())
-            .build()
+        disconnect()
+
+        val baseUrl = RetrofitClient.getBaseUrl()
+        val wsUrl = when {
+            baseUrl.startsWith("https://") -> baseUrl.replace("https://", "wss://")
+            baseUrl.startsWith("http://") -> baseUrl.replace("http://", "ws://")
+            else -> "ws://$baseUrl"
+        } + "ws/$token"
+
+        Log.d(TAG, "Connecting to WebSocket: $wsUrl")
+        val request = Request.Builder().url(wsUrl).build()
 
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                Log.d(TAG, "WebSocket connection opened")
                 isConnected = true
-                reconnectCount = 0
-                Log.d(TAG, "Connected")
-                listeners.forEach { it.onConnected() }
+                handler.removeCallbacks(reconnectRunnable)
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
-                Log.d(TAG, "Message: $text")
+                Log.d(TAG, "Received message: $text")
                 try {
                     val msg = gson.fromJson(text, WsMessage::class.java)
-                    listeners.forEach { it.onMessage(msg) }
+                    synchronized(listeners) {
+                        for (l in listeners) {
+                            l.onMessage(msg)
+                        }
+                    }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Parse error", e)
+                    Log.e(TAG, "Error parsing WS message: ${e.message}")
                 }
             }
 
-            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-                Log.d(TAG, "Closing: $code $reason")
-                webSocket.close(1000, null)
-            }
-
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                Log.d(TAG, "WebSocket connection closed: $reason")
                 isConnected = false
-                Log.d(TAG, "Closed: $code $reason")
-                listeners.forEach { it.onDisconnected() }
-                tryReconnect()
+                triggerReconnect()
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                Log.e(TAG, "WebSocket failure: ${t.message}")
                 isConnected = false
-                Log.e(TAG, "Error", t)
-                listeners.forEach { it.onError(t.message ?: "Unknown error") }
-                tryReconnect()
+                triggerReconnect()
             }
         })
     }
 
+    fun send(json: String) {
+        webSocket?.send(json)
+    }
+
     fun disconnect() {
-        reconnectCount = MAX_RECONNECT
-        webSocket?.close(1000, "User logout")
+        handler.removeCallbacks(reconnectRunnable)
+        webSocket?.close(1000, "Normal closure")
         webSocket = null
         isConnected = false
     }
 
-    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
-
-    private fun tryReconnect() {
-        if (reconnectCount < MAX_RECONNECT) {
-            reconnectCount++
-            mainHandler.postDelayed({
-                connect()
-            }, 3000)
-        }
-    }
-
-    fun send(text: String): Boolean = webSocket?.send(text) == true
-
-    fun addListener(listener: WsListener) { listeners.add(listener) }
-    fun removeListener(listener: WsListener) { listeners.remove(listener) }
-
-    interface WsListener {
-        fun onConnected() {}
-        fun onDisconnected() {}
-        fun onError(error: String) {}
-        fun onMessage(msg: WsMessage) {}
+    private fun triggerReconnect() {
+        handler.removeCallbacks(reconnectRunnable)
+        handler.postDelayed(reconnectRunnable, 5000) // 5 秒后尝试重连
     }
 }

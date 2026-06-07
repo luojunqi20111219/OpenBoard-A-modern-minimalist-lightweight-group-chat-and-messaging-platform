@@ -7,8 +7,6 @@ import android.view.ViewGroup
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
-import com.openboard.nativeapp.data.model.Notification
-import com.openboard.nativeapp.data.api.WebSocketManager
 import com.openboard.nativeapp.data.local.SessionManager
 import com.openboard.nativeapp.data.model.WsMessage
 import com.openboard.nativeapp.data.repository.ChatRepository
@@ -16,6 +14,9 @@ import com.openboard.nativeapp.databinding.FragmentChatListBinding
 import com.openboard.nativeapp.ui.adapter.ConversationAdapter
 import kotlinx.coroutines.launch
 
+/**
+ * 消息会话主页面，展示最近聊天的群组/个人会话及通知未读小红点
+ */
 class ChatListFragment : Fragment() {
     private var _binding: FragmentChatListBinding? = null
     private val binding get() = _binding!!
@@ -59,22 +60,6 @@ class ChatListFragment : Fragment() {
         (activity as? MainActivity)?.recentChatsListener = wsListener
         loadConversations()
         checkNotifications()
-    }
-
-    private fun checkNotifications() {
-        lifecycleScope.launch {
-            val result = repository.getNotifications()
-            result.onSuccess { response ->
-                val list = response.data ?: emptyList()
-                val lastReadId = response.lastReadId ?: 0
-                val hasUnread = list.any { it.id > lastReadId }
-                if (hasUnread) {
-                    binding.noticeBadge.visibility = View.VISIBLE
-                } else {
-                    binding.noticeBadge.visibility = View.GONE
-                }
-            }
-        }
     }
 
     override fun onStop() {
@@ -121,11 +106,27 @@ class ChatListFragment : Fragment() {
             val usersResult = repository.getUsers()
             binding.progressBar.visibility = View.GONE
 
-            groupsResult.onSuccess { groups ->
-                // Pre-populate any room information if needed
+            groupsResult.onSuccess {
+                // 可以按需在这里缓存
             }
-            usersResult.onSuccess { users ->
-                // Pre-populate any user profiles if needed
+            usersResult.onSuccess {
+                // 可以按需在这里缓存
+            }
+        }
+    }
+
+    private fun checkNotifications() {
+        lifecycleScope.launch {
+            val result = repository.getNotifications()
+            result.onSuccess { response ->
+                val list = response.data ?: emptyList()
+                val lastReadId = response.lastReadId ?: 0
+                val hasUnread = list.any { it.id > lastReadId }
+                if (hasUnread) {
+                    binding.noticeBadge.visibility = View.VISIBLE
+                } else {
+                    binding.noticeBadge.visibility = View.GONE
+                }
             }
         }
     }

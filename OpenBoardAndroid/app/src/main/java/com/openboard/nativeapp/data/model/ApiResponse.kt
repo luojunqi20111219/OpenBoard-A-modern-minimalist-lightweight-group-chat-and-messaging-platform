@@ -2,6 +2,9 @@ package com.openboard.nativeapp.data.model
 
 import com.google.gson.annotations.SerializedName
 
+/**
+ * 统一网络请求响应包装类
+ */
 data class ApiResponse<T>(
     val code: Int = 0,
     val status: String? = null,
@@ -14,4 +17,3 @@ data class ApiResponse<T>(
     @SerializedName("blocked_users")
     val blockedUsers: List<String>? = null
 )
-
