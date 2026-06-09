@@ -32,7 +32,7 @@
 
 | 登录界面 | 消息列表 | 私信窗口 | 群聊界面 |
 | :---: | :---: | :---: | :---: |
-| ![Login](docs/screenshots/login.png) | ![Chat List](docs/screenshots/chat_list.png) | ![Chat](docs/screenshots/chat.png) | ![Groups](docs/screenshots/groups.png) |
+| ![Login](docs/screenshots/login.jpg) | ![Chat List](docs/screenshots/chat_list.jpg) | ![Chat](docs/screenshots/chat.jpg) | ![Groups](docs/screenshots/groups.jpg) |
 
 *(注：截图仅供展示，实际布局会因本地版本迭代更新有所微调)*
 
