@@ -1,4 +1,4 @@
-# XinYu 信语 - Open Source Chat App
+# XinYu 信语 - 开源安卓聊天应用
 
 <div align="center">
 
@@ -7,147 +7,153 @@
 ![License](https://img.shields.io/badge/License-MIT-lightgrey)
 ![Min SDK](https://img.shields.io/badge/Min%20SDK-24-orange)
 
-**A simple, open-source Android chat application built with Kotlin, Retrofit, and WebSocket.**
+**基于 Kotlin、Retrofit 和 WebSocket 构建的现代化极简开源安卓聊天客户端。**
 
-[Features](#features) • [Screenshots](#screenshots) • [Getting Started](#getting-started) • [API](#api-reference) • [Architecture](#architecture) • [License](#license)
+[特性](#特性) • [屏幕截图](#屏幕截图) • [快速开始](#快速开始) • [API 接口参考](#api-接口参考) • [项目架构](#项目架构) • [开源协议](#开源协议)
 
 </div>
 
 ---
 
-## Features
+## ✨ 特性
 
-- **Multi-user chat rooms** — Join group chat rooms with multiple participants
-- **Private messaging** — 1-on-1 private chat with any user
-- **Real-time messaging** — WebSocket-based instant message delivery
-- **Group management** — Create and join chat groups
-- **File & image sharing** — Upload and share files/images
-- **Message recall** — Delete your own messages
-- **User profiles** — Customizable nicknames and avatars
-- **Beautiful UI** — Material Design with smooth animations
+- **👥 多人群聊**：随时创建或加入多人在线群聊频道。
+- **💬 保护私信**：与平台上的任何用户进行安全的一对一私密聊天。
+- **⚡ 实时消息**：基于 WebSocket 连接实现低延迟、即时消息收发与输入状态（Typing）提示。
+- **🛠️ 群组管理**：支持群主配置群聊名称、上传头像以及设置群成员黑白名单。
+- **📁 图片与文件分享**：支持聊天中发送图片、PDF、Docx、Zip 等多种文件；支持图片大图预览和本地相册保存。
+- **↩️ 消息撤回**：支持撤回自己发送的消息（限时2分钟内）。
+- **⚙️ 个人设置**：登录后支持随时修改个人头像、自定义昵称、修改密码或注销账号。
+- **🎨 精美交互 UI**：遵循 Material Design 规范，界面美观流畅，配合丰富的微动画。
 
 ---
 
-## Screenshots
+## 📸 屏幕截图
 
-| Login | Chat List | Private Chat | Groups |
-|:---:|:---:|:---:|:---:|
+| 登录界面 | 消息列表 | 私信窗口 | 群聊界面 |
+| :---: | :---: | :---: | :---: |
 | ![Login](docs/screenshots/login.png) | ![Chat List](docs/screenshots/chat_list.png) | ![Chat](docs/screenshots/chat.png) | ![Groups](docs/screenshots/groups.png) |
 
+*(注：截图仅供展示，实际布局会因本地版本迭代更新有所微调)*
+
 ---
 
-## Getting Started
+## 🚀 快速开始
 
-### Prerequisites
+### 运行环境要求
 
-- **Android Studio** Hedgehog (2024.1.1) or newer
+- **Android Studio** Hedgehog (2024.1.1) 或更新版本
 - **JDK** 17+
 - **Android SDK** API 34 (compileSdk)
-- **Gradle** 8.5+ (wrapper included)
+- **Gradle** 8.5+ (已包含内置 Gradle Wrapper)
 
-### Clone & Build
+### 克隆并编译
+
+在终端中执行以下命令进行编译：
 
 ```bash
-git clone https://github.com/yourusername/xinyu-chat.git
-cd xinyu-chat
+git clone https://github.com/luojunqi20111219/OpenBoard-A-modern-minimalist-lightweight-group-chat-and-messaging-platform.git
+cd OpenBoard-A-modern-minimalist-lightweight-group-chat-and-messaging-platform/OpenBoardAndroid
 ./gradlew assembleDebug
 ```
 
-Or import directly into Android Studio:
-1. File → Open → select the project directory
-2. Wait for Gradle sync to complete
-3. Run on device/emulator: ▶ Run → Run 'app'
+或者直接导入 Android Studio：
+1. 打开 Android Studio，选择 **File → Open**，然后选中 `OpenBoardAndroid` 目录。
+2. 耐心等待 Gradle 同步（Sync）完成。
+3. 连接手机或开启模拟器，点击运行按钮 ▶ **Run 'app'** 即可部署。
 
-### Backend Server
+### 配置后端服务器
 
-By default, the app connects to `http://liuyan.luojunqi.xyz:5000`. To use your own server:
+默认情况下，安卓客户端连接到云端演示服务器 `http://liuyan.luojunqi.xyz`。如果您部署了自己的信语服务器，请修改：
 
-1. Deploy the backend from [openboard-server](https://github.com/yourusername/openboard-server)
-2. Update `BASE_URL` in `RetrofitClient.kt`:
-   ```kotlin
-   private const val BASE_URL = "https://your-server.com/"
-   ```
+在 [RetrofitClient.kt](./app/src/main/java/com/openboard/nativeapp/data/api/RetrofitClient.kt) 中更新 `BASE_URL`：
+```kotlin
+private const val BASE_URL = "http://您的服务器IP或域名:端口/"
+```
+
+并确保配置 [WebSocketManager.kt](./app/src/main/java/com/openboard/nativeapp/data/api/WebSocketManager.kt) 中的连接地址同步更新。
 
 ---
 
-## API Reference
+## 🔌 API 接口参考
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/login` | POST | User login |
-| `/api/register` | POST | User registration |
-| `/api/messages` | GET | Get messages (query: `room_id`, `target_user`) |
-| `/api/messages` | POST | Send a message |
-| `/api/messages/{id}` | DELETE | Recall/delete a message |
-| `/api/upload` | POST | Upload file (multipart) |
-| `/api/users` | GET | Get all users |
-| `/api/groups` | GET | Get all groups |
-| `/api/groups` | POST | Create a group |
-| `/api/groups/{id}` | DELETE | Delete a group |
-| `/api/ws` | WS | WebSocket for real-time messaging |
+| 接口端点 | 请求方法 | 功能说明 |
+| :--- | :--- | :--- |
+| `/api/login` | POST | 用户登录 |
+| `/api/register` | POST | 用户注册 |
+| `/api/messages` | GET | 获取聊天记录 (Query 参数: `room_id`, `receiver`) |
+| `/api/messages` | POST | 发送新消息 (支持文本与引用消息载荷) |
+| `/api/messages/{id}` | DELETE | 撤回/删除单条发言 |
+| `/api/upload` | POST | 单文件上传 (支持图片与常用文档，安全白名单校验) |
+| `/api/users` | GET | 获取所有注册用户列表 |
+| `/api/groups` | GET | 获取所有公开群聊列表 |
+| `/api/groups` | POST | 创建新群组 |
+| `/api/groups/{id}` | DELETE | 解散群组 (群主特权) |
+| `/api/user/push_token` | POST | 上报设备唯一 ID 与 HMS 华为推送 Token |
+| `/api/ws` | WS (WebSocket) | 用于实时消息广播、在线状态以及输入提示的长连接 |
 
-### WebSocket Message Format
+### WebSocket 实时消息 JSON 示例
 
 ```json
 {
   "type": "message",
   "user": "username",
-  "content": "Hello!",
+  "content": "你好呀！",
   "room_id": 1,
   "receiver": "",
-  "time": "2024-01-01 12:00:00"
+  "time": "2026-06-09 17:45:00"
 }
 ```
 
 ---
 
-## Architecture
+## 📐 项目架构
 
-```
+客户端遵循高内聚低耦合的 **MVVM + 仓储 (Repository) 模式** 结构编写：
+
+```text
 app/
 ├── data/
-│   ├── api/          # Retrofit API & WebSocket
-│   ├── local/        # SharedPreferences session
-│   ├── model/        # Data models (User, Message, Group, etc.)
-│   └── repository/   # Repository pattern
+│   ├── api/          # Retrofit 接口定义、OkHttp客户端配置及 WebSocket 管理器
+│   ├── local/        # SharedPreferences SessionManager 本地会话管理
+│   ├── model/        # 强类型数据传输模型 (User, Message, Group, WsMessage等)
+│   └── repository/   # ChatRepository 数据仓储层，解耦业务逻辑与底层API
 └── ui/
-    ├── adapter/      # RecyclerView adapters
-    ├── chat/         # Chat activity
-    ├── login/        # Login/Register
-    └── main/         # Main screen fragments
+    ├── adapter/      # RecyclerView 适配器列表 (ChatAdapter, GroupAdapter等)
+    ├── chat/         # ChatActivity 聊天面板控制器及逻辑实现
+    ├── login/        # LoginActivity 登录/注册视图
+    └── main/         # MainActivity 容器与主页 Fragment 分区 (消息列表、群组、个人中心)
 ```
 
-**Architecture Pattern:** MVVM + Repository + Clean Architecture
-
-**Tech Stack:**
-- Kotlin Coroutines for async
-- Retrofit 2 + OkHttp for networking
-- Coil for image loading
-- Material Design Components
-- AndroidX ViewBinding
+**核心技术栈：**
+- 使用 **Kotlin 协程 (Coroutines)** 和 **Flow** 处理非阻塞异步操作。
+- 使用 **Retrofit 2 + OkHttp 4** 搭建高效率的 REST 和 WebSocket 实时通讯。
+- 使用 **Glide** 完成流畅的图片多级缓存异步加载与圆形剪裁。
+- 采用 **ViewBinding** 替换 findViewById，保障视图绑定安全性。
+- 集成 **Huawei Mobile Services (HMS) Push SDK** 支持系统级后台唤醒推送与多设备下线。
 
 ---
 
-## Contributing
+## 🤝 参与贡献
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+我们非常欢迎开发者提交 Pull Request 或 Issue 来共同完善信语客户端！
 
-1. Fork it
-2. Create your feature branch: `git checkout -b feature/my-feature`
-3. Commit your changes: `git commit -am 'Add some feature'`
-4. Push to the branch: `git push origin feature/my-feature`
-5. Open a Pull Request
-
----
-
-## License
-
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+1. Fork 本项目
+2. 创建您的功能开发分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交您的修改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送至该分支 (`git push origin feature/AmazingFeature`)
+5. 新建并开启 Pull Request
 
 ---
 
-## Acknowledgments
+## 📄 开源协议
 
-- Built with [Retrofit](https://github.com/square/retrofit)
-- Icons by [Material Design](https://material.io/icons)
-- Image loading by [Coil](https://github.com/coil-kt/coil)
+本项目根据 **[MIT License](LICENSE)** 许可协议开源 - 详情请参阅 `LICENSE` 文件。
+
+---
+
+## 💖 致谢
+
+- 感谢优秀的 [Retrofit](https://github.com/square/retrofit) 团队。
+- 图标资源基于谷歌官方 [Material Design Icons](https://material.io/icons)。
+- 图片加载依赖强大的 [Glide](https://github.com/bumptech/glide)。
