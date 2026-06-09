@@ -55,3 +55,8 @@ class AdminAction(BaseModel):
     filename: Optional[str] = None
     code: Optional[str] = None
     avatar_base64: Optional[str] = None
+
+class PushTokenData(BaseModel):
+    push_token: str
+    device_id: str
+

@@ -32,9 +32,22 @@ class MessageService : Service() {
         private const val CHANNEL_MESSAGE_ID = "new_messages"
     }
 
+    private var wakeLock: android.os.PowerManager.WakeLock? = null
+
     private val wsListener = object : WebSocketManager.WsListener {
         override fun onMessage(msg: WsMessage) {
             handleIncomingMessage(msg)
+        }
+    }
+
+    private val keepAliveReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val action = intent?.action
+            Log.d(TAG, "KeepAliveReceiver received action: $action")
+            if (!WebSocketManager.isConnected && SessionManager.isLoggedIn) {
+                Log.d(TAG, "WebSocket is disconnected, reconnecting...")
+                WebSocketManager.connect()
+            }
         }
     }
 
@@ -45,11 +58,37 @@ class MessageService : Service() {
         // 注册 WebSocket 消息监听
         WebSocketManager.addListener(wsListener)
         
-        // 启动前台服务，展示常驻通知
-        startForegroundNotification()
-        
         // 尝试建立 WebSocket 连接
         WebSocketManager.connect()
+
+        // 获取 CPU WakeLock 锁，防止休眠
+        try {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+            wakeLock = powerManager.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "OpenBoard::MessageServiceWakeLock").apply {
+                acquire()
+            }
+            Log.d(TAG, "Successfully acquired CPU WakeLock")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to acquire WakeLock: ${e.message}")
+        }
+
+        // 注册系统广播监听以保持长连接和重连
+        val filter = android.content.IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_USER_PRESENT)
+            addAction(Intent.ACTION_TIME_TICK) // 每分钟一次
+            addAction("android.net.conn.CONNECTIVITY_CHANGE") // 网络状态改变
+        }
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(keepAliveReceiver, filter, Context.RECEIVER_EXPORTED)
+            } else {
+                registerReceiver(keepAliveReceiver, filter)
+            }
+            Log.d(TAG, "Successfully registered keepAliveReceiver")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to register keepAliveReceiver: ${e.message}")
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -67,31 +106,23 @@ class MessageService : Service() {
         Log.d(TAG, "MessageService onDestroy")
         // 注销监听
         WebSocketManager.removeListener(wsListener)
-    }
-
-    /**
-     * 启动前台服务常驻通知 (适配 Android 14+ 要求的 remoteMessaging 类型)
-     */
-    private fun startForegroundNotification() {
-        val notification = NotificationCompat.Builder(this, CHANNEL_SERVICE_ID)
-            .setContentTitle("OpenBoard 运行中")
-            .setContentText("正在后台实时接收新消息...")
-            .setSmallIcon(R.drawable.ic_chats)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setCategory(Notification.CATEGORY_SERVICE)
-            .build()
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            // Android 14 (API 34) 要求指定 foregroundServiceType
-            startForeground(
-                SERVICE_NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING
-            )
-        } else {
-            startForeground(SERVICE_NOTIFICATION_ID, notification)
+        try {
+            unregisterReceiver(keepAliveReceiver)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to unregister keepAliveReceiver: ${e.message}")
+        }
+        wakeLock?.let {
+            if (it.isHeld) {
+                try {
+                    it.release()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to release wakeLock: ${e.message}")
+                }
+            }
         }
     }
+
+
 
     /**
      * 处理收到的 WebSocket 广播消息

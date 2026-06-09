@@ -1,6 +1,7 @@
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
+    id 'com.huawei.agconnect'
 }
 
 project.buildDir = file("${rootProject.projectDir}/build2")
@@ -57,14 +58,22 @@ dependencies {
     implementation 'com.squareup.retrofit2:converter-gson:2.9.0'
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
     implementation 'com.squareup.okhttp3:logging-interceptor:4.12.0'
+    implementation 'com.huawei.hms:push:6.12.0.300'
+    // 可选：如果需要使用 AGC（AppGallery Connect）
+    // implementation 'com.huawei.agconnect:agconnect-core:1.9.1.300'
+    // Coil for image loading
+    implementation 'io.coil-kt:coil:2.5.0'
 
     // Coroutines
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3'
 
-    // Coil for image loading
-    implementation 'io.coil-kt:coil:2.5.0'
-
     // Gson
     implementation 'com.google.code.gson:gson:2.10.1'
+
+    // EmojiCompat with bundled font
+    implementation "androidx.emoji2:emoji2:1.4.0"
+    implementation "androidx.emoji2:emoji2-views:1.4.0"
+    implementation "androidx.emoji2:emoji2-views-helper:1.4.0"
+    implementation "androidx.emoji2:emoji2-bundled:1.4.0"
 }

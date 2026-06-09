@@ -15,130 +15,9 @@
         .msg-appear { animation: fadeIn 0.3s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .avatar-gradient { background: linear-gradient(135deg, #4F46E5 0%, #06B6D4 100%); }
-        @media (max-width: 767px) {
-            html, body { height: 100%; }
-            body {
-                position: relative;
-                min-height: 100dvh;
-                overscroll-behavior: none;
-            }
-            aside, main {
-                position: absolute;
-                inset: 0;
-                width: 100% !important;
-                height: 100dvh;
-                transition: transform 0.22s ease;
-            }
-            aside { z-index: 30; }
-            main { z-index: 20; }
-            body.mobile-list aside { transform: translateX(0); }
-            body.mobile-list main { transform: translateX(100%); pointer-events: none; }
-            body.mobile-chat aside { transform: translateX(-100%); pointer-events: none; }
-            body.mobile-chat main { transform: translateX(0); }
-            aside > div:first-child {
-                height: 60px;
-                padding: 0 16px;
-            }
-            aside > div:nth-child(2) {
-                padding-bottom: calc(16px + env(safe-area-inset-bottom));
-            }
-            aside > div:last-child {
-                padding-bottom: calc(16px + env(safe-area-inset-bottom));
-            }
-            .room-btn {
-                min-height: 48px;
-                border-radius: 14px;
-                font-size: 15px;
-            }
-            main > header {
-                height: 60px;
-                padding-left: 10px !important;
-                padding-right: 10px !important;
-            }
-            #mobile-back-btn {
-                margin-right: 8px;
-                flex-shrink: 0;
-            }
-            main > header > div:first-child {
-                min-width: 0;
-                flex: 1;
-            }
-            #header-icon {
-                width: 36px;
-                height: 36px;
-                margin-right: 10px;
-                border-radius: 12px;
-                flex-shrink: 0;
-            }
-            #room-title {
-                display: block;
-                max-width: calc(100vw - 178px);
-                overflow: hidden;
-                text-overflow: ellipsis;
-                white-space: nowrap;
-            }
-            #notice-dropdown {
-                position: fixed;
-                top: 66px;
-                left: 12px;
-                right: 12px;
-                width: auto;
-                max-height: calc(100dvh - 88px);
-            }
-            #notice-content {
-                max-height: calc(100dvh - 170px);
-            }
-            #msg-list {
-                padding: 12px;
-                padding-bottom: 14px;
-                scroll-behavior: smooth;
-            }
-            #msg-list .max-w-\[80\%\] {
-                max-width: 78vw;
-            }
-            #composer-bar {
-                padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
-            }
-            #composer-box {
-                border-radius: 18px;
-                padding: 6px;
-            }
-            #composer-box button {
-                width: 44px;
-                height: 44px;
-                border-radius: 14px;
-            }
-            #msg-input {
-                min-height: 44px;
-                max-height: 120px;
-                font-size: 16px;
-                line-height: 1.35;
-                padding-top: 10px;
-                padding-bottom: 10px;
-            }
-            #emoji-picker-container {
-                left: 0;
-                right: 0;
-                bottom: calc(100% + 8px);
-                width: min(100%, 360px);
-            }
-            emoji-picker {
-                width: 100%;
-                max-height: 360px;
-            }
-        }
-        @media (min-width: 768px) {
-            body.mobile-list aside,
-            body.mobile-list main,
-            body.mobile-chat aside,
-            body.mobile-chat main {
-                transform: none;
-                pointer-events: auto;
-            }
-        }
     </style>
 </head>
-<body class="bg-gray-100 h-screen flex overflow-hidden font-sans mobile-list">
+<body class="bg-gray-100 h-screen flex overflow-hidden font-sans">
 
     <aside class="w-64 bg-gray-900 text-white flex flex-col h-full shadow-2xl z-20 shrink-0">
         <div class="p-5 border-b border-gray-800 flex justify-between items-center">
@@ -176,9 +55,6 @@
     <main class="flex-1 flex flex-col h-full bg-white relative">
         <header class="h-16 border-b flex items-center justify-between px-6 shrink-0 bg-white/80 backdrop-blur-md sticky top-0 z-10">
             <div class="flex items-center">
-                <button id="mobile-back-btn" onclick="returnToMobileList()" class="md:hidden mr-3 w-10 h-10 rounded-xl flex items-center justify-center text-gray-500 hover:text-blue-600 hover:bg-gray-100 transition" title="返回">
-                    <i class="fa-solid fa-arrow-left"></i>
-                </button>
                 <div id="header-icon" class="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center text-blue-600 mr-3 overflow-hidden">
                     <i class="fa-solid fa-hashtag text-xl"></i>
                 </div>
@@ -219,13 +95,13 @@
             <div class="text-center py-20 text-gray-400">正在同步消息...</div>
         </div>
 
-        <div id="composer-bar" class="p-4 border-t bg-white shrink-0">
+        <div class="p-4 border-t bg-white shrink-0">
             <div class="max-w-4xl mx-auto relative">
                 <div id="emoji-picker-container" class="hidden absolute bottom-[110%] left-0 shadow-2xl rounded-2xl overflow-hidden z-50 border border-gray-200">
                     <emoji-picker></emoji-picker>
                 </div>
                 
-                <div id="composer-box" class="flex items-end gap-2 bg-gray-100 rounded-2xl p-2 shadow-inner">
+                <div class="flex items-end gap-2 bg-gray-100 rounded-2xl p-2 shadow-inner">
                     <button onclick="toggleEmojiPicker(event)" class="text-gray-400 hover:text-yellow-500 w-10 h-10 rounded-xl flex items-center justify-center transition shrink-0" title="表情包">
                         <i class="fa-regular fa-face-smile"></i>
                     </button>
@@ -341,92 +217,6 @@
         let pendingAvatarBase64 = null; let pendingGroupAvatarBase64 = null; 
         let globalGroups = []; let authMode = 'login'; let globalBlockedUsers = [];
         let ws = null; let onlineUsers = []; let typingTimer = null;
-        let mobileHistoryActive = false;
-
-        // Message Notification & Tab Flash Logic
-        let originalTitle = document.title;
-        let titleFlashInterval = null;
-        let unreadCount = 0;
-
-        function requestNotificationPermission() {
-            if ("Notification" in window && Notification.permission !== "denied" && Notification.permission !== "granted") {
-                Notification.requestPermission();
-            }
-        }
-
-        function startTitleFlash() {
-            if (!document.hidden && document.hasFocus()) {
-                return;
-            }
-            unreadCount++;
-            if (titleFlashInterval) clearInterval(titleFlashInterval);
-            let showUnread = true;
-            titleFlashInterval = setInterval(() => {
-                if (showUnread) {
-                    document.title = `💬 [新消息 ${unreadCount}条] - 信语`;
-                } else {
-                    document.title = originalTitle;
-                }
-                showUnread = !showUnread;
-            }, 1000);
-        }
-
-        function showNotification(msgData) {
-            if (currentUser && msgData.name === currentUser.username) return;
-            if (!("Notification" in window) || Notification.permission !== "granted") return;
-
-            const senderName = msgData.nickname || msgData.name;
-            let title = "";
-            let bodyText = msgData.content || "";
-            if (bodyText.startsWith("[img:")) {
-                bodyText = "[图片]";
-            } else if (bodyText.startsWith("[file:")) {
-                bodyText = "[文件]";
-            }
-            
-            if (msgData.receiver) {
-                title = `💬 来自 ${senderName} 的私信`;
-            } else {
-                const room = globalGroups.find(g => g.id === msgData.room_id);
-                const roomName = room ? room.name : "未知群聊";
-                title = `👥 #${roomName} 中的新消息`;
-                if (!msgData.receiver) {
-                    bodyText = `${senderName}: ${bodyText}`;
-                }
-            }
-
-            const options = {
-                body: bodyText,
-                icon: "/favicon.ico",
-                tag: msgData.receiver ? `p2p-${msgData.name}` : `room-${msgData.room_id}`,
-                renotify: true
-            };
-
-            const notification = new Notification(title, options);
-
-            notification.onclick = function() {
-                window.focus();
-                if (msgData.receiver) {
-                    switchPrivateChat(msgData.name, senderName, msgData.avatar);
-                } else {
-                    const room = globalGroups.find(g => g.id === msgData.room_id);
-                    if (room) {
-                        switchRoom(msgData.room_id, room.name);
-                    }
-                }
-                notification.close();
-            };
-        }
-
-        // Clear title flash when window receives focus
-        window.addEventListener('focus', () => {
-            if (titleFlashInterval) {
-                clearInterval(titleFlashInterval);
-                titleFlashInterval = null;
-            }
-            unreadCount = 0;
-            document.title = originalTitle;
-        });
 
         function getAvatarHtml(avatarStr, name, sizeClass = "w-10 h-10 text-base") {
             const displayName = name || "?";
@@ -437,65 +227,7 @@
             }
         }
 
-        function isMobileViewport() {
-            return window.matchMedia('(max-width: 767px)').matches;
-        }
-
-        function closeFloatingPanels() {
-            const emojiBox = document.getElementById('emoji-picker-container');
-            const noticeBox = document.getElementById('notice-dropdown');
-            if (emojiBox) emojiBox.classList.add('hidden');
-            if (noticeBox) noticeBox.classList.add('hidden');
-            emojiPickerVisible = false;
-            noticeDropdownVisible = false;
-        }
-
-        function showMobileList() {
-            if (!isMobileViewport()) return;
-            closeFloatingPanels();
-            document.body.classList.add('mobile-list');
-            document.body.classList.remove('mobile-chat');
-        }
-
-        function returnToMobileList() {
-            if (!isMobileViewport()) return;
-            if (mobileHistoryActive) {
-                history.back();
-            } else {
-                showMobileList();
-            }
-        }
-
-        function showMobileChat(pushHistory = true) {
-            if (!isMobileViewport()) return;
-            closeFloatingPanels();
-            if (pushHistory && !document.body.classList.contains('mobile-chat')) {
-                history.pushState({ mobileView: 'chat' }, '', window.location.href);
-                mobileHistoryActive = true;
-            }
-            document.body.classList.add('mobile-chat');
-            document.body.classList.remove('mobile-list');
-        }
-
-        function syncResponsiveMode() {
-            if (isMobileViewport()) {
-                if (!document.body.classList.contains('mobile-chat')) {
-                    document.body.classList.add('mobile-list');
-                }
-            } else {
-                document.body.classList.remove('mobile-list', 'mobile-chat');
-            }
-        }
-
         function init() {
-            syncResponsiveMode();
-            window.addEventListener('resize', syncResponsiveMode);
-            window.addEventListener('popstate', () => {
-                if (isMobileViewport() && document.body.classList.contains('mobile-chat')) {
-                    mobileHistoryActive = false;
-                    showMobileList();
-                }
-            });
             if (currentUser) {
                 document.getElementById('btn-settings').style.display = 'block';
                 const name = currentUser.nickname || currentUser.username;
@@ -510,11 +242,8 @@
                 `;
                 loadUsers(); 
                 setupWebSocket();
-                requestNotificationPermission();
-            } else {
-                requestNotificationPermission();
             }
-            loadGroups().then(() => switchRoom(0, '公共大厅', true));
+            loadGroups().then(() => switchRoom(0, '公共大厅'));
             if (currentUser) {
                 loadNotices(); setInterval(loadNotices, 30000); // 降低系统公告请求频率
             }
@@ -569,16 +298,7 @@
                 if (globalBlockedUsers.includes(data.name)) return;
                 appendMessage(data);
             }
-
-            // 新消息提醒
-            if (currentUser && data.name !== currentUser.username) {
-                const isTabActive = !document.hidden && document.hasFocus();
-                const isMessageInActiveChat = isCurrentRoom || isCurrentPrivate;
-                if (!isTabActive || !isMessageInActiveChat) {
-                    startTitleFlash();
-                    showNotification(data);
-                }
-            }
+            // 收到新消息时，如果是其他房间的消息，可以加一个小红点逻辑（暂未实现）
         }
 
         function handleTyping(msg) {
@@ -629,7 +349,7 @@
             } else { btn.classList.add('hidden'); }
         }
 
-        function switchRoom(id, name, keepMobileList = false) {
+        function switchRoom(id, name) {
             currentRoomId = id; currentTargetUser = null;
             document.getElementById('room-title').innerText = name;
             const blockBtn = document.getElementById('user-block-btn');
@@ -655,7 +375,6 @@
             document.getElementById('header-icon').innerHTML = avatarHtml;
 
             updateActiveBtn(`room-btn-${id}`); checkGroupOwnership(id); loadMsgs();
-            if (!keepMobileList) showMobileChat();
         }
 
         function switchPrivateChat(username, displayName, avatar) {
@@ -680,7 +399,6 @@
             }
             
             loadMsgs();
-            showMobileChat();
         }
 
         function updateActiveBtn(btnId) {
@@ -986,14 +704,12 @@
 
         async function sendMsg() {
             if(!currentUser) return showLogin();
-            const input = document.getElementById('msg-input');
-            const content = input.value.trim(); if(!content) return;
+            const content = document.getElementById('msg-input').value.trim(); if(!content) return;
             const body = { content: content, room_id: currentRoomId }; if (currentTargetUser) body.receiver = currentTargetUser;
             try {
                 const res = await fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token }, body: JSON.stringify(body) });
                 if(res.ok) { 
-                    input.value = '';
-                    resizeMessageInput();
+                    document.getElementById('msg-input').value = ''; 
                     loadMsgs(); 
                 } else {
                     const data = await res.json().catch(() => ({}));
@@ -1049,8 +765,7 @@
                         alert(errData.detail || "文件已上传，但消息发送失败，后台出问题");
                     }
                 } else {
-                    const errData = await res.json().catch(() => ({}));
-                    alert(errData.detail || "文件上传失败");
+                    alert("文件上传失败");
                 }
             } catch(e) {
                 alert("上传出错: " + e.message);
@@ -1062,15 +777,8 @@
         }
 
         let lastTypingTime = 0;
-        function resizeMessageInput() {
-            const input = document.getElementById('msg-input');
-            input.style.height = 'auto';
-            input.style.height = `${Math.min(input.scrollHeight, 120)}px`;
-        }
-
-        document.getElementById('msg-input').addEventListener('input', resizeMessageInput);
         document.getElementById('msg-input').addEventListener('keydown', (e) => { 
-            if(e.key === 'Enter' && !e.shiftKey && !isMobileViewport()) {
+            if(e.key === 'Enter' && !e.shiftKey) { 
                 e.preventDefault(); sendMsg(); 
             } else {
                 // 发送输入提示

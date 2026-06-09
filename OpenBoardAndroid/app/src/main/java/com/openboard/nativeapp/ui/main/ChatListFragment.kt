@@ -50,6 +50,10 @@ class ChatListFragment : Fragment() {
             }
             sheet.show(childFragmentManager, "Notifications")
         }
+
+        binding.fabNewChat.setOnClickListener {
+            (activity as? MainActivity)?.loadUsersList()
+        }
         
         loadData()
     }
@@ -83,7 +87,10 @@ class ChatListFragment : Fragment() {
 
 
     private fun loadConversations() {
-        val list = SessionManager.getConversations()
+        val blockedList = SessionManager.blockedUsers
+        val list = SessionManager.getConversations().filter {
+            it.targetUser == null || !blockedList.contains(it.targetUser)
+        }
         adapter.submitList(ArrayList(list))
         binding.tvGroupCount.text = "最近会话: ${list.size}"
     }

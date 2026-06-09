@@ -13,6 +13,7 @@ import com.openboard.nativeapp.ui.chat.ChatActivity
 import android.os.Build
 import com.openboard.nativeapp.service.MessageService
 import com.openboard.nativeapp.ui.login.LoginActivity
+import com.openboard.nativeapp.OpenBoardApp
 
 /**
  * 主 Activity 壳容器，负责 WebSocket 事件的分发和子页面的切换
@@ -90,15 +91,24 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // 启动后台消息监听前台服务
+        // 启动后台消息监听服务（作为普通后台服务运行，不再显示常驻通知）
         val serviceIntent = Intent(this, MessageService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(serviceIntent)
-        } else {
-            startService(serviceIntent)
-        }
+        startService(serviceIntent)
 
         loadFragment(ChatListFragment())
+
+        // 自动拉取并上传最新华为推送 Token
+        (application as? OpenBoardApp)?.initHmsPush()
+
+        // 处理推送通知点击后的跳转
+        val pushRoomIdStr = intent.getStringExtra("room_id") ?: intent.getIntExtra("room_id", 0).toString()
+        val pushRoomId = pushRoomIdStr.toIntOrNull() ?: 0
+        val pushTargetUser = intent.getStringExtra("receiver") ?: intent.getStringExtra("target_user")
+        val pushRoomName = intent.getStringExtra("title") ?: intent.getStringExtra("room_name") ?: (if (pushRoomId > 0) "群聊" else (pushTargetUser ?: ""))
+
+        if (pushRoomId > 0 || !pushTargetUser.isNullOrEmpty()) {
+            navigateToChat(pushRoomId, pushRoomName, pushTargetUser)
+        }
     }
 
     private fun redirectToLogin() {

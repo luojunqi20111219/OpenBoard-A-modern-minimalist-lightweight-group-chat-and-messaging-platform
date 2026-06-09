@@ -89,6 +89,17 @@ def patch_db():
             PRIMARY KEY (msg_id, user)
         )
     """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS user_devices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, 
+            user_id INTEGER, 
+            device_id TEXT, 
+            push_token TEXT, 
+            token TEXT, 
+            last_login DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(user_id, device_id)
+        )
+    """)
     
     # Check & append missing columns to guarantee backwards compatibility
     columns_to_add = {
@@ -98,7 +109,8 @@ def patch_db():
             ("is_banned", "INTEGER DEFAULT 0"), 
             ("avatar", "TEXT"), 
             ("blocked_users", "TEXT DEFAULT ''"), 
-            ("last_read_notice_id", "INTEGER DEFAULT 0")
+            ("last_read_notice_id", "INTEGER DEFAULT 0"),
+            ("push_token", "TEXT")
         ],
         "messages": [
             ("room_id", "INTEGER DEFAULT 0"), 

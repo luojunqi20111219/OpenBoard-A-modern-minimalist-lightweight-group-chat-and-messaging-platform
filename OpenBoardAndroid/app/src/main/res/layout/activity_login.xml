@@ -18,14 +18,30 @@
             android:gravity="center_vertical">
 
             <!-- Logo / Title -->
+            <FrameLayout
+                android:layout_width="80dp"
+                android:layout_height="80dp"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginBottom="16dp"
+                android:background="@drawable/bg_send_btn">
+
+                <ImageView
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_send"
+                    android:contentDescription="Logo"
+                    android:tint="@android:color/white"/>
+            </FrameLayout>
+
             <TextView
                 android:id="@+id/tv_title"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="信语"
-                android:textSize="28sp"
+                android:textSize="26sp"
                 android:textStyle="bold"
-                android:textColor="@color/primary"
+                android:textColor="@color/text_primary"
                 android:layout_gravity="center_horizontal"
                 android:layout_marginBottom="32dp"/>
 
@@ -70,7 +86,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:inputType="textUri"
-                    android:text="http://liuyan.luojunqi.xyz:5000/"/>
+                    android:text="https://liuyan.luojunqi.xyz/"/>
 
             </com.google.android.material.textfield.TextInputLayout>
 

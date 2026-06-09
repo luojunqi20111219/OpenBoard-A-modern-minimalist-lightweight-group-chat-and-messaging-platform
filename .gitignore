@@ -4,14 +4,3 @@ board.db
 uploads/
 .env
 .vscode/
-
-# Android
-OpenBoardAndroid/.gradle/
-OpenBoardAndroid/.idea/
-OpenBoardAndroid/build/
-OpenBoardAndroid/build2/
-OpenBoardAndroid/local.properties
-OpenBoardAndroid/app/build/
-OpenBoardAndroid/app/build2/
-*.apk
-

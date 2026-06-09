@@ -97,4 +97,12 @@
 
     </LinearLayout>
 
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="0.5dp"
+        android:layout_alignParentBottom="true"
+        android:layout_toEndOf="@id/avatar_frame"
+        android:layout_marginStart="12dp"
+        android:background="@color/divider"/>
+
 </RelativeLayout>

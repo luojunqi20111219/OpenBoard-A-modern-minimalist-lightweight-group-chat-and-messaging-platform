@@ -29,19 +29,9 @@ class BootReceiver : BroadcastReceiver() {
             SessionManager.init(context.applicationContext)
             
             if (SessionManager.isLoggedIn) {
-                Log.d(TAG, "User is logged in, starting MessageService from BootReceiver...")
-                val serviceIntent = Intent(context, MessageService::class.java)
-                try {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        context.startForegroundService(serviceIntent)
-                    } else {
-                        context.startService(serviceIntent)
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to start service: ${e.message}")
-                }
+                Log.d(TAG, "User is logged in. Relying on HMS Push Kit for background message delivery.")
             } else {
-                Log.d(TAG, "User is not logged in, skipping service start.")
+                Log.d(TAG, "User is not logged in, skipping.")
             }
         }
     }

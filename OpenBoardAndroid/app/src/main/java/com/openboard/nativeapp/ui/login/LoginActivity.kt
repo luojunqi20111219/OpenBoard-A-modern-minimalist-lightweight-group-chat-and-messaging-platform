@@ -152,7 +152,10 @@ class LoginActivity : AppCompatActivity() {
     }
 
     private fun navigateToMain() {
-        startActivity(Intent(this, MainActivity::class.java))
+        val intent = Intent(this, MainActivity::class.java).apply {
+            this@LoginActivity.intent.extras?.let { putExtras(it) }
+        }
+        startActivity(intent)
         finish()
     }
 }

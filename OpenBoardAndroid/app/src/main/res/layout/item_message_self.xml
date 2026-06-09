@@ -14,14 +14,15 @@
         android:src="@drawable/ic_person"
         android:background="@drawable/bg_avatar_circle"
         android:scaleType="centerCrop"
-        android:contentDescription="我的头像"/>
+        android:contentDescription="我的头像"
+        android:visibility="gone"/>
 
     <!-- Content Bubble Container -->
     <LinearLayout
         android:id="@+id/bubble_container"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_toStartOf="@id/iv_avatar"
+        android:layout_alignParentEnd="true"
         android:layout_marginEnd="8dp"
         android:orientation="vertical"
         android:gravity="end">
@@ -50,7 +51,7 @@
                 android:paddingHorizontal="14dp"
                 android:paddingVertical="10dp"
                 android:background="@drawable/bg_bubble_self"
-                android:textColor="@android:color/white"
+                android:textColor="@color/text_primary"
                 android:textSize="15sp"
                 android:autoLink="all"
                 android:text="我的消息"/>

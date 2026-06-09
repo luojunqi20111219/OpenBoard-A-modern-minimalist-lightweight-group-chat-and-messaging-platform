@@ -24,7 +24,7 @@ object WebSocketManager {
     }
 
     private val listeners = mutableListOf<WsListener>()
-    private var isConnected = false
+    var isConnected = false
     private val handler = Handler(Looper.getMainLooper())
     private val reconnectRunnable = Runnable { connect() }
 

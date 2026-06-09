@@ -60,7 +60,7 @@ class ChatActivity : AppCompatActivity() {
     private var lastTypingSentTime = 0L
     private val mainHandler = Handler(Looper.getMainLooper())
     private val typingTimeoutRunnable = Runnable {
-        binding.tvTitle.text = roomName
+        binding.tvSubtitle.visibility = View.GONE
     }
 
     // 缓存的群设置弹窗实例及待上传的群头像
@@ -70,6 +70,7 @@ class ChatActivity : AppCompatActivity() {
 
     // 缓存黑名单状态
     private var isTargetUserBlocked = false
+    private var replyingMessage: Message? = null
 
     // WebSocket 实时数据监听器
     private val wsListener = object : WebSocketManager.WsListener {
@@ -138,10 +139,26 @@ class ChatActivity : AppCompatActivity() {
         // 初始化 RecyclerView 适配器
         adapter = ChatAdapter(messagesList, myUsername ?: "")
         adapter.onMessageLongClick = { msg -> showMessageOptions(msg) }
+        adapter.onAvatarClick = { msg -> showUserProfileDialog(msg) }
+        adapter.onActionOptionClick = { option, msg, selectedText ->
+            handleActionOption(option, msg, selectedText)
+        }
+        adapter.onReplyQuoteClick = { parentId ->
+            val index = messagesList.indexOfFirst { it.id == parentId }
+            if (index >= 0) {
+                binding.recyclerView.smoothScrollToPosition(index)
+                adapter.highlightItem(index)
+            } else {
+                Toast.makeText(this, "未找到引用的原始消息", Toast.LENGTH_SHORT).show()
+            }
+        }
         binding.recyclerView.layoutManager = LinearLayoutManager(this).apply {
             stackFromEnd = true // 从底部开始堆叠，符合聊天习惯
         }
         binding.recyclerView.adapter = adapter
+
+        // 取消回复按钮
+        binding.btnCancelReply.setOnClickListener { cancelReply() }
 
         // 附件上传点击
         binding.btnAttach.setOnClickListener {
@@ -152,11 +169,15 @@ class ChatActivity : AppCompatActivity() {
         // 发送按钮点击
         binding.btnSend.setOnClickListener { sendMessage() }
 
+        // 初始化发送按钮不可发送样式
+        updateSendButtonState(false)
+
         // 输入框变化监听，用于上报“正在输入...”状态
         binding.etMessage.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
                 triggerTypingIndicator()
+                updateSendButtonState(!s.isNullOrBlank())
             }
             override fun afterTextChanged(s: Editable?) {}
         })
@@ -204,17 +225,33 @@ class ChatActivity : AppCompatActivity() {
         val content = binding.etMessage.text.toString().trim()
         if (content.isEmpty()) return
 
+        val finalContent = if (replyingMessage != null) {
+            val originalMsg = replyingMessage!!
+            val cleanOriginalText = when {
+                originalMsg.content.contains("[img:") -> "[图片]"
+                originalMsg.content.contains("[file:") -> "[文件]"
+                else -> originalMsg.content
+            }
+            "💬 回复 @${originalMsg.nickname ?: originalMsg.name}：\n\"${cleanOriginalText}\"\n\n$content"
+        } else {
+            content
+        }
+
         val request = SendMessageRequest(
-            content = content,
+            content = finalContent,
             roomId = roomId,
-            receiver = targetUser
+            receiver = targetUser,
+            replyTo = replyingMessage?.id
         )
 
         binding.etMessage.text.clear()
+        cancelReply()
 
         lifecycleScope.launch {
             val result = repository.sendMessage(request)
-            result.onFailure { e ->
+            result.onSuccess {
+                loadMessages()
+            }.onFailure { e ->
                 Toast.makeText(this@ChatActivity, "发送失败: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
@@ -243,7 +280,12 @@ class ChatActivity : AppCompatActivity() {
                     
                     // 判断是否为图片类型
                     val mimeType = contentResolver.getType(uri) ?: ""
-                    val isImage = mimeType.startsWith("image/")
+                    val isImage = mimeType.startsWith("image/") ||
+                            filename.endsWith(".jpg", ignoreCase = true) ||
+                            filename.endsWith(".jpeg", ignoreCase = true) ||
+                            filename.endsWith(".png", ignoreCase = true) ||
+                            filename.endsWith(".gif", ignoreCase = true) ||
+                            filename.endsWith(".webp", ignoreCase = true)
 
                     val formattedMsg = if (isImage) {
                         "[img:$url]"
@@ -252,13 +294,18 @@ class ChatActivity : AppCompatActivity() {
                     }
 
                     // 自动发送附件标签消息
-                    repository.sendMessage(
+                    val sendResult = repository.sendMessage(
                         SendMessageRequest(
                             content = formattedMsg,
                             roomId = roomId,
                             receiver = targetUser
                         )
                     )
+                    sendResult.onSuccess {
+                        loadMessages()
+                    }.onFailure { e ->
+                        Toast.makeText(this@ChatActivity, "发送附件消息失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
                 }.onFailure { e ->
                     Toast.makeText(this@ChatActivity, "文件上传失败: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
@@ -311,20 +358,22 @@ class ChatActivity : AppCompatActivity() {
                     }
 
                     if (isMsgForCurrentChat) {
-                        val newMessage = Message(
-                            id = data.id ?: 0,
-                            name = data.name ?: "",
-                            content = data.content ?: "",
-                            time = data.time ?: "刚刚",
-                            nickname = data.nickname,
-                            avatar = data.avatar,
-                            reply = data.replyTo?.toString(),
-                            roomId = data.roomId ?: 0,
-                            receiver = data.receiver
-                        )
-                        messagesList.add(newMessage)
-                        adapter.notifyItemInserted(messagesList.size - 1)
-                        scrollToBottom()
+                        if (messagesList.none { it.id == data.id }) {
+                            val newMessage = Message(
+                                id = data.id ?: 0,
+                                name = data.name ?: "",
+                                content = data.content ?: "",
+                                time = data.time ?: "刚刚",
+                                nickname = data.nickname,
+                                avatar = data.avatar,
+                                reply = data.replyTo?.toString(),
+                                roomId = data.roomId ?: 0,
+                                receiver = data.receiver
+                            )
+                            messagesList.add(newMessage)
+                            adapter.notifyItemInserted(messagesList.size - 1)
+                            scrollToBottom()
+                        }
                     }
                 }
             }
@@ -345,8 +394,9 @@ class ChatActivity : AppCompatActivity() {
                 }
 
                 if (isTypingForCurrentChat) {
-                    val text = if (roomId > 0) "${msg.user} 正在输入..." else "对方正在输入..."
-                    binding.tvTitle.text = text
+                    val text = if (roomId > 0) "${msg.user}正在输入..." else "正在输入..."
+                    binding.tvSubtitle.text = text
+                    binding.tvSubtitle.visibility = View.VISIBLE
                     mainHandler.removeCallbacks(typingTimeoutRunnable)
                     mainHandler.postDelayed(typingTimeoutRunnable, 3000)
                 }
@@ -363,19 +413,44 @@ class ChatActivity : AppCompatActivity() {
         val isAdmin = myRole == 1
 
         val options = mutableListOf<String>()
+        options.add("复制文本")
+        options.add("回复 (引用)")
+        options.add("转发消息")
+        options.add("翻译消息")
         if (message.name == myUsername || isAdmin) {
             options.add("撤回消息")
         }
 
-        if (options.isEmpty()) return
-
         AlertDialog.Builder(this)
             .setItems(options.toTypedArray()) { _, which ->
-                if (options[which] == "撤回消息") {
-                    recallMessage(message.id)
-                }
+                handleActionOption(options[which], message, message.content)
             }
             .show()
+    }
+
+    private fun handleActionOption(option: String, message: Message, selectedText: String) {
+        when (option) {
+            "复制文本" -> {
+                val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                val clip = android.content.ClipData.newPlainText("message", selectedText)
+                clipboard.setPrimaryClip(clip)
+                Toast.makeText(this, "已复制到剪贴板", Toast.LENGTH_SHORT).show()
+            }
+            "回复 (引用)" -> {
+                val customMessage = message.copy(content = selectedText)
+                startReply(customMessage)
+            }
+            "转发消息" -> {
+                forwardMessage(selectedText)
+            }
+            "翻译消息" -> {
+                val customMessage = message.copy(content = selectedText)
+                translateMessage(customMessage)
+            }
+            "撤回消息" -> {
+                recallMessage(message.id)
+            }
+        }
     }
 
     /**
@@ -673,6 +748,281 @@ class ChatActivity : AppCompatActivity() {
             app.activeRoomId = -1
             app.activeTargetUser = null
         }
+    }
+
+    private fun updateSendButtonState(hasText: Boolean) {
+        binding.btnSend.isEnabled = hasText
+        if (hasText) {
+            binding.btnSend.backgroundTintList = android.content.res.ColorStateList.valueOf(resources.getColor(R.color.primary, null))
+            binding.btnSend.imageTintList = android.content.res.ColorStateList.valueOf(resources.getColor(android.R.color.white, null))
+            binding.btnSend.alpha = 1.0f
+        } else {
+            binding.btnSend.backgroundTintList = android.content.res.ColorStateList.valueOf(0x22888888.toInt())
+            binding.btnSend.imageTintList = android.content.res.ColorStateList.valueOf(0xFF888888.toInt())
+            binding.btnSend.alpha = 0.5f
+        }
+    }
+
+    private fun cancelReply() {
+        replyingMessage = null
+        binding.layoutReplyPreview.visibility = View.GONE
+    }
+
+    private fun startReply(message: Message) {
+        replyingMessage = message
+        binding.tvReplyUser.text = "回复 @${message.nickname ?: message.name}"
+        binding.tvReplyContent.text = when {
+            message.content.contains("[img:") -> "[图片]"
+            message.content.contains("[file:") -> "[文件]"
+            else -> message.content
+        }
+        binding.layoutReplyPreview.visibility = View.VISIBLE
+    }
+
+    private fun forwardMessage(messageContent: String) {
+        val conversations = SessionManager.getConversations()
+        if (conversations.isEmpty()) {
+            Toast.makeText(this, "暂无可转发的会话", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val names = conversations.map { it.name }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("转发消息到...")
+            .setItems(names) { _, which ->
+                val target = conversations[which]
+                val targetRoomId = target.id
+                val targetUser = target.targetUser
+                lifecycleScope.launch {
+                    val request = SendMessageRequest(
+                        content = messageContent,
+                        roomId = targetRoomId,
+                        receiver = targetUser
+                    )
+                    val result = repository.sendMessage(request)
+                    result.onSuccess {
+                        Toast.makeText(this@ChatActivity, "已转发给 ${target.name}", Toast.LENGTH_SHORT).show()
+                        if (targetRoomId == roomId && targetUser == this@ChatActivity.targetUser) {
+                            loadMessages()
+                        }
+                    }.onFailure { e ->
+                        Toast.makeText(this@ChatActivity, "转发失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            .show()
+    }
+
+    private fun translateMessage(message: Message) {
+        val text = message.content
+        val isChinese = text.any { it.code in 0x4e00..0x9fa5 }
+        val targetLang = if (isChinese) "en" else "zh-CN"
+        val url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=$targetLang&dt=t&q=${java.net.URLEncoder.encode(text, "UTF-8")}"
+        
+        binding.progressBar.visibility = View.VISIBLE
+        
+        val client = okhttp3.OkHttpClient()
+        val request = okhttp3.Request.Builder().url(url).build()
+        client.newCall(request).enqueue(object : okhttp3.Callback {
+            override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
+                runOnUiThread {
+                    binding.progressBar.visibility = View.GONE
+                    Toast.makeText(this@ChatActivity, "翻译失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+            override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                runOnUiThread { binding.progressBar.visibility = View.GONE }
+                val bodyStr = response.body?.string()
+                if (response.isSuccessful && !bodyStr.isNullOrEmpty()) {
+                    try {
+                        val jsonArray = com.google.gson.JsonParser.parseString(bodyStr).asJsonArray
+                        val translatedParts = jsonArray.get(0).asJsonArray
+                        val sb = StringBuilder()
+                        for (i in 0 until translatedParts.size()) {
+                            sb.append(translatedParts.get(i).asJsonArray.get(0).asString)
+                        }
+                        val translationResult = sb.toString()
+                        runOnUiThread {
+                            AlertDialog.Builder(this@ChatActivity)
+                                .setTitle("翻译结果 (${targetLang})")
+                                .setMessage(translationResult)
+                                .setPositiveButton("复制") { _, _ ->
+                                    val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                    val clip = android.content.ClipData.newPlainText("translation", translationResult)
+                                    clipboard.setPrimaryClip(clip)
+                                    Toast.makeText(this@ChatActivity, "翻译已复制", Toast.LENGTH_SHORT).show()
+                                }
+                                .setNegativeButton("确定", null)
+                                .show()
+                        }
+                    } catch (e: Exception) {
+                        runOnUiThread {
+                            Toast.makeText(this@ChatActivity, "解析翻译失败", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                } else {
+                    runOnUiThread {
+                        Toast.makeText(this@ChatActivity, "翻译服务异常", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        })
+    }
+
+    private fun showUserProfileDialog(message: Message) {
+        val target = message.name
+        val isMe = target == SessionManager.username
+        
+        val dialog = AlertDialog.Builder(this).create()
+        
+        val root = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(60, 60, 60, 60)
+            setBackgroundColor(0xFFFFFFFF.toInt())
+            layoutParams = android.view.ViewGroup.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT, 
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+        
+        val ivAvatar = com.google.android.material.imageview.ShapeableImageView(this).apply {
+            layoutParams = android.widget.LinearLayout.LayoutParams(250, 250).apply {
+                gravity = android.view.Gravity.CENTER_HORIZONTAL
+                bottomMargin = 40
+            }
+            scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+            shapeAppearanceModel = com.google.android.material.shape.ShapeAppearanceModel.builder()
+                .setAllCornerSizes(125f)
+                .build()
+        }
+        root.addView(ivAvatar)
+        
+        val tvNickname = android.widget.TextView(this).apply {
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT, 
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = 10
+            }
+            text = message.nickname ?: target
+            textSize = 20f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            gravity = android.view.Gravity.CENTER
+            setTextColor(0xFF212121.toInt())
+        }
+        root.addView(tvNickname)
+        
+        val tvName = android.widget.TextView(this).apply {
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT, 
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = 60
+            }
+            text = "@$target"
+            textSize = 14f
+            gravity = android.view.Gravity.CENTER
+            setTextColor(0xFF757575.toInt())
+        }
+        root.addView(tvName)
+        
+        val avatarStr = message.avatar
+        if (!avatarStr.isNullOrEmpty()) {
+            try {
+                val base64Data = if (avatarStr.startsWith("data:image")) {
+                    avatarStr.substringAfter("base64,")
+                } else {
+                    avatarStr
+                }
+                val bytes = Base64.decode(base64Data, Base64.DEFAULT)
+                val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                ivAvatar.setImageBitmap(bmp)
+            } catch (e: Exception) {
+                ivAvatar.setImageResource(R.drawable.ic_person)
+            }
+        } else {
+            ivAvatar.setImageResource(R.drawable.ic_person)
+        }
+        
+        if (!isMe) {
+            val blockedList = SessionManager.blockedUsers
+            var isBlocked = blockedList.contains(target)
+            
+            val btnChat = android.widget.Button(this).apply {
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT, 
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    bottomMargin = 20
+                }
+                text = "发消息"
+                setTextColor(0xFFFFFFFF.toInt())
+                setBackgroundColor(resources.getColor(R.color.primary, null))
+                setOnClickListener {
+                    dialog.dismiss()
+                    if (targetUser == target) {
+                        return@setOnClickListener
+                    }
+                    val intent = Intent(this@ChatActivity, ChatActivity::class.java).apply {
+                        putExtra("room_id", 0)
+                        putExtra("room_name", message.nickname ?: target)
+                        putExtra("target_user", target)
+                    }
+                    startActivity(intent)
+                    finish()
+                }
+            }
+            root.addView(btnChat)
+            
+            val btnBlock = android.widget.Button(this).apply {
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT, 
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+                text = if (isBlocked) "取消拉黑" else "拉黑该用户"
+                setTextColor(if (isBlocked) 0xFF4CAF50.toInt() else 0xFFF44336.toInt())
+                setBackgroundColor(0xFFEEEEEE.toInt())
+            }
+            
+            val updateBlockBtn = {
+                btnBlock.text = if (isBlocked) "取消拉黑" else "拉黑该用户"
+                btnBlock.setTextColor(if (isBlocked) 0xFF4CAF50.toInt() else 0xFFF44336.toInt())
+            }
+            updateBlockBtn()
+            
+            btnBlock.setOnClickListener {
+                lifecycleScope.launch {
+                    val result = repository.blockUser(target)
+                    result.onSuccess { resp ->
+                        isBlocked = resp.isBlocked
+                        val currentBlocked = SessionManager.blockedUsers.toMutableSet()
+                        if (isBlocked) {
+                            currentBlocked.add(target)
+                        } else {
+                            currentBlocked.remove(target)
+                        }
+                        SessionManager.blockedUsers = currentBlocked
+                        updateBlockBtn()
+                        
+                        if (targetUser == target) {
+                            isTargetUserBlocked = isBlocked
+                            updateBlockButtonUI()
+                        }
+                        
+                        Toast.makeText(
+                            this@ChatActivity,
+                            if (isBlocked) "已将该用户拉黑" else "已取消拉黑",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }.onFailure { e ->
+                        Toast.makeText(this@ChatActivity, "操作失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            root.addView(btnBlock)
+        }
+        
+        dialog.setView(root)
+        dialog.show()
     }
 
     override fun onDestroy() {

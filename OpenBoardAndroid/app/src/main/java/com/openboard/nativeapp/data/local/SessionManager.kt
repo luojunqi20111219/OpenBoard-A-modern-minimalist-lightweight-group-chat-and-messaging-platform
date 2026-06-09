@@ -7,6 +7,7 @@ import com.google.gson.reflect.TypeToken
 import com.openboard.nativeapp.data.api.RetrofitClient
 import com.openboard.nativeapp.data.model.User
 import com.openboard.nativeapp.data.model.Conversation
+import com.openboard.nativeapp.data.model.ApiResponse
 
 /**
  * 存放登录信息、缓存的会话列表及服务器地址的本地首选项管理器
@@ -22,27 +23,41 @@ object SessionManager {
     private const val KEY_SERVER_URL = "server_url"
     private const val KEY_ROLE = "role"
     private const val KEY_BLOCKED_USERS = "blocked_users"
+    private const val KEY_HMS_TOKEN = "hms_token"
 
+    private lateinit var context: Context
     private lateinit var prefs: SharedPreferences
     private val gson = Gson()
 
     fun init(context: Context) {
+        this.context = context.applicationContext
         prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         
-        // 载入保存的自定义服务器地址
-        val savedServerUrl = prefs.getString(KEY_SERVER_URL, null)
+        // 载入保存的自定义服务器地址，并迁移老旧的 http 地址到新的 https 加密通道
+        var savedServerUrl = prefs.getString(KEY_SERVER_URL, null)
+        if (savedServerUrl != null && savedServerUrl.contains("liuyan.luojunqi.xyz") && savedServerUrl.startsWith("http://")) {
+            savedServerUrl = "https://liuyan.luojunqi.xyz/"
+            prefs.edit().putString(KEY_SERVER_URL, savedServerUrl).apply()
+        }
+        
         if (!savedServerUrl.isNullOrEmpty()) {
             RetrofitClient.setBaseUrl(savedServerUrl)
+        } else {
+            RetrofitClient.setBaseUrl("https://liuyan.luojunqi.xyz/")
         }
         
         prefs.getString(KEY_TOKEN, null)?.let { RetrofitClient.setToken(it) }
     }
 
     var serverUrl: String?
-        get() = prefs.getString(KEY_SERVER_URL, "http://liuyan.luojunqi.xyz:5000/")
+        get() = prefs.getString(KEY_SERVER_URL, "https://liuyan.luojunqi.xyz/")
         set(value) {
-            prefs.edit().putString(KEY_SERVER_URL, value).apply()
-            value?.let { RetrofitClient.setBaseUrl(it) }
+            var finalValue = value
+            if (finalValue != null && finalValue.contains("liuyan.luojunqi.xyz") && finalValue.startsWith("http://")) {
+                finalValue = "https://liuyan.luojunqi.xyz/"
+            }
+            prefs.edit().putString(KEY_SERVER_URL, finalValue).apply()
+            finalValue?.let { RetrofitClient.setBaseUrl(it) }
         }
 
     var token: String?
@@ -50,6 +65,9 @@ object SessionManager {
         set(value) {
             prefs.edit().putString(KEY_TOKEN, value).apply()
             RetrofitClient.setToken(value)
+            if (!value.isNullOrEmpty()) {
+                hmsPushToken?.let { uploadPushToken(it) }
+            }
         }
 
     var userId: Int
@@ -181,8 +199,45 @@ object SessionManager {
             prefs.edit().putString(KEY_BLOCKED_USERS, json).apply()
         }
 
+    var hmsPushToken: String?
+        get() = prefs.getString(KEY_HMS_TOKEN, null)
+        set(value) = prefs.edit().putString(KEY_HMS_TOKEN, value).apply()
+
+    fun uploadPushToken(token: String) {
+        hmsPushToken = token
+        val userToken = this.token
+        if (userToken.isNullOrEmpty()) {
+            return
+        }
+        val apiService = RetrofitClient.getApiService()
+        val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID) ?: "unknown_device"
+        apiService.uploadPushToken(mapOf(
+            "push_token" to token,
+            "device_id" to deviceId
+        )).enqueue(object : retrofit2.Callback<ApiResponse<Any>> {
+            override fun onResponse(call: retrofit2.Call<ApiResponse<Any>>, response: retrofit2.Response<ApiResponse<Any>>) {
+                if (response.isSuccessful) {
+                    android.util.Log.i("SessionManager", "HMS Push Token and Device ID uploaded successfully to server")
+                } else {
+                    android.util.Log.e("SessionManager", "Failed to upload HMS Push Token: ${response.code()}")
+                }
+            }
+            override fun onFailure(call: retrofit2.Call<ApiResponse<Any>>, t: Throwable) {
+                android.util.Log.e("SessionManager", "Error uploading HMS Push Token", t)
+            }
+        })
+    }
+
     fun clear() {
+        val savedServerUrl = serverUrl
+        val savedHmsToken = hmsPushToken
         prefs.edit().clear().apply()
         RetrofitClient.setToken(null)
+        if (savedServerUrl != null) {
+            serverUrl = savedServerUrl
+        }
+        if (savedHmsToken != null) {
+            hmsPushToken = savedHmsToken
+        }
     }
 }

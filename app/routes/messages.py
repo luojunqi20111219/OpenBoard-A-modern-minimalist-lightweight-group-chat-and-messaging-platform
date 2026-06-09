@@ -3,7 +3,7 @@ import re
 import uuid
 import html
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, BackgroundTasks
 from fastapi.responses import FileResponse
 from app.config import Config
 from app.database import get_db
@@ -14,12 +14,7 @@ from app.websocket import manager
 router = APIRouter(prefix="/api")
 
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
-BLOCKED_EXTENSIONS = {
-    'ade', 'adp', 'apk', 'app', 'appx', 'bat', 'bin', 'cmd', 'com', 'cpl',
-    'dll', 'dmg', 'exe', 'gadget', 'hta', 'ins', 'iso', 'jar', 'js', 'jse',
-    'lnk', 'msi', 'msp', 'pif', 'ps1', 'scr', 'sh', 'svg', 'vb', 'vbe',
-    'vbs', 'ws', 'wsc', 'wsf', 'wsh', 'xhtml', 'html', 'htm', 'php', 'py'
-}
+ALLOWED_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif', 'pdf', 'docx', 'txt', 'zip'}
 
 # XSS protection using bleach (safe fallback to standard html.escape)
 try:
@@ -35,7 +30,7 @@ def allowed_file(filename: str) -> bool:
     if '.' not in filename:
         return False
     ext = filename.rsplit('.', 1)[1].lower()
-    return ext not in BLOCKED_EXTENSIONS
+    return ext in ALLOWED_EXTENSIONS
 
 @router.get("/messages")
 async def get_messages(
@@ -66,7 +61,12 @@ async def get_messages(
     return {"status": "success", "data": [dict(r) for r in rows if r['name'] not in blocked_list]}
 
 @router.post("/messages")
-async def post_message(data: MessageData, current_user = Depends(get_current_user), db = Depends(get_db)):
+async def post_message(
+    data: MessageData, 
+    background_tasks: BackgroundTasks,
+    current_user = Depends(get_current_user), 
+    db = Depends(get_db)
+):
     # 1. Clean message to prevent XSS injection
     clean_content = sanitize_xss(data.content)
     if not clean_content.strip():
@@ -129,6 +129,80 @@ async def post_message(data: MessageData, current_user = Depends(get_current_use
         }
     }, room_id=data.room_id, receiver=data.receiver, sender=current_user['username'])
     
+    # 6. Push via HMS (Huawei Push)
+    sender_nickname = sender_info['nickname'] if sender_info else current_user['nickname']
+    body_preview = clean_content
+    if len(body_preview) > 50:
+        body_preview = body_preview[:50] + "..."
+
+    if data.receiver:
+        # Private Message Push - send to all active devices of receiver (including legacy fallback)
+        tokens_rows = db.execute("""
+            SELECT d.push_token 
+            FROM user_devices d JOIN users u ON d.user_id = u.id 
+            WHERE u.username = ? AND d.push_token IS NOT NULL
+            UNION
+            SELECT push_token 
+            FROM users 
+            WHERE username = ? AND push_token IS NOT NULL 
+              AND username NOT IN (SELECT u.username FROM user_devices d JOIN users u ON d.user_id = u.id)
+        """, (data.receiver, data.receiver)).fetchall()
+        
+        target_tokens = [r['push_token'] for r in tokens_rows if r['push_token']]
+        
+        if target_tokens:
+            from app.hms_push import send_hms_push
+            background_tasks.add_task(
+                send_hms_push,
+                target_tokens,
+                f"来自 {sender_nickname} 的私信",
+                body_preview,
+                0,
+                current_user['username']
+            )
+    elif data.room_id > 0:
+        # Group Message Push - send to all active devices of group members (including legacy fallback)
+        group = db.execute("SELECT * FROM groups WHERE id=?", (data.room_id,)).fetchone()
+        if group:
+            group_name = group['name']
+            all_push_devices = db.execute("""
+                SELECT u.username, d.push_token 
+                FROM user_devices d JOIN users u ON d.user_id = u.id 
+                WHERE d.push_token IS NOT NULL AND u.username != ?
+                UNION
+                SELECT username, push_token 
+                FROM users 
+                WHERE push_token IS NOT NULL AND username != ? 
+                  AND username NOT IN (SELECT u.username FROM user_devices d JOIN users u ON d.user_id = u.id)
+            """, (current_user['username'], current_user['username'])).fetchall()
+            
+            target_tokens = []
+            for u in all_push_devices:
+                username = u['username']
+                can_view = True
+                if group['view_mode'] == 1:
+                    w_list = [name.strip() for name in (group['white_view'] or '').split(',') if name.strip()]
+                    if username not in w_list:
+                        can_view = False
+                else:
+                    b_list = [name.strip() for name in (group['black_view'] or '').split(',') if name.strip()]
+                    if username in b_list:
+                        can_view = False
+                        
+                if can_view:
+                    target_tokens.append(u['push_token'])
+                    
+            if target_tokens:
+                from app.hms_push import send_hms_push
+                background_tasks.add_task(
+                    send_hms_push,
+                    target_tokens,
+                    f"群【{group_name}】-{sender_nickname}",
+                    body_preview,
+                    data.room_id,
+                    None
+                )
+    
     return {"status": "success"}
 
 @router.delete("/messages/{msg_id}")
@@ -168,7 +242,7 @@ async def upload_file(file: UploadFile = File(...), current_user = Depends(get_c
         raise HTTPException(status_code=400, detail="文件大小超出10MB限制")
         
     if not allowed_file(file.filename):
-        raise HTTPException(status_code=400, detail="文件格式安全审查未通过，请不要上传可执行文件或脚本文件")
+        raise HTTPException(status_code=400, detail="文件格式安全审查未通过。仅支持图片、pdf、docx、txt及zip包")
         
     ext = file.filename.rsplit('.', 1)[1].lower()
     secure_filename = f"{uuid.uuid4().hex}.{ext}"

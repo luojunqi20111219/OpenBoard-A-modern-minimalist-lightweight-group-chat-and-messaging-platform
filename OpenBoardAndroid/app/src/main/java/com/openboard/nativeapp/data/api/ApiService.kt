@@ -79,4 +79,7 @@ interface ApiService {
 
     @DELETE("api/user/account")
     fun deleteAccount(): Call<ApiResponse<Any>>
+
+    @POST("api/user/push_token")
+    fun uploadPushToken(@Body data: Map<String, String>): Call<ApiResponse<Any>>
 }

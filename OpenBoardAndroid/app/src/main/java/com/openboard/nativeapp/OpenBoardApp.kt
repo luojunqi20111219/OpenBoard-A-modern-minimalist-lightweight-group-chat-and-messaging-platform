@@ -8,6 +8,8 @@ import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import com.openboard.nativeapp.data.local.SessionManager
+import androidx.emoji2.text.EmojiCompat
+import androidx.emoji2.bundled.BundledEmojiCompatConfig
 
 /**
  * 自定义 Application 类，在启动时初始化会话管理器、注册 Activity 生命周期回调以跟踪前后台状态，并初始化通知渠道。
@@ -29,6 +31,10 @@ class OpenBoardApp : Application() {
     override fun onCreate() {
         super.onCreate()
         SessionManager.init(this)
+
+        // 初始化 EmojiCompat，使用内置的 Bundled 字体库保证所有设备全量渲染最新表情包
+        val emojiConfig = BundledEmojiCompatConfig(this)
+        EmojiCompat.init(emojiConfig)
         
         // 注册 Activity 生命周期回调以动态感知应用前后台状态
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
@@ -59,6 +65,28 @@ class OpenBoardApp : Application() {
 
         // 创建通知渠道
         createNotificationChannels()
+
+        // 初始化并请求华为推送 Token
+        initHmsPush()
+    }
+
+    /**
+     * 异步请求华为推送 Token
+     */
+    fun initHmsPush() {
+        kotlin.concurrent.thread {
+            try {
+                val appId = "117953867"
+                android.util.Log.i("OpenBoardApp", "Requesting HMS Push Token for App ID: $appId")
+                val token = com.huawei.hms.aaid.HmsInstanceId.getInstance(this).getToken(appId, "HCM")
+                android.util.Log.i("OpenBoardApp", "HMS Push Token obtained successfully: $token")
+                if (!token.isNullOrEmpty()) {
+                    SessionManager.uploadPushToken(token)
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("OpenBoardApp", "Failed to obtain HMS Push Token: ${e.message}", e)
+            }
+        }
     }
 
     /**

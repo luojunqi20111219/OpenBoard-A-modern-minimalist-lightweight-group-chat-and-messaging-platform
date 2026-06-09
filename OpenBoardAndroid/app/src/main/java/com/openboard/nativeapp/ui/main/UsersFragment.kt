@@ -68,7 +68,7 @@ class UsersFragment : Fragment() {
                 val blocked = response.blockedUsers ?: emptyList()
                 val me = SessionManager.username
                 adapter.updateBlockedUsers(blocked)
-                adapter.submitList(users.filter { it.username != me })
+                adapter.submitList(users.filter { it.username != me && !blocked.contains(it.username) })
             }.onFailure {
                 Toast.makeText(requireContext(), "加载用户列表失败", Toast.LENGTH_SHORT).show()
             }

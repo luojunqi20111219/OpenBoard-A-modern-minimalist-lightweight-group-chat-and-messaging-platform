@@ -55,7 +55,7 @@ class ProfileFragment : Fragment() {
      * 初始化事件监听与基本设置
      */
     private fun setupUI() {
-        binding.toolbar.title = "个人资料"
+        binding.toolbar.title = "设置"
 
         // 修改头像点击
         binding.ivAvatar.setOnClickListener {
@@ -70,6 +70,11 @@ class ProfileFragment : Fragment() {
         // 修改密码按钮
         binding.btnChangePassword.setOnClickListener {
             doChangePassword()
+        }
+
+        // 黑名单管理按钮
+        binding.btnBlacklist.setOnClickListener {
+            showBlacklistDialog()
         }
 
         // 登出按钮
@@ -270,6 +275,52 @@ class ProfileFragment : Fragment() {
                 Toast.makeText(requireContext(), "注销失败: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
+    }
+
+    private fun showBlacklistDialog() {
+        val blockedUsers = SessionManager.blockedUsers.toList()
+        if (blockedUsers.isEmpty()) {
+            Toast.makeText(requireContext(), "黑名单为空", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        AlertDialog.Builder(requireContext())
+            .setTitle("已拉黑用户名单 (点击解黑)")
+            .setItems(blockedUsers.toTypedArray()) { _, which ->
+                val targetUser = blockedUsers[which]
+                AlertDialog.Builder(requireContext())
+                    .setTitle("提示")
+                    .setMessage("确定要取消拉黑用户 @${targetUser} 吗？")
+                    .setPositiveButton("确定") { _, _ ->
+                        binding.progressBar.visibility = View.VISIBLE
+                        lifecycleScope.launch {
+                            val result = repository.blockUser(targetUser)
+                            binding.progressBar.visibility = View.GONE
+                            result.onSuccess { resp ->
+                                val currentBlocked = SessionManager.blockedUsers.toMutableSet()
+                                if (resp.isBlocked) {
+                                    currentBlocked.add(targetUser)
+                                } else {
+                                    currentBlocked.remove(targetUser)
+                                }
+                                SessionManager.blockedUsers = currentBlocked
+                                Toast.makeText(requireContext(), "已取消拉黑 @${targetUser}", Toast.LENGTH_SHORT).show()
+                                if (currentBlocked.isNotEmpty()) {
+                                    showBlacklistDialog()
+                                }
+                            }.onFailure { e ->
+                                Toast.makeText(requireContext(), "操作失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                    .setNegativeButton("取消") { d, _ ->
+                        d.dismiss()
+                        showBlacklistDialog()
+                    }
+                    .show()
+            }
+            .setNegativeButton("关闭", null)
+            .show()
     }
 
     override fun onDestroyView() {

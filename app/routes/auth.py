@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from werkzeug.security import generate_password_hash, check_password_hash
 from app.config import Config
 from app.database import get_db
-from app.models import LoginData, RegisterData, PasswordChangeData, BlockUserData, UserProfileData
+from app.models import LoginData, RegisterData, PasswordChangeData, BlockUserData, UserProfileData, PushTokenData
 from app.auth import create_access_token, get_current_user
 
 router = APIRouter(prefix="/api")
@@ -148,3 +148,50 @@ async def get_users(current_user = Depends(get_current_user), db = Depends(get_d
     users = db.execute("SELECT username, nickname, avatar FROM users ORDER BY id DESC").fetchall()
     blocked_users = [u.strip() for u in (current_user['blocked_users'] or '').split(',') if u.strip()]
     return {"status": "success", "data": [dict(u) for u in users], "blocked_users": blocked_users}
+
+@router.post("/user/push_token")
+async def register_push_token(request: Request, data: PushTokenData, current_user = Depends(get_current_user), db = Depends(get_db)):
+    token = request.headers.get("Authorization") or request.cookies.get("token")
+    
+    # 1. Record/update current device push token and login session token
+    db.execute(
+        "INSERT OR REPLACE INTO user_devices (user_id, device_id, push_token, token, last_login) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)",
+        (current_user['id'], data.device_id, data.push_token, token)
+    )
+    db.commit()
+
+    # 2. Query all registered devices for this user
+    devices = db.execute(
+        "SELECT id, device_id, push_token FROM user_devices WHERE user_id = ? ORDER BY last_login DESC",
+        (current_user['id'],)
+    ).fetchall()
+
+    # If active devices exceed 2, kick out the oldest device(s)
+    if len(devices) > 2:
+        old_devices = devices[2:]
+        for d in old_devices:
+            # Send HMS force logout notification
+            if d['push_token']:
+                try:
+                    from app.hms_push import send_hms_push
+                    import asyncio
+                    asyncio.create_task(send_hms_push(
+                        [d['push_token']], 
+                        "安全通知", 
+                        "您的账号已在其他设备登录，当前设备已被下线。", 
+                        0, 
+                        "logout"
+                    ))
+                except Exception:
+                    pass
+            # Delete from database
+            db.execute("DELETE FROM user_devices WHERE id = ?", (d['id'],))
+        db.commit()
+
+    # Backwards compatibility update on the main user record
+    db.execute("UPDATE users SET push_token = ? WHERE id = ?", (data.push_token, current_user['id']))
+    db.commit()
+
+    return {"status": "success", "msg": "设备注册及华为推送 Token 已成功上报绑定"}
+
+
