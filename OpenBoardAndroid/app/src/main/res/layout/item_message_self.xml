@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:paddingHorizontal="10dp"
+    android:paddingVertical="3dp">
+
+    <!-- Avatar (hidden by default, can be shown) -->
+    <ImageView
+        android:id="@+id/iv_avatar"
+        android:layout_width="34dp"
+        android:layout_height="34dp"
+        android:layout_alignParentEnd="true"
+        android:src="@drawable/ic_person"
+        android:background="@drawable/bg_avatar_circle"
+        android:scaleType="centerCrop"
+        android:padding="6dp"
+        android:contentDescription="我的头像"
+        android:visibility="gone"/>
+
+    <!-- Content Bubble Container -->
+    <LinearLayout
+        android:id="@+id/bubble_container"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentEnd="true"
+        android:layout_marginEnd="6dp"
+        android:maxWidth="290dp"
+        android:orientation="vertical"
+        android:gravity="end">
+
+        <!-- Time -->
+        <TextView
+            android:id="@+id/tv_time"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="10sp"
+            android:textColor="@color/text_secondary"
+            android:layout_marginBottom="3dp"
+            android:text="12:00"/>
+
+        <!-- Message Text Bubble -->
+        <TextView
+            android:id="@+id/tv_content"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:maxWidth="270dp"
+            android:paddingHorizontal="14dp"
+            android:paddingVertical="10dp"
+            android:background="@drawable/bg_bubble_self"
+            android:textColor="#FFFFFF"
+            android:textSize="15sp"
+            android:lineSpacingMultiplier="1.25"
+            android:autoLink="all"
+            android:text="我的消息"/>
+
+        <!-- Message Image -->
+        <com.google.android.material.imageview.ShapeableImageView
+            android:id="@+id/iv_image"
+            android:layout_width="200dp"
+            android:layout_height="200dp"
+            android:scaleType="centerCrop"
+            app:cornerSize="16dp"
+            android:visibility="gone"
+            android:contentDescription="图片消息"/>
+
+    </LinearLayout>
+
+</RelativeLayout>

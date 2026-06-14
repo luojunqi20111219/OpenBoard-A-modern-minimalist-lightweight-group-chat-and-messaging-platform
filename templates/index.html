@@ -1,0 +1,1274 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>信语 (OpenBoard) | 现代群聊与私聊</title>
+    <link rel="icon" href="/favicon.ico" type="image/x-icon">
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@1/index.js"></script>
+    <style>
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .msg-appear { animation: fadeIn 0.3s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .avatar-gradient { background: linear-gradient(135deg, #4F46E5 0%, #06B6D4 100%); }
+    </style>
+</head>
+<body class="bg-gray-100 h-screen flex overflow-hidden font-sans">
+
+    <!-- 自定义右键/长按上下文菜单 -->
+    <div id="custom-context-menu" class="hidden fixed bg-white/95 backdrop-blur-md border border-gray-200/80 shadow-2xl rounded-2xl p-1.5 z-[9999] min-w-[140px] flex flex-col gap-1 transition-all duration-150 transform scale-95 opacity-0">
+        <button id="menu-btn-favorite" class="w-full text-left px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-blue-50 hover:text-blue-600 rounded-xl transition flex items-center gap-2">
+            <i class="fa-regular fa-star text-blue-500"></i>收藏表情
+        </button>
+        <button id="menu-btn-download" class="w-full text-left px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-blue-50 hover:text-blue-600 rounded-xl transition flex items-center gap-2">
+            <i class="fa-solid fa-download text-blue-500"></i>下载/保存图片
+        </button>
+        <button id="menu-btn-copy-link" class="w-full text-left px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-blue-50 hover:text-blue-600 rounded-xl transition flex items-center gap-2">
+            <i class="fa-regular fa-copy text-blue-500"></i>复制链接
+        </button>
+    </div>
+
+    <aside class="w-64 bg-gray-900 text-white flex flex-col h-full shadow-2xl z-20 shrink-0">
+        <div class="p-5 border-b border-gray-800 flex justify-between items-center">
+            <h1 class="text-xl font-bold tracking-tight flex items-center">
+                <img src="/favicon.ico" alt="logo" class="w-7 h-7 mr-2 drop-shadow-md">信语
+            </h1>
+            <button onclick="showProfile()" class="text-gray-400 hover:text-white transition" title="个人设置" id="btn-settings" style="display:none;">
+                <i class="fa-solid fa-gear"></i>
+            </button>
+        </div>
+        
+        <div class="flex-1 overflow-y-auto no-scrollbar pb-4">
+            <div class="p-4 pb-2 text-xs font-bold text-gray-500 uppercase tracking-widest flex justify-between items-center">
+                <span>群聊频道</span>
+                <button onclick="showCreateGroup()" class="hover:text-white transition" title="新建群聊"><i class="fa-solid fa-plus"></i></button>
+            </div>
+            <div id="channel-list" class="px-3 space-y-1"></div>
+
+            <div class="p-4 pb-2 mt-2 border-t border-gray-800 text-xs font-bold text-gray-500 uppercase tracking-widest">私信联系人</div>
+            <div id="user-list" class="px-3 space-y-1">
+                <div class="text-gray-500 text-xs px-2 italic">请先登录以查看</div>
+            </div>
+        </div>
+
+        <div class="p-4 bg-gray-950 border-t border-gray-800 shrink-0">
+            <div id="user-info" class="flex items-center justify-between">
+                <button onclick="showLogin()" class="w-full bg-blue-600 py-2 rounded-lg text-sm font-bold hover:bg-blue-500 transition">登录 / 注册</button>
+            </div>
+            <a href="/admin" class="block mt-3 text-center text-xs text-gray-600 hover:text-blue-400 transition">
+                <i class="fa-solid fa-shield-halved mr-1"></i>系统管理后台
+            </a>
+        </div>
+    </aside>
+
+    <main class="flex-1 flex flex-col h-full bg-white relative">
+        <header class="h-16 border-b flex items-center justify-between px-6 shrink-0 bg-white/80 backdrop-blur-md sticky top-0 z-10">
+            <div class="flex items-center">
+                <div id="header-icon" class="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center text-blue-600 mr-3 overflow-hidden">
+                    <i class="fa-solid fa-hashtag text-xl"></i>
+                </div>
+                <div>
+                    <h2 class="font-bold text-gray-800 flex items-center">
+                        <span id="room-title">公共大厅</span>
+                        <button id="room-manage-btn" onclick="showManageGroup()" class="ml-2 text-gray-400 hover:text-blue-500 hidden transition"><i class="fa-solid fa-gear"></i></button>
+                        <button id="user-block-btn" onclick="toggleBlockUser()" class="ml-2 text-gray-400 hover:text-red-500 hidden transition" title="拉黑/取消拉黑"><i class="fa-solid fa-ban"></i></button>
+                    </h2>
+                    <p class="text-xs text-gray-400 flex items-center" id="connection-status">
+                        <span class="w-1.5 h-1.5 bg-gray-400 rounded-full mr-1.5" id="status-dot"></span>
+                        <span id="status-text">未连接</span>
+                    </p>
+                    <div id="typing-indicator" class="text-[10px] text-blue-500 mt-0.5 hidden animate-pulse italic">有人正在输入...</div>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-4 relative">
+                <a href="https://github.com/luojunqi20111219/OpenBoard-A-modern-minimalist-lightweight-group-chat-and-messaging-platform" target="_blank" class="text-gray-400 hover:text-gray-700 transition p-2" title="GitHub"><svg width="22" height="22" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></a>
+                <div id="notice-btn" class="relative cursor-pointer text-gray-400 hover:text-blue-600 transition p-2" title="系统消息公告" onclick="toggleNoticeDropdown(event)">
+                    <i class="fa-solid fa-bell text-xl"></i>
+                    <span id="notice-badge" class="hidden absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-red-500 border-2 border-white rounded-full"></span>
+                </div>
+                
+                <!-- 通知下拉框 -->
+                <div id="notice-dropdown" class="hidden absolute top-full right-0 mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 overflow-hidden">
+                    <div class="p-4 border-b bg-gray-50 flex justify-between items-center">
+                        <span class="font-bold text-sm text-gray-700">📢 系统公告消息</span>
+                        <button onclick="markAllNoticesRead()" class="text-[10px] text-blue-600 hover:underline">全部已读</button>
+                    </div>
+                    <div id="notice-content" class="max-h-80 overflow-y-auto p-2 space-y-2 no-scrollbar">
+                        <div class="text-center py-8 text-gray-400 text-xs">暂无新消息</div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <div id="msg-list" class="flex-1 overflow-y-auto p-6 space-y-6 no-scrollbar bg-gray-50/50">
+            <div class="text-center py-20 text-gray-400">正在同步消息...</div>
+        </div>
+
+        <div class="p-4 border-t bg-white shrink-0">
+            <div class="max-w-4xl mx-auto relative">
+                <div id="emoji-picker-container" class="hidden absolute bottom-[110%] left-0 shadow-2xl rounded-2xl overflow-hidden z-50 border border-gray-200 bg-white flex flex-col w-[350px]">
+                    <div id="emoji-favorites-bar" class="p-2 border-b bg-gray-50 flex flex-col gap-1 shrink-0">
+                        <span class="text-[10px] font-bold text-gray-400">❤️ 我的收藏 (长按/右键选择器内表情可收藏/取消)</span>
+                        <div id="emoji-favorites-list" class="flex flex-wrap gap-1">
+                            <!-- 动态加载 -->
+                        </div>
+                    </div>
+                    <emoji-picker></emoji-picker>
+                </div>
+                
+                <div class="flex items-end gap-2 bg-gray-100 rounded-2xl p-2 shadow-inner">
+                    <button onclick="toggleEmojiPicker(event)" class="text-gray-400 hover:text-yellow-500 w-10 h-10 rounded-xl flex items-center justify-center transition shrink-0" title="表情包">
+                        <i class="fa-regular fa-face-smile"></i>
+                    </button>
+                    <button onclick="document.getElementById('file-upload').click()" class="text-gray-400 hover:text-blue-500 w-10 h-10 rounded-xl flex items-center justify-center transition shrink-0" title="上传文件/图片">
+                        <i class="fa-solid fa-paperclip"></i>
+                    </button>
+                    <input type="file" id="file-upload" class="hidden" onchange="uploadFile(this)">
+                    <textarea id="msg-input" rows="1" class="flex-1 bg-transparent border-none focus:ring-0 py-2 px-3 text-gray-700 resize-none no-scrollbar" placeholder="说点什么吧... (Enter发送)"></textarea>
+                    <button onclick="sendMsg()" id="send-btn" class="bg-blue-600 text-white w-10 h-10 rounded-xl flex items-center justify-center hover:bg-blue-700 transition shadow-lg shadow-blue-500/20 shrink-0">
+                        <i class="fa-solid fa-paper-plane"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <div id="login-modal" class="fixed inset-0 bg-black/60 hidden flex items-center justify-center z-50 backdrop-blur-sm p-4">
+        <div class="bg-white w-full max-w-sm rounded-3xl p-8 shadow-2xl relative overflow-hidden">
+            <div class="flex justify-center space-x-8 border-b mb-6 pb-2">
+                <button id="tab-login" onclick="switchAuthTab('login')" class="font-bold text-blue-600 border-b-2 border-blue-600 pb-1 px-2 transition">登录</button>
+                <button id="tab-register" onclick="switchAuthTab('register')" class="font-bold text-gray-400 hover:text-gray-600 pb-1 px-2 transition">注册</button>
+            </div>
+            <div id="auth-form-container">
+                <input id="auth-u" type="text" placeholder="账号名" class="w-full mb-4 px-5 py-3.5 bg-gray-100 rounded-xl outline-none">
+                <input id="auth-p" type="password" placeholder="密码" class="w-full mb-4 px-5 py-3.5 bg-gray-100 rounded-xl outline-none">
+                <input id="auth-n" type="text" placeholder="设置昵称 (选填)" class="w-full mb-6 px-5 py-3.5 bg-gray-100 rounded-xl outline-none hidden">
+                <button id="btn-auth-action" onclick="submitAuth()" class="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-500/30 transition">立即登录</button>
+            </div>
+            <button onclick="hideModal('login-modal')" class="w-full mt-4 text-sm text-gray-400 hover:text-gray-600">稍后再说</button>
+        </div>
+    </div>
+
+    <div id="profile-modal" class="fixed inset-0 bg-black/60 hidden flex items-center justify-center z-50 backdrop-blur-sm p-4">
+        <div class="bg-white w-full max-w-sm rounded-3xl p-8 shadow-2xl max-h-screen overflow-y-auto no-scrollbar">
+            <h2 class="text-2xl font-bold text-center mb-6">个人主页设置</h2>
+            <div class="flex flex-col items-center mb-6">
+                <div class="relative w-24 h-24 mb-3 group cursor-pointer" onclick="document.getElementById('avatar-upload').click()">
+                    <div id="profile-avatar-preview" class="w-24 h-24 rounded-full flex items-center justify-center text-3xl font-bold text-white shadow-lg overflow-hidden avatar-gradient border-4 border-white"></div>
+                    <div class="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition"><i class="fa-solid fa-camera text-white text-xl"></i></div>
+                </div>
+                <input type="file" id="avatar-upload" accept="image/*" class="hidden" onchange="processAvatar(this)">
+            </div>
+            <input id="profile-nickname" type="text" placeholder="昵称" class="w-full mb-4 px-5 py-3 bg-gray-100 rounded-xl outline-none">
+            <button onclick="saveProfile()" class="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 mb-6">保存资料</button>
+            <hr class="border-gray-100 mb-4">
+            <div class="text-left mb-3"><span class="text-xs font-bold text-gray-400 uppercase tracking-widest">安全与账户</span></div>
+            <div class="flex gap-2 mb-3">
+                <input id="pwd-old" type="password" placeholder="原密码" class="w-1/2 px-4 py-2.5 bg-gray-100 rounded-xl outline-none text-sm">
+                <input id="pwd-new" type="password" placeholder="新密码" class="w-1/2 px-4 py-2.5 bg-gray-100 rounded-xl outline-none text-sm">
+            </div>
+            <button onclick="changePassword()" class="w-full bg-gray-800 text-white py-2.5 rounded-xl font-bold hover:bg-gray-900 text-sm mb-3 transition">修改密码</button>
+            <button onclick="deleteAccount()" class="w-full bg-red-50 text-red-500 py-2.5 rounded-xl font-bold hover:bg-red-100 text-sm transition">🚨 永久注销我的账号</button>
+            <button onclick="hideModal('profile-modal')" class="w-full mt-4 text-sm text-gray-400">关闭</button>
+        </div>
+    </div>
+
+    <div id="create-group-modal" class="fixed inset-0 bg-black/60 hidden flex items-center justify-center z-50 backdrop-blur-sm p-4">
+        <div class="bg-white w-full max-w-sm rounded-3xl p-8 shadow-2xl">
+            <h2 class="text-2xl font-bold text-center mb-6"><i class="fa-solid fa-users text-blue-500 mr-2"></i>新建群聊</h2>
+            <input id="new-group-name" type="text" placeholder="给群聊起个名字" class="w-full mb-6 px-5 py-3.5 bg-gray-100 rounded-xl outline-none">
+            <button onclick="submitCreateGroup()" class="w-full bg-blue-600 text-white py-3.5 rounded-2xl font-bold hover:bg-blue-700">确认创建</button>
+            <button onclick="hideModal('create-group-modal')" class="w-full mt-4 text-sm text-gray-400">取消</button>
+        </div>
+    </div>
+
+    <div id="manage-group-modal" class="fixed inset-0 bg-black/60 hidden flex items-center justify-center z-50 backdrop-blur-sm p-4">
+        <div class="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto no-scrollbar">
+            <h2 class="text-2xl font-bold text-center mb-4">⚙️ 群聊设置</h2>
+            <div class="flex flex-col items-center mb-4">
+                <div class="relative w-20 h-20 mb-2 group cursor-pointer" onclick="document.getElementById('group-avatar-upload').click()">
+                    <div id="group-avatar-preview" class="w-20 h-20 rounded-full flex items-center justify-center text-2xl font-bold text-white shadow-lg overflow-hidden avatar-gradient border-4 border-white"></div>
+                    <div class="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition"><i class="fa-solid fa-camera text-white text-lg"></i></div>
+                </div>
+                <input type="file" id="group-avatar-upload" accept="image/*" class="hidden" onchange="processGroupAvatar(this)">
+            </div>
+            
+            <label class="text-xs font-bold text-gray-500 mb-1 block">群名称</label>
+            <input id="edit-group-name" type="text" class="w-full mb-4 px-4 py-2.5 bg-gray-100 rounded-xl outline-none">
+            
+            <div class="border-t border-gray-100 pt-3 mb-4">
+                <label class="text-xs font-bold text-gray-500 mb-2 block uppercase tracking-wider">🔒 权限管理 (多个用户名用逗号分隔)</label>
+                
+                <div class="flex items-center justify-between mb-1">
+                    <label class="text-xs text-gray-600 font-bold">查看权限</label>
+                    <select id="group-view-mode" class="bg-gray-100 text-xs px-2 py-1 rounded outline-none" onchange="togglePermViews()">
+                        <option value="0">公开 (指定黑名单禁看)</option>
+                        <option value="1">私密 (仅白名单可看)</option>
+                    </select>
+                </div>
+                <input id="group-black-view" type="text" placeholder="禁止查看的用户名" class="w-full mb-2 px-3 py-2 bg-gray-50 rounded-lg text-sm outline-none border">
+                <input id="group-white-view" type="text" placeholder="允许查看的用户名" class="w-full mb-2 px-3 py-2 bg-gray-50 rounded-lg text-sm outline-none border hidden">
+                
+                <div class="flex items-center justify-between mb-1 mt-2">
+                    <label class="text-xs text-gray-600 font-bold">发言权限</label>
+                    <select id="group-speak-mode" class="bg-gray-100 text-xs px-2 py-1 rounded outline-none" onchange="togglePermViews()">
+                        <option value="0">全员 (指定黑名单禁言)</option>
+                        <option value="1">禁言 (仅白名单发言)</option>
+                    </select>
+                </div>
+                <input id="group-black-speak" type="text" placeholder="禁止发言的用户名" class="w-full mb-2 px-3 py-2 bg-gray-50 rounded-lg text-sm outline-none border">
+                <input id="group-white-speak" type="text" placeholder="允许发言的用户名" class="w-full mb-2 px-3 py-2 bg-gray-50 rounded-lg text-sm outline-none border hidden">
+            </div>
+
+            <button onclick="submitEditGroup()" class="w-full bg-blue-600 text-white py-3 rounded-2xl font-bold hover:bg-blue-700 mb-2">保存修改</button>
+            <button onclick="submitDeleteGroup()" class="w-full bg-red-50 text-red-600 py-3 rounded-2xl font-bold hover:bg-red-100 transition">🚨 彻底解散该群</button>
+            <button onclick="hideModal('manage-group-modal')" class="w-full mt-3 text-sm text-gray-400">取消</button>
+        </div>
+    </div>
+
+    <script>
+        let currentUser = JSON.parse(localStorage.getItem('user') || 'null');
+        let currentRoomId = 0; let currentTargetUser = null; 
+        let pendingAvatarBase64 = null; let pendingGroupAvatarBase64 = null; 
+        let globalGroups = []; let authMode = 'login'; let globalBlockedUsers = [];
+        let ws = null; let onlineUsers = []; let typingTimer = null;
+
+        function getAvatarHtml(avatarStr, name, sizeClass = "w-10 h-10 text-base") {
+            const displayName = name || "?";
+            if (avatarStr && avatarStr.startsWith('data:image')) {
+                return `<img src="${avatarStr}" class="${sizeClass} rounded-full object-cover shadow-sm">`;
+            } else {
+                return `<div class="${sizeClass} rounded-full flex items-center justify-center text-white font-bold shadow-sm avatar-gradient">${displayName.charAt(0).toUpperCase()}</div>`;
+            }
+        }
+
+        function init() {
+            if (currentUser) {
+                document.getElementById('btn-settings').style.display = 'block';
+                const name = currentUser.nickname || currentUser.username;
+                document.getElementById('user-info').innerHTML = `
+                    <div class="flex items-center overflow-hidden">
+                        ${getAvatarHtml(currentUser.avatar, name, "w-9 h-9 text-sm mr-3")}
+                        <div class="truncate">
+                            <div class="text-sm font-bold truncate">${name}</div>
+                            <button onclick="logout()" class="text-[10px] text-red-400 hover:underline">退出登录</button>
+                        </div>
+                    </div>
+                `;
+                loadUsers(); 
+                setupWebSocket();
+                loadFavoriteEmojis();
+            }
+            loadGroups().then(() => switchRoom(0, '公共大厅'));
+            if (currentUser) {
+                loadNotices(); setInterval(loadNotices, 30000); // 降低系统公告请求频率
+            }
+        }
+
+        function setupWebSocket() {
+            if (!currentUser) return;
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${protocol}//${window.location.host}/ws/${currentUser.token}`);
+            
+            ws.onopen = () => {
+                const statusDot = document.getElementById('status-dot');
+                const statusText = document.getElementById('status-text');
+                statusDot.className = "w-1.5 h-1.5 bg-green-500 rounded-full mr-1.5 animate-pulse";
+                statusText.innerText = "在线";
+                statusText.className = "text-green-500";
+            };
+
+            ws.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
+                if (msg.type === 'message') {
+                    handleNewMessage(msg.data);
+                } else if (msg.type === 'online_status') {
+                    onlineUsers = msg.users;
+                    updateOnlineDisplay();
+                } else if (msg.type === 'typing') {
+                    handleTyping(msg);
+                } else if (msg.type === 'recall') {
+                    handleRecall(msg.msg_id);
+                }
+            };
+
+            ws.onclose = () => {
+                const statusDot = document.getElementById('status-dot');
+                const statusText = document.getElementById('status-text');
+                statusDot.className = "w-1.5 h-1.5 bg-gray-400 rounded-full mr-1.5";
+                statusText.innerText = "已断开 (重连中...)";
+                statusText.className = "text-gray-400";
+                setTimeout(setupWebSocket, 3000);
+            };
+        }
+
+        function handleNewMessage(data) {
+            // 如果消息属于当前房间或当前私信对象，则追加到页面
+            const isCurrentRoom = !data.receiver && data.room_id === currentRoomId;
+            const isCurrentPrivate = data.receiver && (
+                (data.name === currentTargetUser && data.receiver === currentUser.username) ||
+                (data.name === currentUser.username && data.receiver === currentTargetUser)
+            );
+
+            if (isCurrentRoom || isCurrentPrivate) {
+                if (globalBlockedUsers.includes(data.name)) return;
+                appendMessage(data);
+            }
+            // 收到新消息时，如果是其他房间的消息，可以加一个小红点逻辑（暂未实现）
+        }
+
+        function handleTyping(msg) {
+            const isRelevant = (msg.room_id === currentRoomId && !msg.receiver) || (msg.receiver === currentUser.username && msg.user === currentTargetUser);
+            if (isRelevant && msg.user !== currentUser.username) {
+                const indicator = document.getElementById('typing-indicator');
+                indicator.innerText = `${msg.user} 正在输入...`;
+                indicator.classList.remove('hidden');
+                clearTimeout(typingTimer);
+                typingTimer = setTimeout(() => indicator.classList.add('hidden'), 3000);
+            }
+        }
+
+        function handleRecall(msgId) {
+            const msgElement = document.querySelector(`[data-msg-id="${msgId}"]`);
+            if (msgElement) {
+                loadMsgs(); // 简单处理：直接重新加载当前列表
+            }
+        }
+
+        function updateOnlineDisplay() {
+            // 更新用户列表中的在线状态
+            document.querySelectorAll('[id^="user-btn-"]').forEach(btn => {
+                const username = btn.id.replace('user-btn-', '');
+                const dot = btn.querySelector('.online-dot');
+                if (onlineUsers.includes(username)) {
+                    if (!dot) {
+                        const newDot = document.createElement('div');
+                        newDot.className = "online-dot w-2 h-2 bg-green-500 rounded-full absolute -bottom-0.5 -right-0.5 border border-gray-900";
+                        btn.querySelector('.relative-container').appendChild(newDot);
+                    }
+                } else if (dot) {
+                    dot.remove();
+                }
+            });
+        }
+
+        function hideModal(id) { document.getElementById(id).classList.add('hidden'); }
+        function showModal(id) { document.getElementById(id).classList.remove('hidden'); }
+        function showLogin() { switchAuthTab('login'); showModal('login-modal'); }
+
+        function checkGroupOwnership(id) {
+            const btn = document.getElementById('room-manage-btn');
+            if (id === 0 || !currentUser) { btn.classList.add('hidden'); return; }
+            const group = globalGroups.find(g => g.id === id);
+            if (group && (group.owner_id === currentUser.id || currentUser.role === 1)) {
+                btn.classList.remove('hidden');
+            } else { btn.classList.add('hidden'); }
+        }
+
+        function switchRoom(id, name) {
+            currentRoomId = id; currentTargetUser = null;
+            document.getElementById('room-title').innerText = name;
+            const blockBtn = document.getElementById('user-block-btn');
+            if(blockBtn) blockBtn.classList.add('hidden');
+            
+            const group = globalGroups.find(g => g.id === id);
+            const isFrozen = group && group.is_frozen === 1;
+            const msgInput = document.getElementById('msg-input');
+            const sendBtn = document.getElementById('send-btn');
+            
+            if (isFrozen) {
+                msgInput.disabled = true; msgInput.placeholder = "❌ 此群聊已被管理员冻结，全员禁言";
+                sendBtn.disabled = true; sendBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            } else {
+                msgInput.disabled = false; msgInput.placeholder = "说点什么吧... (Enter发送)";
+                sendBtn.disabled = false; sendBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+            }
+            
+            // 【修改点】顶部标题栏：如果是公共大厅，强制显示官方图标
+            const avatarHtml = id === 0 
+                ? `<img src="/favicon.ico" class="w-full h-full rounded-full object-cover shadow-sm">` 
+                : (group ? getAvatarHtml(group.avatar, name, "w-full h-full text-xl") : '<i class="fa-solid fa-hashtag text-xl"></i>');
+            document.getElementById('header-icon').innerHTML = avatarHtml;
+
+            updateActiveBtn(`room-btn-${id}`); checkGroupOwnership(id); loadMsgs();
+        }
+
+        function switchPrivateChat(username, displayName, avatar) {
+            currentRoomId = -1; currentTargetUser = username;
+            document.getElementById('room-title').innerText = `与 ${displayName} 私信`;
+            document.getElementById('header-icon').innerHTML = getAvatarHtml(avatar, displayName, "w-full h-full text-lg");
+            
+            const msgInput = document.getElementById('msg-input');
+            const sendBtn = document.getElementById('send-btn');
+            msgInput.disabled = false; msgInput.placeholder = "发送私信...";
+            sendBtn.disabled = false; sendBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+
+            updateActiveBtn(`user-btn-${username}`);
+            document.getElementById('room-manage-btn').classList.add('hidden'); 
+            
+            const blockBtn = document.getElementById('user-block-btn');
+            blockBtn.classList.remove('hidden');
+            if (globalBlockedUsers.includes(username)) {
+                blockBtn.classList.remove('text-gray-400'); blockBtn.classList.add('text-red-500');
+            } else {
+                blockBtn.classList.remove('text-red-500'); blockBtn.classList.add('text-gray-400');
+            }
+            
+            loadMsgs();
+        }
+
+        function updateActiveBtn(btnId) {
+            document.querySelectorAll('.room-btn').forEach(b => { b.classList.remove('bg-gray-800', 'text-white'); b.classList.add('text-gray-300'); });
+            const act = document.getElementById(btnId);
+            if(act) { act.classList.add('bg-gray-800', 'text-white'); act.classList.remove('text-gray-300'); }
+        }
+
+        async function loadGroups() {
+            const res = await fetch('/api/groups'); globalGroups = (await res.json()).data;
+            const list = document.getElementById('channel-list'); list.innerHTML = '';
+            globalGroups.forEach(g => {
+                const btn = document.createElement('button'); btn.id = `room-btn-${g.id}`;
+                btn.className = "room-btn w-full text-left px-3 py-2.5 rounded-lg text-gray-300 hover:bg-gray-800 transition flex items-center";
+                const isMine = currentUser && g.owner_id === currentUser.id && g.id !== 0;
+                
+                // 【修改点】左侧列表：如果是公共大厅，强制显示官方图标
+                const groupAvatarHtml = g.id === 0 
+                    ? `<img src="/favicon.ico" class="w-6 h-6 rounded-full object-cover shadow-sm shrink-0 mr-3">` 
+                    : getAvatarHtml(g.avatar, g.name, "w-6 h-6 text-[10px] shrink-0 mr-3");
+                    
+                btn.innerHTML = `${groupAvatarHtml}<span class="flex-1 truncate">${g.name}</span>${isMine ? '<i class="fa-solid fa-crown text-[10px] text-yellow-500"></i>' : ''}`;
+                btn.onclick = () => switchRoom(g.id, g.name);
+                list.appendChild(btn);
+            });
+        }
+
+        function showCreateGroup() { if(!currentUser) return showLogin(); document.getElementById('new-group-name').value = ''; showModal('create-group-modal'); }
+        async function submitCreateGroup() {
+            const name = document.getElementById('new-group-name').value.trim(); if(!name) return;
+            const res = await fetch('/api/groups', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token }, body: JSON.stringify({ name: name, is_public: 1 }) });
+            if(res.ok) { hideModal('create-group-modal'); await loadGroups(); switchRoom((await res.json()).group_id, name); } else alert("创建失败");
+        }
+
+        function togglePermViews() {
+            const vm = document.getElementById('group-view-mode').value;
+            const sm = document.getElementById('group-speak-mode').value;
+            document.getElementById('group-black-view').classList.toggle('hidden', vm === '1');
+            document.getElementById('group-white-view').classList.toggle('hidden', vm === '0');
+            document.getElementById('group-black-speak').classList.toggle('hidden', sm === '1');
+            document.getElementById('group-white-speak').classList.toggle('hidden', sm === '0');
+        }
+
+        function showManageGroup() {
+            const group = globalGroups.find(g => g.id === currentRoomId); if(!group) return;
+            document.getElementById('edit-group-name').value = group.name;
+            
+            document.getElementById('group-view-mode').value = group.view_mode || 0;
+            document.getElementById('group-speak-mode').value = group.speak_mode || 0;
+            document.getElementById('group-black-view').value = group.black_view || '';
+            document.getElementById('group-white-view').value = group.white_view || '';
+            document.getElementById('group-black-speak').value = group.black_speak || '';
+            document.getElementById('group-white-speak').value = group.white_speak || '';
+            togglePermViews();
+            
+            pendingGroupAvatarBase64 = group.avatar;
+            document.getElementById('group-avatar-preview').innerHTML = getAvatarHtml(group.avatar, group.name, "w-full h-full text-2xl");
+            showModal('manage-group-modal');
+        }
+
+        async function submitEditGroup() {
+            const name = document.getElementById('edit-group-name').value.trim(); if(!name) return;
+            
+            const vm = document.getElementById('group-view-mode').value;
+            const sm = document.getElementById('group-speak-mode').value;
+            const bv = document.getElementById('group-black-view').value.trim();
+            const wv = document.getElementById('group-white-view').value.trim();
+            const bs = document.getElementById('group-black-speak').value.trim();
+            const ws = document.getElementById('group-white-speak').value.trim();
+            
+            const res = await fetch(`/api/groups/${currentRoomId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token }, body: JSON.stringify({ name: name }) });
+            if(res.ok) { 
+                await fetch(`/api/groups/${currentRoomId}/permissions`, { 
+                    method: 'PUT', 
+                    headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token }, 
+                    body: JSON.stringify({ view_mode: parseInt(vm), speak_mode: parseInt(sm), black_view: bv, white_view: wv, black_speak: bs, white_speak: ws }) 
+                });
+                
+                const group = globalGroups.find(g => g.id === currentRoomId);
+                if (pendingGroupAvatarBase64 !== group.avatar) {
+                    await fetch(`/api/groups/${currentRoomId}/avatar`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token }, body: JSON.stringify({ avatar: pendingGroupAvatarBase64 || "" }) });
+                }
+                hideModal('manage-group-modal'); await loadGroups(); switchRoom(currentRoomId, name); 
+            } else {
+                alert("修改群聊失败，可能无权限");
+            }
+        }
+        async function submitDeleteGroup() {
+            if(!confirm("🚨 警告：解散群聊将永久删除历史记录！")) return;
+            const res = await fetch(`/api/groups/${currentRoomId}`, { method: 'DELETE', headers: { 'Authorization': currentUser.token } });
+            if(res.ok) { hideModal('manage-group-modal'); await loadGroups(); switchRoom(0, '公共大厅'); }
+        }
+
+        function processGroupAvatar(input) {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const img = new Image();
+                    img.onload = function() {
+                        const canvas = document.createElement('canvas'); const ctx = canvas.getContext('2d');
+                        const maxSize = 150; let size = Math.min(img.width, img.height);
+                        canvas.width = maxSize; canvas.height = maxSize;
+                        ctx.drawImage(img, (img.width - size)/2, (img.height - size)/2, size, size, 0, 0, maxSize, maxSize);
+                        pendingGroupAvatarBase64 = canvas.toDataURL('image/jpeg', 0.8);
+                        document.getElementById('group-avatar-preview').innerHTML = getAvatarHtml(pendingGroupAvatarBase64, "", "w-full h-full");
+                    }
+                    img.src = e.target.result;
+                }
+                reader.readAsDataURL(input.files[0]);
+            }
+        }
+
+        async function loadUsers() {
+            const res = await fetch('/api/users', { headers: { 'Authorization': currentUser.token } });
+            const result = await res.json(); if(result.status !== 'success') return;
+            globalBlockedUsers = result.blocked_users || [];
+            const list = document.getElementById('user-list'); list.innerHTML = '';
+            result.data.forEach(u => {
+                if(u.username === currentUser.username) return;
+                const name = u.nickname || u.username;
+                const btn = document.createElement('button'); btn.id = `user-btn-${u.username}`;
+                const blockIcon = globalBlockedUsers.includes(u.username) ? '<i class="fa-solid fa-ban text-red-500 ml-auto text-xs"></i>' : '';
+                btn.className = "room-btn w-full text-left p-2 rounded-lg text-gray-300 hover:bg-gray-800 transition flex items-center gap-3";
+                btn.innerHTML = `
+                    <div class="relative relative-container">
+                        ${getAvatarHtml(u.avatar, name, "w-6 h-6 text-[10px] shrink-0")}
+                        ${onlineUsers.includes(u.username) ? '<div class="online-dot w-2 h-2 bg-green-500 rounded-full absolute -bottom-0.5 -right-0.5 border border-gray-900"></div>' : ''}
+                    </div>
+                    <span class="truncate text-sm flex-1">${name}</span>${blockIcon}
+                `;
+                btn.onclick = () => switchPrivateChat(u.username, name, u.avatar);
+                list.appendChild(btn);
+            });
+        }
+
+        async function toggleBlockUser() {
+            if(!currentUser || !currentTargetUser) return;
+            const isBlocked = globalBlockedUsers.includes(currentTargetUser);
+            const action = isBlocked ? "取消拉黑" : "拉黑";
+            if(!confirm(`确定要${action}该用户吗？`)) return;
+            
+            const res = await fetch('/api/user/block', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token },
+                body: JSON.stringify({ target_username: currentTargetUser })
+            });
+            
+            if(res.ok) {
+                const data = await res.json();
+                if(data.is_blocked) {
+                    globalBlockedUsers.push(currentTargetUser);
+                } else {
+                    globalBlockedUsers = globalBlockedUsers.filter(u => u !== currentTargetUser);
+                }
+                
+                const blockBtn = document.getElementById('user-block-btn');
+                if (globalBlockedUsers.includes(currentTargetUser)) {
+                    blockBtn.classList.remove('text-gray-400'); blockBtn.classList.add('text-red-500');
+                } else {
+                    blockBtn.classList.remove('text-red-500'); blockBtn.classList.add('text-gray-400');
+                }
+                
+                loadUsers(); 
+                loadMsgs(); 
+            } else {
+                alert(`${action}失败`);
+            }
+        }
+
+        function startPolling() {
+            // 已废弃，改用 WebSocket
+        }
+
+        function appendMessage(msg) {
+            const list = document.getElementById('msg-list');
+            const noMsg = list.querySelector('.text-center.py-20');
+            if (noMsg) noMsg.remove();
+            
+            const isMe = currentUser && (msg.name === currentUser.username);
+            const name = msg.nickname || msg.name;
+            const div = document.createElement('div');
+            div.setAttribute('data-msg-id', msg.id);
+            div.className = `flex ${isMe ? 'justify-end' : 'justify-start'} msg-appear mb-4`;
+            
+            div.innerHTML = `
+                ${!isMe ? `<div class="mr-2 mt-1 shrink-0">${getAvatarHtml(msg.avatar, name, "w-8 h-8 text-xs")}</div>` : ''}
+                <div class="max-w-[80%] sm:max-w-[70%] flex flex-col ${isMe ? 'items-end' : 'items-start'} group">
+                    ${!isMe ? `<div class="text-[10px] text-gray-400 mb-1 ml-1">${name}</div>` : ''}
+                    <div class="${isMe ? 'bg-blue-600 text-white rounded-2xl rounded-tr-none' : 'bg-white text-gray-800 rounded-2xl rounded-tl-none border border-gray-100 shadow-sm'} p-3 px-4 text-sm break-words leading-relaxed">${renderContent(msg.content)}</div>
+                    <div class="text-[10px] text-gray-300 mt-1 ${isMe ? 'mr-1' : 'ml-1'} flex items-center gap-2">
+                        刚刚
+                        ${isMe ? `<button onclick="recallMsg(${msg.id})" class="text-red-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity focus:opacity-100">撤回</button>` : ''}
+                    </div>
+                </div>
+                ${isMe ? `<div class="ml-2 mt-1 shrink-0">${getAvatarHtml(msg.avatar, name, "w-8 h-8 text-xs")}</div>` : ''}
+            `;
+            list.appendChild(div);
+            list.scrollTop = list.scrollHeight;
+        }
+
+        function renderContent(content) {
+            let safe = content.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            safe = safe.replace(/\[img:([^\]]+)\]/g, '<img src="$1" class="max-w-[200px] sm:max-w-xs mt-1 rounded-lg cursor-pointer hover:opacity-90 transition" onclick="window.open(\'$1\')">');
+            safe = safe.replace(/\[file:([^|]+)\|([^\]]+)\]/g, '<a href="$1" target="_blank" class="flex items-center mt-1 p-2 bg-black/10 rounded-lg hover:bg-black/20 transition underline break-all"><i class="fa-solid fa-file-arrow-down mr-2 shrink-0"></i>$2</a>');
+            return safe.replace(/\n/g, '<br>');
+        }
+
+        async function loadMsgs() {
+            let url = `/api/messages?room_id=${currentRoomId}`;
+            if (currentTargetUser) url = `/api/messages?target_user=${currentTargetUser}`;
+            const headers = currentUser ? { 'Authorization': currentUser.token } : {};
+            const res = await fetch(url, { headers }); const result = await res.json();
+            const list = document.getElementById('msg-list'); let html = '';
+            
+            if (result.data.length === 0) {
+                html = '<div class="text-center py-20 text-gray-400">这里还是一片荒芜...</div>';
+            } else {
+                result.data.forEach(msg => {
+                    const isMe = currentUser && (msg.name === currentUser.username); const name = msg.nickname || msg.name;
+                    
+                    if (msg.content === '[system_recalled]') {
+                        html += `
+                            <div class="flex justify-center msg-appear mb-4">
+                                <div class="bg-black/5 text-gray-400 px-4 py-1.5 rounded-full text-[11px]">
+                                    "${name}" 撤回了一条信息
+                                </div>
+                            </div>
+                        `;
+                        return;
+                    }
+                    
+                    html += `
+                        <div class="flex ${isMe ? 'justify-end' : 'justify-start'} msg-appear mb-4">
+                            ${!isMe ? `<div class="mr-2 mt-1 shrink-0">${getAvatarHtml(msg.avatar, name, "w-8 h-8 text-xs")}</div>` : ''}
+                            <div class="max-w-[80%] sm:max-w-[70%] flex flex-col ${isMe ? 'items-end' : 'items-start'} group">
+                                ${!isMe ? `<div class="text-[10px] text-gray-400 mb-1 ml-1">${name}</div>` : ''}
+                                <div class="${isMe ? 'bg-blue-600 text-white rounded-2xl rounded-tr-none' : 'bg-white text-gray-800 rounded-2xl rounded-tl-none border border-gray-100 shadow-sm'} p-3 px-4 text-sm break-words leading-relaxed">${renderContent(msg.content)}</div>
+                                <div class="text-[10px] text-gray-300 mt-1 ${isMe ? 'mr-1' : 'ml-1'} flex items-center gap-2">
+                                    ${msg.time}
+                                    ${isMe ? `<button onclick="recallMsg(${msg.id})" class="text-red-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity focus:opacity-100">撤回</button>` : ''}
+                                </div>
+                            </div>
+                            ${isMe ? `<div class="ml-2 mt-1 shrink-0">${getAvatarHtml(msg.avatar, name, "w-8 h-8 text-xs")}</div>` : ''}
+                        </div>
+                    `;
+                });
+            }
+            if (list.innerHTML !== html) { 
+                list.innerHTML = html; 
+                setTimeout(() => list.scrollTop = list.scrollHeight, 100);
+            }
+        }
+
+        // --- 通知系统逻辑 ---
+        let noticeDropdownVisible = false;
+        function toggleNoticeDropdown(e) {
+            e.stopPropagation();
+            noticeDropdownVisible = !noticeDropdownVisible;
+            document.getElementById('notice-dropdown').classList.toggle('hidden', !noticeDropdownVisible);
+            if (noticeDropdownVisible) markAllNoticesRead();
+        }
+
+        async function loadNotices() {
+            if (!currentUser) return;
+            const res = await fetch('/api/notifications', { headers: { 'Authorization': currentUser.token } });
+            const result = await res.json();
+            if (result.status === 'success') {
+                const list = document.getElementById('notice-content');
+                const badge = document.getElementById('notice-badge');
+                if (result.data.length === 0) {
+                    list.innerHTML = '<div class="text-center py-8 text-gray-400 text-xs">暂无系统消息</div>';
+                    badge.classList.add('hidden');
+                    return;
+                }
+                
+                let hasUnread = false;
+                let html = '';
+                result.data.forEach(n => {
+                    if (n.id > result.last_read_id) hasUnread = true;
+                    html += `
+                        <div class="p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition group relative">
+                            <div class="text-xs text-gray-700 leading-relaxed">${n.content}</div>
+                            <div class="text-[9px] text-gray-400 mt-1 flex justify-between items-center">
+                                <span>${n.sender}</span>
+                                <span>${n.created_at.split(' ')[0]}</span>
+                            </div>
+                            ${n.id > result.last_read_id ? '<div class="absolute top-2 right-2 w-1.5 h-1.5 bg-blue-500 rounded-full"></div>' : ''}
+                        </div>
+                    `;
+                });
+                list.innerHTML = html;
+                if (hasUnread) badge.classList.remove('hidden');
+                else badge.classList.add('hidden');
+            }
+        }
+
+        async function markAllNoticesRead() {
+            if (!currentUser) return;
+            await fetch('/api/notifications/read', { method: 'POST', headers: { 'Authorization': currentUser.token } });
+            document.getElementById('notice-badge').classList.add('hidden');
+            loadNotices();
+        }
+
+        async function sendMsg() {
+            if(!currentUser) return showLogin();
+            const content = document.getElementById('msg-input').value.trim(); if(!content) return;
+            const body = { content: content, room_id: currentRoomId }; if (currentTargetUser) body.receiver = currentTargetUser;
+            try {
+                const res = await fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token }, body: JSON.stringify(body) });
+                if(res.ok) { 
+                    document.getElementById('msg-input').value = ''; 
+                    loadMsgs(); 
+                } else {
+                    const data = await res.json().catch(() => ({}));
+                    alert(data.detail || "发送失败，后台出问题");
+                }
+            } catch (err) {
+                alert("发送失败，网络或后台出问题");
+            }
+        }
+
+        async function recallMsg(id) {
+            if(!confirm("确定要撤回这条消息吗？")) return;
+            const res = await fetch(`/api/messages/${id}`, { method: 'DELETE', headers: { 'Authorization': currentUser.token } });
+            if(res.ok) { loadMsgs(); } else { const data = await res.json(); alert("撤回失败: " + (data.detail || "无权限")); }
+        }
+
+        async function uploadFile(input) {
+            if(!currentUser) return showLogin();
+            if(!input.files || !input.files[0]) return;
+            const file = input.files[0];
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            const msgInput = document.getElementById('msg-input');
+            const originalPlaceholder = msgInput.placeholder;
+            msgInput.placeholder = "文件上传中...";
+            msgInput.disabled = true;
+            
+            try {
+                const res = await fetch('/api/upload', {
+                    method: 'POST',
+                    headers: { 'Authorization': currentUser.token },
+                    body: formData
+                });
+                if(res.ok) {
+                    const data = await res.json();
+                    const ext = file.name.split('.').pop().toLowerCase();
+                    const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].includes(ext);
+                    let fileMarkdown = "";
+                    if (isImage) {
+                        fileMarkdown = `[img:${data.url}]`;
+                    } else {
+                        fileMarkdown = `[file:${data.download_url}|${file.name}]`;
+                    }
+                    
+                    const body = { content: fileMarkdown, room_id: currentRoomId };
+                    if (currentTargetUser) body.receiver = currentTargetUser;
+                    const resMsg = await fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token }, body: JSON.stringify(body) });
+                    if (resMsg.ok) {
+                        loadMsgs();
+                    } else {
+                        const errData = await resMsg.json().catch(() => ({}));
+                        alert(errData.detail || "文件已上传，但消息发送失败，后台出问题");
+                    }
+                } else {
+                    alert("文件上传失败");
+                }
+            } catch(e) {
+                alert("上传出错: " + e.message);
+            } finally {
+                msgInput.placeholder = originalPlaceholder;
+                msgInput.disabled = false;
+                input.value = '';
+            }
+        }
+
+        let lastTypingTime = 0;
+        document.getElementById('msg-input').addEventListener('keydown', (e) => { 
+            if(e.key === 'Enter' && !e.shiftKey) { 
+                e.preventDefault(); sendMsg(); 
+            } else {
+                // 发送输入提示
+                const now = Date.now();
+                if (now - lastTypingTime > 2000 && ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({
+                        type: 'typing',
+                        room_id: currentRoomId,
+                        receiver: currentTargetUser
+                    }));
+                    lastTypingTime = now;
+                }
+            }
+        });
+
+        // --- 表情包逻辑 ---
+        let emojiPickerVisible = false;
+        function toggleEmojiPicker(e) {
+            e.stopPropagation();
+            const container = document.getElementById('emoji-picker-container');
+            emojiPickerVisible = !emojiPickerVisible;
+            if (emojiPickerVisible) container.classList.remove('hidden');
+            else container.classList.add('hidden');
+        }
+
+        document.addEventListener('click', (e) => {
+            const container = document.getElementById('emoji-picker-container');
+            if (emojiPickerVisible && !container.contains(e.target)) {
+                container.classList.add('hidden');
+                emojiPickerVisible = false;
+            }
+            
+            const noticeBox = document.getElementById('notice-dropdown');
+            const noticeBtn = document.getElementById('notice-btn');
+            if (noticeDropdownVisible && !noticeBox.contains(e.target) && !noticeBtn.contains(e.target)) {
+                noticeBox.classList.add('hidden');
+                noticeDropdownVisible = false;
+            }
+        });
+
+        document.querySelector('emoji-picker').addEventListener('emoji-click', event => {
+            const input = document.getElementById('msg-input');
+            const start = input.selectionStart;
+            const end = input.selectionEnd;
+            const text = input.value;
+            input.value = text.slice(0, start) + event.detail.unicode + text.slice(end);
+            input.focus();
+            input.selectionStart = input.selectionEnd = start + event.detail.unicode.length;
+        });
+
+        // --- 收藏表情逻辑 ---
+        let favoriteEmojis = [];
+
+        // 绑定右键菜单（长按）事件，支持跨 Shadow DOM 收藏表情
+        const pickerElement = document.querySelector('emoji-picker');
+        pickerElement.addEventListener('contextmenu', e => {
+            e.preventDefault();
+            const path = e.composedPath();
+            const button = path.find(el => el.tagName === 'BUTTON');
+            if (button) {
+                const emoji = button.textContent.trim();
+                // 校验是否是正常的表情符号 (避免误触空按钮)
+                if (emoji && emoji.length <= 8) { 
+                    toggleFavoriteEmoji(emoji);
+                }
+            }
+        });
+
+        // 移动端 Touch 长按收藏逻辑支持
+        let touchStartTimer = null;
+        pickerElement.addEventListener('touchstart', e => {
+            const path = e.composedPath();
+            const button = path.find(el => el.tagName === 'BUTTON');
+            if (button) {
+                if (touchStartTimer) clearTimeout(touchStartTimer);
+                touchStartTimer = setTimeout(() => {
+                    const emoji = button.textContent.trim();
+                    if (emoji && emoji.length <= 8) {
+                        if (navigator.vibrate) navigator.vibrate(50);
+                        toggleFavoriteEmoji(emoji);
+                    }
+                    touchStartTimer = null;
+                }, 800); // 800ms
+            }
+        }, { passive: true });
+
+        pickerElement.addEventListener('touchend', () => {
+            if (touchStartTimer) {
+                clearTimeout(touchStartTimer);
+                touchStartTimer = null;
+            }
+        });
+
+        pickerElement.addEventListener('touchmove', () => {
+            if (touchStartTimer) {
+                clearTimeout(touchStartTimer);
+                touchStartTimer = null;
+            }
+        });
+
+        async function loadFavoriteEmojis() {
+            if (!currentUser) return;
+            try {
+                const response = await fetch('/api/favorites/emojis', {
+                    headers: { 'Authorization': currentUser.token }
+                });
+                const res = await response.json();
+                if (res.status === 'success') {
+                    favoriteEmojis = res.data;
+                    renderFavoriteEmojis();
+                }
+            } catch (e) {
+                console.error("Failed to load favorite emojis:", e);
+            }
+        }
+
+        function renderFavoriteEmojis() {
+            const listDiv = document.getElementById('emoji-favorites-list');
+            if (!listDiv) return;
+            listDiv.innerHTML = '';
+            
+            if (favoriteEmojis.length === 0) {
+                listDiv.innerHTML = '<span class="text-[10px] text-gray-400 italic">暂无收藏 (长按/右键下方表情可收藏)</span>';
+                return;
+            }
+            
+            favoriteEmojis.forEach(emoji => {
+                if (emoji.startsWith('[img:') && emoji.endsWith(']')) {
+                    const url = emoji.substring(5, emoji.length - 1);
+                    const img = document.createElement('img');
+                    img.src = url;
+                    img.className = 'w-7 h-7 object-contain cursor-pointer hover:bg-gray-200 rounded transition p-0.5';
+                    img.title = '点击直接发送，长按/右键可取消收藏';
+                    
+                    img.onclick = async (e) => {
+                        const body = { content: emoji, room_id: currentRoomId };
+                        if (currentTargetUser) body.receiver = currentTargetUser;
+                        const resMsg = await fetch('/api/messages', { 
+                            method: 'POST', 
+                            headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token }, 
+                            body: JSON.stringify(body) 
+                        });
+                        if (resMsg.ok) {
+                            loadMsgs();
+                            document.getElementById('emoji-picker-container').classList.add('hidden');
+                        }
+                    };
+                    
+                    img.oncontextmenu = (e) => {
+                        e.preventDefault();
+                        toggleFavoriteEmoji(emoji);
+                    };
+                    
+                    let touchDeleteTimer = null;
+                    img.addEventListener('touchstart', e => {
+                        if (touchDeleteTimer) clearTimeout(touchDeleteTimer);
+                        touchDeleteTimer = setTimeout(() => {
+                            if (navigator.vibrate) navigator.vibrate(50);
+                            toggleFavoriteEmoji(emoji);
+                            touchDeleteTimer = null;
+                        }, 800);
+                    }, { passive: true });
+                    img.addEventListener('touchend', () => { if (touchDeleteTimer) clearTimeout(touchDeleteTimer); });
+                    img.addEventListener('touchmove', () => { if (touchDeleteTimer) clearTimeout(touchDeleteTimer); });
+                    
+                    listDiv.appendChild(img);
+                } else {
+                    const span = document.createElement('span');
+                    span.className = 'w-7 h-7 flex items-center justify-center text-lg cursor-pointer hover:bg-gray-200 rounded transition select-none';
+                    span.textContent = emoji;
+                    span.title = '长按/右键可取消收藏';
+                    
+                    span.onclick = (e) => {
+                        const input = document.getElementById('msg-input');
+                        const start = input.selectionStart;
+                        const end = input.selectionEnd;
+                        const text = input.value;
+                        input.value = text.slice(0, start) + emoji + text.slice(end);
+                        input.focus();
+                        input.selectionStart = input.selectionEnd = start + emoji.length;
+                    };
+                    
+                    span.oncontextmenu = (e) => {
+                        e.preventDefault();
+                        toggleFavoriteEmoji(emoji);
+                    };
+                    
+                    let touchDeleteTimer = null;
+                    span.addEventListener('touchstart', e => {
+                        if (touchDeleteTimer) clearTimeout(touchDeleteTimer);
+                        touchDeleteTimer = setTimeout(() => {
+                            if (navigator.vibrate) navigator.vibrate(50);
+                            toggleFavoriteEmoji(emoji);
+                            touchDeleteTimer = null;
+                        }, 800);
+                    }, { passive: true });
+                    span.addEventListener('touchend', () => { if (touchDeleteTimer) clearTimeout(touchDeleteTimer); });
+                    span.addEventListener('touchmove', () => { if (touchDeleteTimer) clearTimeout(touchDeleteTimer); });
+                    
+                    listDiv.appendChild(span);
+                }
+            });
+        }
+
+        async function toggleFavoriteEmoji(emoji) {
+            if (!currentUser) return alert("请先登录！");
+            const index = favoriteEmojis.indexOf(emoji);
+            const isDeleting = index >= 0;
+            const url = isDeleting ? '/api/favorites/emojis/delete' : '/api/favorites/emojis';
+            
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': currentUser.token
+                    },
+                    body: JSON.stringify({ emoji: emoji })
+                });
+                const res = await response.json();
+                if (res.status === 'success') {
+                    if (isDeleting) {
+                        favoriteEmojis.splice(index, 1);
+                        showToast(`已从收藏中移除: ${emoji}`);
+                    } else {
+                        favoriteEmojis.unshift(emoji);
+                        showToast(`已成功加入收藏: ${emoji}`);
+                    }
+                    renderFavoriteEmojis();
+                }
+            } catch (e) {
+                console.error("Failed to toggle favorite emoji:", e);
+            }
+        }
+
+        function showToast(message) {
+            const toast = document.createElement('div');
+            toast.className = 'fixed top-4 left-1/2 -translate-x-1/2 bg-gray-800/90 text-white px-4 py-2 rounded-xl text-xs z-[1000] shadow-lg transition duration-300';
+            toast.innerText = message;
+            document.body.appendChild(toast);
+            setTimeout(() => {
+                toast.classList.add('opacity-0');
+                setTimeout(() => toast.remove(), 300);
+            }, 1500);
+        }
+
+        // --- 注册登录逻辑 ---
+        function switchAuthTab(mode) {
+            authMode = mode;
+            const tLogin = document.getElementById('tab-login'); const tReg = document.getElementById('tab-register');
+            const fNick = document.getElementById('auth-n'); const btn = document.getElementById('btn-auth-action');
+            if (mode === 'login') {
+                tLogin.className = "font-bold text-blue-600 border-b-2 border-blue-600 pb-1 px-2 transition"; tReg.className = "font-bold text-gray-400 hover:text-gray-600 pb-1 px-2 transition";
+                fNick.classList.add('hidden'); btn.innerText = "立即登录"; btn.className = "w-full bg-blue-600 text-white py-4 rounded-2xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-500/30 transition";
+            } else {
+                tReg.className = "font-bold text-blue-600 border-b-2 border-blue-600 pb-1 px-2 transition"; tLogin.className = "font-bold text-gray-400 hover:text-gray-600 pb-1 px-2 transition";
+                fNick.classList.remove('hidden'); btn.innerText = "完成注册并进入"; btn.className = "w-full bg-green-500 text-white py-4 rounded-2xl font-bold hover:bg-green-600 shadow-lg shadow-green-500/30 transition";
+            }
+        }
+        async function submitAuth() {
+            const u = document.getElementById('auth-u').value.trim(); const p = document.getElementById('auth-p').value.trim(); const n = document.getElementById('auth-n').value.trim();
+            if (!u || !p) return alert("账号和密码必填！");
+            const url = authMode === 'register' ? '/api/register' : '/api/login';
+            const body = authMode === 'register' ? {username:u, password:p, nickname:n} : {username:u, password:p};
+            const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+            if (res.ok) { localStorage.setItem('user', JSON.stringify(await res.json())); location.reload(); } 
+            else { const err = await res.json(); alert(err.detail || "操作失败"); }
+        }
+        function logout() { localStorage.removeItem('user'); location.reload(); }
+
+        // --- 个人安全与设置逻辑 ---
+        function showProfile() {
+            showModal('profile-modal'); document.getElementById('profile-nickname').value = currentUser.nickname || '';
+            pendingAvatarBase64 = currentUser.avatar;
+            document.getElementById('profile-avatar-preview').innerHTML = getAvatarHtml(currentUser.avatar, currentUser.nickname || currentUser.username, "w-full h-full text-3xl");
+            document.getElementById('pwd-old').value = ''; document.getElementById('pwd-new').value = '';
+        }
+
+        function processAvatar(input) {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const img = new Image();
+                    img.onload = function() {
+                        const canvas = document.createElement('canvas'); const ctx = canvas.getContext('2d');
+                        const maxSize = 150; let size = Math.min(img.width, img.height);
+                        canvas.width = maxSize; canvas.height = maxSize;
+                        ctx.drawImage(img, (img.width - size)/2, (img.height - size)/2, size, size, 0, 0, maxSize, maxSize);
+                        pendingAvatarBase64 = canvas.toDataURL('image/jpeg', 0.8);
+                        document.getElementById('profile-avatar-preview').innerHTML = getAvatarHtml(pendingAvatarBase64, "", "w-full h-full");
+                    }
+                    img.src = e.target.result;
+                }
+                reader.readAsDataURL(input.files[0]);
+            }
+        }
+
+        async function saveProfile() {
+            const nickname = document.getElementById('profile-nickname').value.trim();
+            const res = await fetch('/api/user/profile', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token }, body: JSON.stringify({ nickname: nickname, avatar: pendingAvatarBase64 }) });
+            if(res.ok) { currentUser.nickname = nickname; currentUser.avatar = pendingAvatarBase64; localStorage.setItem('user', JSON.stringify(currentUser)); location.reload(); } else alert("保存失败");
+        }
+
+        async function changePassword() {
+            const oldP = document.getElementById('pwd-old').value.trim();
+            const newP = document.getElementById('pwd-new').value.trim();
+            if(!oldP || !newP) return alert("请填写原密码和新密码");
+            
+            const res = await fetch('/api/user/password', {
+                method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token },
+                body: JSON.stringify({ old_password: oldP, new_password: newP })
+            });
+            const data = await res.json();
+            if(res.ok) { alert("✅ " + data.msg); logout(); } else { alert("❌ " + data.detail); }
+        }
+
+        async function deleteAccount() {
+            if(!confirm("🚨 最终警告：\n你确定要永久注销你的账号吗？\n你的所有聊天记录、创建的群聊将会被永远抹除！此操作不可逆！")) return;
+            const res = await fetch('/api/user/account', { method: 'DELETE', headers: { 'Authorization': currentUser.token } });
+            if(res.ok) { alert("👋 账号已成功注销。再见！"); logout(); } 
+            else { const err = await res.json(); alert("注销失败: " + err.detail); }
+        }
+
+        // --- 自定义右键/长按上下文菜单逻辑 ---
+        let currentMenuImage = null;
+        const msgList = document.getElementById('msg-list');
+        const customMenu = document.getElementById('custom-context-menu');
+
+        function showContextMenu(x, y, imageUrl) {
+            currentMenuImage = imageUrl;
+            customMenu.classList.remove('hidden');
+            
+            const menuWidth = 140;
+            const menuHeight = 110;
+            const screenWidth = window.innerWidth;
+            const screenHeight = window.innerHeight;
+            
+            let posX = x;
+            let posY = y;
+            
+            if (x + menuWidth > screenWidth) {
+                posX = screenWidth - menuWidth - 10;
+            }
+            if (y + menuHeight > screenHeight) {
+                posY = screenHeight - menuHeight - 10;
+            }
+            
+            customMenu.style.left = `${posX}px`;
+            customMenu.style.top = `${posY}px`;
+            
+            setTimeout(() => {
+                customMenu.style.opacity = '1';
+                customMenu.style.transform = 'scale(1)';
+            }, 10);
+        }
+
+        function hideContextMenu() {
+            customMenu.style.opacity = '0';
+            customMenu.style.transform = 'scale(0.95)';
+            setTimeout(() => {
+                customMenu.classList.add('hidden');
+            }, 150);
+        }
+
+        document.getElementById('menu-btn-favorite').onclick = (e) => {
+            e.stopPropagation();
+            if (currentMenuImage) {
+                toggleFavoriteEmoji(`[img:${currentMenuImage}]`);
+            }
+            hideContextMenu();
+        };
+
+        document.getElementById('menu-btn-download').onclick = (e) => {
+            e.stopPropagation();
+            if (currentMenuImage) {
+                if (currentMenuImage.startsWith('data:')) {
+                    const a = document.createElement('a');
+                    a.href = currentMenuImage;
+                    a.download = 'expression.jpg';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                } else {
+                    window.open(currentMenuImage, '_blank');
+                }
+            }
+            hideContextMenu();
+        };
+
+        document.getElementById('menu-btn-copy-link').onclick = (e) => {
+            e.stopPropagation();
+            if (currentMenuImage) {
+                let absoluteUrl = currentMenuImage;
+                if (!currentMenuImage.startsWith('http') && !currentMenuImage.startsWith('data:')) {
+                    absoluteUrl = window.location.origin + (currentMenuImage.startsWith('/') ? '' : '/') + currentMenuImage;
+                }
+                navigator.clipboard.writeText(absoluteUrl).then(() => {
+                    showToast("链接已复制到剪贴板");
+                }).catch(err => {
+                    const input = document.createElement('input');
+                    input.value = absoluteUrl;
+                    document.body.appendChild(input);
+                    input.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(input);
+                    showToast("链接已复制到剪贴板");
+                });
+            }
+            hideContextMenu();
+        };
+
+        // 隐藏菜单
+        document.addEventListener('click', (e) => {
+            if (!customMenu.contains(e.target)) {
+                hideContextMenu();
+            }
+        });
+
+        // 桌面端右键
+        msgList.addEventListener('contextmenu', e => {
+            const target = e.target;
+            if (target && target.tagName === 'IMG' && target.src) {
+                if (target.classList.contains('rounded-full') || target.closest('.w-8.h-8')) {
+                    return; 
+                }
+                e.preventDefault();
+                const src = target.getAttribute('src');
+                showContextMenu(e.clientX, e.clientY, src);
+            }
+        });
+
+        // 移动端长按
+        let msgImageTouchTimer = null;
+        let touchX = 0;
+        let touchY = 0;
+        msgList.addEventListener('touchstart', e => {
+            const target = e.target;
+            if (target && target.tagName === 'IMG' && target.src) {
+                if (target.classList.contains('rounded-full') || target.closest('.w-8.h-8')) {
+                    return;
+                }
+                const touch = e.touches[0];
+                touchX = touch.clientX;
+                touchY = touch.clientY;
+                if (msgImageTouchTimer) clearTimeout(msgImageTouchTimer);
+                msgImageTouchTimer = setTimeout(() => {
+                    const src = target.getAttribute('src');
+                    if (navigator.vibrate) navigator.vibrate(50);
+                    showContextMenu(touchX, touchY, src);
+                    msgImageTouchTimer = null;
+                }, 800); 
+            }
+        }, { passive: true });
+
+        msgList.addEventListener('touchend', () => {
+            if (msgImageTouchTimer) {
+                clearTimeout(msgImageTouchTimer);
+                msgImageTouchTimer = null;
+            }
+        });
+
+        msgList.addEventListener('touchmove', () => {
+            if (msgImageTouchTimer) {
+                clearTimeout(msgImageTouchTimer);
+                msgImageTouchTimer = null;
+            }
+        });
+
+        init();
+    </script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 主色调：深靛蓝紫渐变主色 -->
+    <color name="primary">#5C6BC0</color>
+    <color name="primary_dark">#3949AB</color>
+    <color name="primary_light">#7986CB</color>
+    <color name="accent">#FF4081</color>
+
+    <!-- 背景色系 -->
+    <color name="background">#F5F6FA</color>
+    <color name="chat_background">#E8ECF4</color>
+    <color name="surface">#FFFFFF</color>
+    <color name="surface_card">#FFFFFF</color>
+
+    <!-- 文字色系 -->
+    <color name="text_primary">#1A1A2E</color>
+    <color name="text_secondary">#8892A4</color>
+    <color name="text_hint">#B0BAC8</color>
+
+    <!-- 分割线 -->
+    <color name="divider">#EEF0F5</color>
+
+    <!-- 消息气泡 -->
+    <color name="bubble_self">#5C6BC0</color>
+    <color name="bubble_self_text">#FFFFFF</color>
+    <color name="bubble_other">#FFFFFF</color>
+    <color name="bubble_other_text">#1A1A2E</color>
+
+    <!-- 在线状态 -->
+    <color name="online_dot">#4CAF50</color>
+    <color name="offline_dot">#B0BAC8</color>
+
+    <!-- 未读角标 -->
+    <color name="badge_bg">#FF4081</color>
+
+    <!-- 底部导航栏 -->
+    <color name="nav_selected">#5C6BC0</color>
+    <color name="nav_unselected">#B0BAC8</color>
+</resources>

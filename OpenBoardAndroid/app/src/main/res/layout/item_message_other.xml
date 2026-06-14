@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:paddingHorizontal="10dp"
+    android:paddingVertical="3dp">
+
+    <!-- Avatar -->
+    <ImageView
+        android:id="@+id/iv_avatar"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:layout_alignParentStart="true"
+        android:layout_marginTop="18dp"
+        android:src="@drawable/ic_person"
+        android:background="@drawable/bg_avatar_circle"
+        android:scaleType="centerCrop"
+        android:padding="6dp"
+        android:contentDescription="对方头像"/>
+
+    <!-- Content Bubble Container -->
+    <LinearLayout
+        android:id="@+id/bubble_container"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_toEndOf="@id/iv_avatar"
+        android:layout_marginStart="8dp"
+        android:maxWidth="290dp"
+        android:orientation="vertical"
+        android:gravity="start">
+
+        <!-- Nickname + Time Row -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="4dp"
+            android:gravity="bottom">
+
+            <TextView
+                android:id="@+id/tv_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="11.5sp"
+                android:textStyle="bold"
+                android:textColor="@color/primary"
+                android:text="发送者"/>
+
+            <TextView
+                android:id="@+id/tv_time"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:textSize="10sp"
+                android:textColor="@color/text_secondary"
+                android:text="12:00"/>
+
+        </LinearLayout>
+
+        <!-- Message Text Bubble -->
+        <TextView
+            android:id="@+id/tv_content"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:maxWidth="270dp"
+            android:paddingHorizontal="14dp"
+            android:paddingVertical="10dp"
+            android:background="@drawable/bg_bubble_other"
+            android:textColor="@color/text_primary"
+            android:textSize="15sp"
+            android:lineSpacingMultiplier="1.25"
+            android:autoLink="all"
+            android:text="对方消息"/>
+
+        <!-- Message Image -->
+        <com.google.android.material.imageview.ShapeableImageView
+            android:id="@+id/iv_image"
+            android:layout_width="200dp"
+            android:layout_height="200dp"
+            android:scaleType="centerCrop"
+            app:cornerSize="16dp"
+            android:visibility="gone"
+            android:contentDescription="图片消息"/>
+
+    </LinearLayout>
+
+</RelativeLayout>
