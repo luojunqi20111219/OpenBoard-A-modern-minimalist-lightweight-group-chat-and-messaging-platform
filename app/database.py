@@ -155,17 +155,18 @@ def patch_db():
     if not check_group:
         cursor.execute("INSERT OR REPLACE INTO groups (id, name, is_public, owner_id) VALUES (0, '公共大厅', 1, 0)")
         
-    # Seed default admin user (官方账号) with role = 1 if not present
-    check_admin = cursor.execute("SELECT * FROM users WHERE username=?", ("官方账号",)).fetchone()
-    if not check_admin:
-        hashed_pw = generate_password_hash("12345678")
-        cursor.execute("""
-            INSERT INTO users (username, password_hash, nickname, role) 
-            VALUES (?, ?, ?, 1)
-        """, ("官方账号", hashed_pw, "官方账号"))
-    else:
-        # If it already exists, enforce role = 1 for the admin
-        cursor.execute("UPDATE users SET role = 1 WHERE username = ?", ("官方账号",))
+    # Enforce role = 1 for all configured admins, and seed default admin (官方账号) if missing
+    for admin_username in Config.ALLOWED_ADMINS:
+        check_admin = cursor.execute("SELECT * FROM users WHERE username=?", (admin_username,)).fetchone()
+        if not check_admin:
+            if admin_username == "官方账号":
+                hashed_pw = generate_password_hash("12345678")
+                cursor.execute("""
+                    INSERT INTO users (username, password_hash, nickname, role) 
+                    VALUES (?, ?, ?, 1)
+                """, ("官方账号", hashed_pw, "官方账号"))
+        else:
+            cursor.execute("UPDATE users SET role = 1 WHERE username = ?", (admin_username,))
         
     conn.commit()
     conn.close()
