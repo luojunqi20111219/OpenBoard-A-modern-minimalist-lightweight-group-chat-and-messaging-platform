@@ -1,0 +1,198 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/background">
+
+    <!-- Toolbar -->
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:elevation="6dp"
+        app:titleTextColor="@android:color/white"
+        app:navigationIcon="@drawable/ic_back"
+        app:navigationContentDescription="返回"/>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="20dp">
+
+            <!-- ── 主色调选择 ──────────────────────────── -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="主色调"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textAllCaps="true"
+                android:letterSpacing="0.08"
+                android:textColor="@color/primary"
+                android:layout_marginBottom="14dp"/>
+
+            <!-- 颜色圆圈网格 (2行 × 5列) -->
+            <GridLayout
+                android:id="@+id/grid_primary_colors"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:columnCount="5"
+                android:rowCount="2"
+                android:layout_marginBottom="28dp"/>
+
+            <!-- ── 聊天背景选择 ─────────────────────────── -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="聊天背景"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textAllCaps="true"
+                android:letterSpacing="0.08"
+                android:textColor="@color/primary"
+                android:layout_marginBottom="14dp"/>
+
+            <!-- 背景色网格 (2行 × 4列) -->
+            <GridLayout
+                android:id="@+id/grid_chat_bg"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:columnCount="4"
+                android:rowCount="2"
+                android:layout_marginBottom="16dp"/>
+
+            <!-- 自定义背景按钮 -->
+            <Button
+                android:id="@+id/btn_pick_custom_bg"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:text="📷 上传自定义背景图片"
+                android:textAllCaps="false"
+                android:textSize="14sp"
+                android:textColor="@color/primary"
+                android:layout_marginBottom="24dp"
+                style="@style/Widget.MaterialComponents.Button.TextButton"/>
+
+            <!-- ── 预览区域 ────────────────────────────── -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="预览"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textAllCaps="true"
+                android:letterSpacing="0.08"
+                android:textColor="@color/primary"
+                android:layout_marginBottom="14dp"/>
+
+            <!-- 预览聊天界面 -->
+            <androidx.cardview.widget.CardView
+                android:layout_width="match_parent"
+                android:layout_height="220dp"
+                app:cardCornerRadius="16dp"
+                app:cardElevation="4dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:orientation="vertical">
+
+                    <!-- 预览 Toolbar -->
+                    <LinearLayout
+                        android:id="@+id/preview_toolbar"
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp"
+                        android:gravity="center_vertical"
+                        android:paddingHorizontal="16dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="群聊名称"
+                            android:textColor="#FFFFFF"
+                            android:textStyle="bold"
+                            android:textSize="15sp"/>
+                    </LinearLayout>
+
+                    <!-- 预览消息区域 -->
+                    <LinearLayout
+                        android:id="@+id/preview_chat_bg"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:padding="12dp">
+
+                        <!-- 对方消息 -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:layout_marginBottom="8dp">
+
+                            <View
+                                android:layout_width="28dp"
+                                android:layout_height="28dp"
+                                android:background="@drawable/bg_avatar_circle"
+                                android:layout_marginEnd="8dp"/>
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="你好！"
+                                android:background="@drawable/bg_bubble_other"
+                                android:textColor="@color/text_primary"
+                                android:textSize="13sp"
+                                android:paddingHorizontal="12dp"
+                                android:paddingVertical="8dp"/>
+
+                        </LinearLayout>
+
+                        <!-- 自己消息 -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="end">
+
+                            <TextView
+                                android:id="@+id/preview_bubble_self"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="在呢！"
+                                android:textColor="#FFFFFF"
+                                android:textSize="13sp"
+                                android:paddingHorizontal="12dp"
+                                android:paddingVertical="8dp"/>
+
+                        </LinearLayout>
+                    </LinearLayout>
+
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
+            <!-- 应用按钮 -->
+            <Button
+                android:id="@+id/btn_apply"
+                android:layout_width="match_parent"
+                android:layout_height="54dp"
+                android:layout_marginTop="24dp"
+                android:text="应用主题"
+                android:textAllCaps="false"
+                android:textSize="16sp"
+                android:textColor="#FFFFFF"
+                style="@style/Widget.MaterialComponents.Button"/>
+
+        </LinearLayout>
+    </ScrollView>
+
+</LinearLayout>
