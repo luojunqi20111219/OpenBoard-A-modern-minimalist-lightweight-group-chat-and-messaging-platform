@@ -97,4 +97,19 @@ interface ApiService {
 
     @POST("api/qr/authorize")
     fun authorizeQrCode(@Body request: Map<String, String>): Call<ApiResponse<Any>>
+
+    @GET("api/friends")
+    fun getFriends(): Call<ApiResponse<List<User>>>
+
+    @GET("api/friends/requests")
+    fun getFriendRequests(): Call<ApiResponse<List<FriendRequest>>>
+
+    @POST("api/friends/request")
+    fun sendFriendRequest(@Body request: Map<String, String>): Call<ApiResponse<Any>>
+
+    @POST("api/friends/respond")
+    fun respondFriendRequest(@Body request: Map<String, String>): Call<ApiResponse<Any>>
+
+    @GET("api/users/search")
+    fun searchUsers(@Query("q") query: String): Call<ApiResponse<List<User>>>
 }

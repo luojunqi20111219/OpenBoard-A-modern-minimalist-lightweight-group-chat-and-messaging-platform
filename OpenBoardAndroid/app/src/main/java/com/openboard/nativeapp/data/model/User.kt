@@ -13,5 +13,11 @@ data class User(
     val bio: String? = null,
     val role: Int = 0,
     @SerializedName("created_at")
-    val createdAt: String? = null
+    val createdAt: String? = null,
+    @SerializedName("is_friend")
+    val isFriend: Boolean? = null,
+    @SerializedName("request_status")
+    val requestStatus: String? = null,
+    @SerializedName("request_direction")
+    val requestDirection: String? = null
 )

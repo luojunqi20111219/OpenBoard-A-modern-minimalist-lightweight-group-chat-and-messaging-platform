@@ -343,10 +343,38 @@ class ChatListFragment : Fragment() {
                     showConfirmLoginDialog(qrId)
                 }
             })
+        } else if (content.startsWith("openboard:add_friend:")) {
+            val username = content.substring("openboard:add_friend:".length)
+            showConfirmAddFriendDialog(username)
         } else {
-            Toast.makeText(context, "无效的登录二维码", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "无效的二维码内容", Toast.LENGTH_SHORT).show()
         }
     }
+
+    private fun showConfirmAddFriendDialog(username: String) {
+        val myUsername = SessionManager.username ?: ""
+        if (username == myUsername) {
+            Toast.makeText(context, "不能添加自己为好友", Toast.LENGTH_SHORT).show()
+            return
+        }
+        AlertDialog.Builder(requireContext())
+            .setTitle("添加好友")
+            .setMessage("确定要添加扫码用户 @$username 为好友吗？")
+            .setPositiveButton("发送申请") { _, _ ->
+                lifecycleScope.launch {
+                    repository.sendFriendRequest(username)
+                        .onSuccess {
+                            Toast.makeText(context, "好友申请已发送", Toast.LENGTH_SHORT).show()
+                        }
+                        .onFailure { e ->
+                            Toast.makeText(context, "发送申请失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
 
     private fun showConfirmLoginDialog(qrId: String) {
         AlertDialog.Builder(requireContext())
