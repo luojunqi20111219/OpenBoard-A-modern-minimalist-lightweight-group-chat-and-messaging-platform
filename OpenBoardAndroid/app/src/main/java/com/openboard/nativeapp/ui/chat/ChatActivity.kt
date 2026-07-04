@@ -118,7 +118,6 @@ class ChatActivity : AppCompatActivity() {
 
         setupUI()
         loadMessages()
-        checkBlockStatus()
 
         WebSocketManager.addListener(wsListener)
     }
@@ -151,8 +150,9 @@ class ChatActivity : AppCompatActivity() {
             }
         } else if (targetUser != null) {
             binding.btnAction.visibility = View.VISIBLE
-            binding.btnAction.text = "拉黑"
-            binding.btnAction.setOnClickListener { toggleBlockUser() }
+            binding.btnAction.text = "删除好友"
+            binding.btnAction.setTextColor(resources.getColor(android.R.color.white, null))
+            binding.btnAction.setOnClickListener { confirmRemoveFriend() }
         }
 
         // 初始化 RecyclerView 适配器
@@ -504,56 +504,27 @@ class ChatActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * 校验当前聊天的私信对象是否已被拉黑，同步更新按钮样式
-     */
-    private fun checkBlockStatus() {
+    private fun confirmRemoveFriend() {
         val target = targetUser ?: return
-        lifecycleScope.launch {
-            val result = repository.getUsersEnvelope()
-            result.onSuccess { resp ->
-                val blockedList = resp.blockedUsers ?: emptyList()
-                SessionManager.blockedUsers = blockedList.toSet()
-                isTargetUserBlocked = blockedList.contains(target)
-                updateBlockButtonUI()
+        AlertDialog.Builder(this)
+            .setTitle("删除好友")
+            .setMessage("确定要删除好友 @$target 吗？删除后你们将无法发送私信。")
+            .setPositiveButton("删除") { _, _ ->
+                doRemoveFriend(target)
             }
-        }
+            .setNegativeButton("取消", null)
+            .show()
     }
 
-    /**
-     * 拉黑/取消拉黑私聊用户
-     */
-    private fun toggleBlockUser() {
-        val target = targetUser ?: return
+    private fun doRemoveFriend(target: String) {
         lifecycleScope.launch {
-            val result = repository.blockUser(target)
-            result.onSuccess { resp ->
-                isTargetUserBlocked = resp.isBlocked
-                val currentBlocked = SessionManager.blockedUsers.toMutableSet()
-                if (isTargetUserBlocked) {
-                    currentBlocked.add(target)
-                } else {
-                    currentBlocked.remove(target)
-                }
-                SessionManager.blockedUsers = currentBlocked
-                updateBlockButtonUI()
-                Toast.makeText(
-                    this@ChatActivity, 
-                    if (isTargetUserBlocked) "已拉黑该用户" else "已取消拉黑", 
-                    Toast.LENGTH_SHORT
-                ).show()
+            val result = repository.removeFriend(target)
+            result.onSuccess {
+                Toast.makeText(this@ChatActivity, "已成功删除该好友", Toast.LENGTH_SHORT).show()
+                finish() // Close the chat screen
             }.onFailure { e ->
-                Toast.makeText(this@ChatActivity, "拉黑操作失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@ChatActivity, "删除好友失败: ${e.message}", Toast.LENGTH_SHORT).show()
             }
-        }
-    }
-
-    private fun updateBlockButtonUI() {
-        binding.btnAction.text = if (isTargetUserBlocked) "已拉黑" else "拉黑"
-        if (isTargetUserBlocked) {
-            binding.btnAction.setTextColor(resources.getColor(android.R.color.holo_red_light, null))
-        } else {
-            binding.btnAction.setTextColor(resources.getColor(android.R.color.white, null))
         }
     }
 
@@ -1010,42 +981,35 @@ class ChatActivity : AppCompatActivity() {
             }
             root.addView(btnChat)
             
-            val btnBlock = android.widget.Button(this).apply {
+            val btnDeleteFriend = android.widget.Button(this).apply {
                 layoutParams = android.widget.LinearLayout.LayoutParams(
                     android.view.ViewGroup.LayoutParams.MATCH_PARENT, 
                     android.view.ViewGroup.LayoutParams.WRAP_CONTENT
                 )
-                text = if (isBlocked) "取消拉黑" else "拉黑"
+                text = "删除好友"
                 setTextColor(0xFFFFFFFF.toInt())
-                setBackgroundColor(if (isBlocked) 0xFF9E9E9E.toInt() else 0xFFE53935.toInt())
+                setBackgroundColor(0xFFE53935.toInt())
                 setOnClickListener {
                     dialog.dismiss()
-                    lifecycleScope.launch {
-                        val result = repository.blockUser(target)
-                        result.onSuccess { resp ->
-                            val currentBlocked = SessionManager.blockedUsers.toMutableSet()
-                            if (resp.isBlocked) {
-                                currentBlocked.add(target)
-                            } else {
-                                currentBlocked.remove(target)
+                    AlertDialog.Builder(this@ChatActivity)
+                        .setTitle("删除好友")
+                        .setMessage("确定要删除好友 @$target 吗？删除后你们将无法发送私信。")
+                        .setPositiveButton("删除") { _, _ ->
+                            lifecycleScope.launch {
+                                val result = repository.removeFriend(target)
+                                result.onSuccess {
+                                    Toast.makeText(this@ChatActivity, "已成功删除该好友", Toast.LENGTH_SHORT).show()
+                                    finish() // Close the chat screen
+                                }.onFailure { e ->
+                                    Toast.makeText(this@ChatActivity, "删除好友失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                                }
                             }
-                            SessionManager.blockedUsers = currentBlocked
-                            if (target == targetUser) {
-                                isTargetUserBlocked = resp.isBlocked
-                                updateBlockButtonUI()
-                            }
-                            Toast.makeText(
-                                this@ChatActivity, 
-                                if (resp.isBlocked) "已拉黑该用户" else "已取消拉黑", 
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        }.onFailure { e ->
-                            Toast.makeText(this@ChatActivity, "拉黑操作失败: ${e.message}", Toast.LENGTH_SHORT).show()
                         }
-                    }
+                        .setNegativeButton("取消", null)
+                        .show()
                 }
             }
-            root.addView(btnBlock)
+            root.addView(btnDeleteFriend)
         }
         
         dialog.setView(root)

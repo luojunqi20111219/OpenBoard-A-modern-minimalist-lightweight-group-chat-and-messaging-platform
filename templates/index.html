@@ -89,7 +89,7 @@
                     <h2 class="font-bold text-gray-800 flex items-center">
                         <span id="room-title">公共大厅</span>
                         <button id="room-manage-btn" onclick="showManageGroup()" class="ml-2 text-gray-400 hover:text-blue-500 hidden transition"><i class="fa-solid fa-gear"></i></button>
-                        <button id="user-block-btn" onclick="toggleBlockUser()" class="ml-2 text-gray-400 hover:text-red-500 hidden transition" title="拉黑/取消拉黑"><i class="fa-solid fa-ban"></i></button>
+                        <button id="user-block-btn" onclick="confirmDeleteFriend()" class="ml-2 text-gray-400 hover:text-red-500 hidden transition" title="删除好友"><i class="fa-solid fa-user-minus"></i></button>
                     </h2>
                     <p class="text-xs text-gray-400 flex items-center" id="connection-status">
                         <span class="w-1.5 h-1.5 bg-gray-400 rounded-full mr-1.5" id="status-dot"></span>
@@ -529,11 +529,6 @@
             
             const blockBtn = document.getElementById('user-block-btn');
             blockBtn.classList.remove('hidden');
-            if (globalBlockedUsers.includes(username)) {
-                blockBtn.classList.remove('text-gray-400'); blockBtn.classList.add('text-red-500');
-            } else {
-                blockBtn.classList.remove('text-red-500'); blockBtn.classList.add('text-gray-400');
-            }
             
             loadMsgs();
         }
@@ -684,37 +679,43 @@
             });
         }
 
-        async function toggleBlockUser() {
+        async function confirmDeleteFriend() {
             if(!currentUser || !currentTargetUser) return;
-            const isBlocked = globalBlockedUsers.includes(currentTargetUser);
-            const action = isBlocked ? "取消拉黑" : "拉黑";
-            if(!confirm(`确定要${action}该用户吗？`)) return;
+            if(!confirm(`确定要删除好友 @${currentTargetUser} 吗？删除后双方将无法发送私信。`)) return;
             
-            const res = await fetch('/api/user/block', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token },
-                body: JSON.stringify({ target_username: currentTargetUser })
-            });
-            
-            if(res.ok) {
-                const data = await res.json();
-                if(data.is_blocked) {
-                    globalBlockedUsers.push(currentTargetUser);
+            try {
+                const res = await fetch(`/api/friends/${currentTargetUser}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': currentUser.token }
+                });
+                const result = await res.json();
+                if(res.ok) {
+                    showToast(result.msg || "删除好友成功");
+                    // Clear current chat
+                    currentTargetUser = null;
+                    document.getElementById('messages').innerHTML = '';
+                    document.getElementById('header-icon').innerHTML = '<i class="fa-solid fa-hashtag text-xl"></i>';
+                    document.getElementById('room-title').innerText = '公共大厅';
+                    document.getElementById('user-block-btn').classList.add('hidden');
+                    document.getElementById('room-manage-btn').classList.add('hidden');
+                    
+                    // Reset input area
+                    const inputArea = document.getElementById('message-input');
+                    const sendBtn = document.getElementById('send-btn');
+                    inputArea.placeholder = "请选择左侧会话或群聊开始聊天...";
+                    inputArea.value = '';
+                    inputArea.disabled = true;
+                    sendBtn.disabled = true;
+                    sendBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                    
+                    // Reload friend list
+                    loadUsers();
                 } else {
-                    globalBlockedUsers = globalBlockedUsers.filter(u => u !== currentTargetUser);
+                    alert(result.detail || "操作失败");
                 }
-                
-                const blockBtn = document.getElementById('user-block-btn');
-                if (globalBlockedUsers.includes(currentTargetUser)) {
-                    blockBtn.classList.remove('text-gray-400'); blockBtn.classList.add('text-red-500');
-                } else {
-                    blockBtn.classList.remove('text-red-500'); blockBtn.classList.add('text-gray-400');
-                }
-                
-                loadUsers(); 
-                loadMsgs(); 
-            } else {
-                alert(`${action}失败`);
+            } catch(e) {
+                console.error(e);
+                alert("操作失败");
             }
         }
 

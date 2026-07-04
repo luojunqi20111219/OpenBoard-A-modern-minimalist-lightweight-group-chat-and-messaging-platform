@@ -112,4 +112,7 @@ interface ApiService {
 
     @GET("api/users/search")
     fun searchUsers(@Query("q") query: String): Call<ApiResponse<List<User>>>
+
+    @DELETE("api/friends/{username}")
+    fun removeFriend(@Path("username") username: String): Call<ApiResponse<Any>>
 }

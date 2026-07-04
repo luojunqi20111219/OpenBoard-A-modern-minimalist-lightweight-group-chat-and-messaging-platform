@@ -177,4 +177,7 @@ class ChatRepository {
 
     suspend fun searchUsers(q: String): Result<List<User>> =
         apiCallWrapped { api.searchUsers(q) }
+
+    suspend fun removeFriend(username: String): Result<Unit> =
+        apiCallVoid { api.removeFriend(username) }
 }
