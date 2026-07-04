@@ -106,13 +106,28 @@ async def send_friend_request(data: FriendRequestData, current_user = Depends(ge
         db.commit()
         return {"status": "success", "msg": "对方也想加您为好友，已自动互相成为好友！", "auto_accepted": True}
     
-    try:
-        db.execute("""
-            INSERT INTO friend_requests (from_user, to_user, status) VALUES (?, ?, 'pending')
-        """, (current_user['username'], data.to_user))
-        db.commit()
-    except Exception:
-        raise HTTPException(status_code=400, detail="已发送过好友申请，请等待对方同意")
+    existing = db.execute("""
+        SELECT status FROM friend_requests WHERE from_user=? AND to_user=?
+    """, (current_user['username'], data.to_user)).fetchone()
+    
+    if existing:
+        if existing['status'] == 'pending':
+            raise HTTPException(status_code=400, detail="已发送过好友申请，请等待对方同意")
+        else:
+            db.execute("""
+                UPDATE friend_requests 
+                SET status='pending', created_at=CURRENT_TIMESTAMP 
+                WHERE from_user=? AND to_user=?
+            """, (current_user['username'], data.to_user))
+            db.commit()
+    else:
+        try:
+            db.execute("""
+                INSERT INTO friend_requests (from_user, to_user, status) VALUES (?, ?, 'pending')
+            """, (current_user['username'], data.to_user))
+            db.commit()
+        except Exception:
+            raise HTTPException(status_code=400, detail="发送好友申请失败，请稍后重试")
     
     # Notify target user via WebSocket
     sender_info = db.execute("SELECT nickname, avatar FROM users WHERE username=?", (current_user['username'],)).fetchone()
