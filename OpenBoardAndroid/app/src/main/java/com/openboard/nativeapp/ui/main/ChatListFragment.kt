@@ -364,7 +364,7 @@ class ChatListFragment : Fragment() {
         val req = mapOf("qr_id" to qrId)
         api.authorizeQrCode(req).enqueue(object : Callback<ApiResponse<Any>> {
             override fun onResponse(call: Call<ApiResponse<Any>>, response: Response<ApiResponse<Any>>) {
-                if (response.isSuccessful && response.body()?.ok == true) {
+                if (response.isSuccessful && response.body()?.code == 200) {
                     Toast.makeText(context, "网页端登录成功！", Toast.LENGTH_SHORT).show()
                 } else {
                     Toast.makeText(context, "授权失败，请重试", Toast.LENGTH_SHORT).show()
