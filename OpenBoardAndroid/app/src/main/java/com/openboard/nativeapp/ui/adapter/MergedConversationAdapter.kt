@@ -171,8 +171,12 @@ class MergedConversationAdapter(
             }
 
             // Avatar base64 loading
+            b.ivAvatar.clearColorFilter()
             val avatarStr = conv.avatar
-            if (!avatarStr.isNullOrEmpty()) {
+            if (avatarStr == "system_filehelper") {
+                b.ivAvatar.setImageResource(R.drawable.ic_chats)
+                b.ivAvatar.setColorFilter(b.ivAvatar.resources.getColor(R.color.primary, null))
+            } else if (!avatarStr.isNullOrEmpty()) {
                 try {
                     val base64Data = if (avatarStr.startsWith("data:image")) {
                         avatarStr.substringAfter("base64,")

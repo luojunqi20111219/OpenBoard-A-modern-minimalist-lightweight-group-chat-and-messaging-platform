@@ -65,7 +65,14 @@ async def get_friends(current_user = Depends(get_current_user), db = Depends(get
         ORDER BY u.nickname ASC
     """, (current_user['username'], current_user['username'])).fetchall()
     
-    return {"status": "success", "data": [dict(r) for r in rows]}
+    friends = [dict(r) for r in rows]
+    friends.insert(0, {
+        "username": "filehelper",
+        "nickname": "文件传输助手",
+        "avatar": "system_filehelper"
+    })
+    
+    return {"status": "success", "data": friends}
 
 @router.get("/friends/requests")
 async def get_friend_requests(current_user = Depends(get_current_user), db = Depends(get_db)):

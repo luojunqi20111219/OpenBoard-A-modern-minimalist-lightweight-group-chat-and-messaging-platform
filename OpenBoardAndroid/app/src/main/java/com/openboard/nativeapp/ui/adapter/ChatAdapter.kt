@@ -248,6 +248,12 @@ class ChatAdapter(
     }
 
     private fun bindAvatar(avatarStr: String?, ivAvatar: ImageView) {
+        ivAvatar.clearColorFilter()
+        if (avatarStr == "system_filehelper") {
+            ivAvatar.setImageResource(R.drawable.ic_chats)
+            ivAvatar.setColorFilter(ivAvatar.resources.getColor(R.color.primary, null))
+            return
+        }
         if (!avatarStr.isNullOrEmpty()) {
             try {
                 val base64Data = if (avatarStr.startsWith("data:image")) {

@@ -149,10 +149,14 @@ class ChatActivity : AppCompatActivity() {
                 binding.btnAction.setOnClickListener { showGroupSettingsDialog() }
             }
         } else if (targetUser != null) {
-            binding.btnAction.visibility = View.VISIBLE
-            binding.btnAction.text = "删除好友"
-            binding.btnAction.setTextColor(resources.getColor(android.R.color.white, null))
-            binding.btnAction.setOnClickListener { confirmRemoveFriend() }
+            if (targetUser == "filehelper") {
+                binding.btnAction.visibility = View.GONE
+            } else {
+                binding.btnAction.visibility = View.VISIBLE
+                binding.btnAction.text = "删除好友"
+                binding.btnAction.setTextColor(resources.getColor(android.R.color.white, null))
+                binding.btnAction.setOnClickListener { confirmRemoveFriend() }
+            }
         }
 
         // 初始化 RecyclerView 适配器
@@ -878,6 +882,14 @@ class ChatActivity : AppCompatActivity() {
 
     private fun showUserProfileDialog(message: Message) {
         val target = message.name
+        if (target == "filehelper") {
+            AlertDialog.Builder(this)
+                .setTitle("文件传输助手")
+                .setMessage("这是您的个人专属文件传输助手，发送到这里的消息、图片与文件都将保存在云端并同步到您的其他设备。")
+                .setPositiveButton("确定", null)
+                .show()
+            return
+        }
         val isMe = target == SessionManager.username
         
         val dialog = AlertDialog.Builder(this).create()

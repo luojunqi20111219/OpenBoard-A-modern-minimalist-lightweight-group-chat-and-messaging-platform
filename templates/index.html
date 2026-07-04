@@ -337,6 +337,9 @@
 
         function getAvatarHtml(avatarStr, name, sizeClass = "w-10 h-10 text-base") {
             const displayName = name || "?";
+            if (avatarStr === 'system_filehelper') {
+                return `<div class="${sizeClass} rounded-full bg-blue-100 flex items-center justify-center text-blue-600 shadow-sm"><i class="fa-solid fa-folder-open"></i></div>`;
+            }
             if (avatarStr && avatarStr.startsWith('data:image')) {
                 return `<img src="${avatarStr}" class="${sizeClass} rounded-full object-cover shadow-sm">`;
             } else {
@@ -548,7 +551,11 @@
             document.getElementById('room-manage-btn').classList.add('hidden'); 
             
             const blockBtn = document.getElementById('user-block-btn');
-            blockBtn.classList.remove('hidden');
+            if (username === 'filehelper') {
+                blockBtn.classList.add('hidden');
+            } else {
+                blockBtn.classList.remove('hidden');
+            }
             
             loadMsgs();
         }
@@ -1604,7 +1611,7 @@
                 const qrBox = document.getElementById('my-friend-qr-box');
                 qrBox.innerHTML = '';
                 new QRCode(qrBox, {
-                    text: `openboard:add_friend:${currentUser.username}`,
+                    text: `openboard:add_friend:${encodeURIComponent(currentUser.username)}`,
                     width: 170,
                     height: 170,
                     correctLevel : QRCode.CorrectLevel.H
@@ -1874,7 +1881,12 @@
 
         function handleScannedQR(decodedText) {
             if (decodedText.startsWith("openboard:add_friend:")) {
-                const username = decodedText.substring("openboard:add_friend:".length).trim();
+                let username = decodedText.substring("openboard:add_friend:".length).trim();
+                try {
+                    username = decodeURIComponent(username);
+                } catch (e) {
+                    console.error(e);
+                }
                 if (username === currentUser.username) {
                     showToast("不能添加自己为好友");
                     return;

@@ -356,11 +356,15 @@ class ProfileFragment : Fragment() {
     private fun showMyQrCodeDialog() {
         val username = SessionManager.username ?: ""
         if (username.isEmpty()) return
-        val qrContent = "openboard:add_friend:$username"
+        val encodedUsername = java.net.URLEncoder.encode(username, "UTF-8")
+        val qrContent = "openboard:add_friend:$encodedUsername"
         
         try {
+            val hints = mapOf(com.google.zxing.EncodeHintType.CHARACTER_SET to "UTF-8")
+            val writer = com.google.zxing.MultiFormatWriter()
+            val bitMatrix = writer.encode(qrContent, BarcodeFormat.QR_CODE, 500, 500, hints)
             val barcodeEncoder = BarcodeEncoder()
-            val bitmap = barcodeEncoder.encodeBitmap(qrContent, BarcodeFormat.QR_CODE, 500, 500)
+            val bitmap = barcodeEncoder.createBitmap(bitMatrix)
             
             val imageView = ImageView(requireContext()).apply {
                 setImageBitmap(bitmap)

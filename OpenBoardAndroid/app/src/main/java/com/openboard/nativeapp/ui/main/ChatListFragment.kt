@@ -28,6 +28,8 @@ import retrofit2.Callback
 import retrofit2.Response
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.content.Intent
+import com.openboard.nativeapp.ui.chat.ChatActivity
 
 /**
  * 消息会话主页面，统一展示置顶、最近聊天、所有联系人与群聊的合并列表
@@ -79,6 +81,10 @@ class ChatListFragment : Fragment() {
 
         binding.btnScan.setOnClickListener {
             startQrScan()
+        }
+
+        binding.btnSearch.setOnClickListener {
+            showAddFriendSearchDialog()
         }
 
         binding.fabNewChat.setOnClickListener {
@@ -347,7 +353,12 @@ class ChatListFragment : Fragment() {
                 }
             })
         } else if (trimmed.startsWith("openboard:add_friend:")) {
-            val username = trimmed.substring("openboard:add_friend:".length).trim()
+            val rawUsername = trimmed.substring("openboard:add_friend:".length).trim()
+            val username = try {
+                java.net.URLDecoder.decode(rawUsername, "UTF-8")
+            } catch (e: Exception) {
+                rawUsername
+            }
             showConfirmAddFriendDialog(username)
         } else {
             Toast.makeText(context, "无效的二维码内容", Toast.LENGTH_SHORT).show()
@@ -477,7 +488,12 @@ class ChatListFragment : Fragment() {
                     .setItems(displayNames) { _, which ->
                         val target = users[which]
                         if (target.isFriend == true) {
-                            Toast.makeText(requireContext(), "你们已经是好友了", Toast.LENGTH_SHORT).show()
+                            val intent = Intent(requireContext(), ChatActivity::class.java).apply {
+                                putExtra("room_id", 0)
+                                putExtra("room_name", target.nickname ?: target.username)
+                                putExtra("target_user", target.username)
+                            }
+                            startActivity(intent)
                         } else if (target.requestStatus == "pending") {
                             if (target.requestDirection == "sent") {
                                 Toast.makeText(requireContext(), "已发送过申请，请等待对方验证", Toast.LENGTH_SHORT).show()

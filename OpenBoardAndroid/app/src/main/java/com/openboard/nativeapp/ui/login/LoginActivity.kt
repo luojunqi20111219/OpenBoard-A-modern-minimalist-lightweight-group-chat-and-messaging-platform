@@ -102,8 +102,14 @@ class LoginActivity : AppCompatActivity() {
                 } else {
                     Toast.makeText(this@LoginActivity, resp.msg ?: "登录失败", Toast.LENGTH_SHORT).show()
                 }
-            }.onFailure {
-                Toast.makeText(this@LoginActivity, "网络错误: ${it.message}", Toast.LENGTH_SHORT).show()
+            }.onFailure { e ->
+                val errorMsg = e.message ?: ""
+                val displayMsg = if (errorMsg.contains("401")) {
+                    "用户名或密码错误"
+                } else {
+                    "网络错误: $errorMsg"
+                }
+                Toast.makeText(this@LoginActivity, displayMsg, Toast.LENGTH_SHORT).show()
             }
         }
     }

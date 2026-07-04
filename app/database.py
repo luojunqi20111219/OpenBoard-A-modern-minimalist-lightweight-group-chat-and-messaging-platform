@@ -195,5 +195,13 @@ def patch_db():
         else:
             cursor.execute("UPDATE users SET role = 1 WHERE username = ?", (admin_username,))
         
+    # Seed File Transfer Assistant virtual user if missing
+    check_filehelper = cursor.execute("SELECT * FROM users WHERE username='filehelper'").fetchone()
+    if not check_filehelper:
+        cursor.execute("""
+            INSERT INTO users (username, password_hash, nickname, role, avatar) 
+            VALUES (?, ?, ?, 2, ?)
+        """, ("filehelper", "system_account", "文件传输助手", "system_filehelper"))
+
     conn.commit()
     conn.close()

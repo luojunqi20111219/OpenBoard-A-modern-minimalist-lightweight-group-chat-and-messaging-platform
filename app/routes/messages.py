@@ -80,8 +80,8 @@ async def post_message(
             if current_user['username'] in receiver_blocked_list:
                 raise HTTPException(status_code=403, detail="对方已将您拉黑，无法发送消息")
         
-        # Check if users are friends (skip for admins)
-        if current_user['role'] != 1:
+        # Check if users are friends (skip for admins and filehelper)
+        if current_user['role'] != 1 and data.receiver != 'filehelper':
             from app.routes.friends import are_friends
             if not are_friends(db, current_user['username'], data.receiver):
                 raise HTTPException(status_code=403, detail="你们还不是好友，无法发送私信")
