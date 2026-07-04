@@ -395,9 +395,29 @@
                 } else if (msg.type === 'friend_request') {
                     showToast(`收到来自 ${msg.from_nickname || msg.from_user} 的好友申请！`);
                     document.getElementById('friend-req-badge').classList.remove('hidden');
+                    if (window.desktopNotify) {
+                        window.desktopNotify(
+                            "好友申请",
+                            `收到来自 ${msg.from_nickname || msg.from_user} (@${msg.from_user}) 的好友申请！`,
+                            "-1",
+                            msg.from_user,
+                            msg.from_nickname || "",
+                            msg.from_avatar || ""
+                        );
+                    }
                 } else if (msg.type === 'friend_accepted') {
                     showToast(`${msg.by_nickname || msg.by_user} 已同意您的好友申请，你们现在是好友了！`);
                     loadUsers();
+                    if (window.desktopNotify) {
+                        window.desktopNotify(
+                            "好友申请已通过",
+                            `${msg.by_nickname || msg.by_user} (@${msg.by_user}) 已同意您的好友申请，你们现在是好友了！`,
+                            "-1",
+                            msg.by_user,
+                            msg.by_nickname || "",
+                            msg.by_avatar || ""
+                        );
+                    }
                 }
             };
 

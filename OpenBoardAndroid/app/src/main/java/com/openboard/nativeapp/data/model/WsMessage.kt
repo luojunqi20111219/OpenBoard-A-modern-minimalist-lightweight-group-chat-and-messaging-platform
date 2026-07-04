@@ -14,7 +14,19 @@ data class WsMessage(
     @SerializedName("room_id")
     val roomId: Int? = null,
     val receiver: String? = null,
-    val users: List<String>? = null
+    val users: List<String>? = null,
+    @SerializedName("from_user")
+    val fromUser: String? = null,
+    @SerializedName("from_nickname")
+    val fromNickname: String? = null,
+    @SerializedName("from_avatar")
+    val fromAvatar: String? = null,
+    @SerializedName("by_user")
+    val byUser: String? = null,
+    @SerializedName("by_nickname")
+    val byNickname: String? = null,
+    @SerializedName("by_avatar")
+    val byAvatar: String? = null
 )
 
 data class WsData(

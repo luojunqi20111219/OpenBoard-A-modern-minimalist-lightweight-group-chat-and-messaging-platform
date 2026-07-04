@@ -18,6 +18,7 @@ import com.openboard.nativeapp.data.api.WebSocketManager
 import com.openboard.nativeapp.data.local.SessionManager
 import com.openboard.nativeapp.data.model.WsMessage
 import com.openboard.nativeapp.ui.chat.ChatActivity
+import com.openboard.nativeapp.ui.main.MainActivity
 
 /**
  * 后台消息监听服务 (Foreground Service)
@@ -200,6 +201,14 @@ class MessageService : Service() {
                 avatar = null,
                 increaseUnread = false
             )
+        } else if (msg.type == "friend_request") {
+            val fromUser = msg.fromUser ?: "新用户"
+            val fromNickname = msg.fromNickname ?: fromUser
+            showFriendRequestNotification(fromUser, fromNickname, "向您发送了好友申请")
+        } else if (msg.type == "friend_accepted") {
+            val byUser = msg.byUser ?: "好友"
+            val byNickname = msg.byNickname ?: byUser
+            showFriendRequestNotification(byUser, byNickname, "同意了您的好友申请，现在可以开始聊天了")
         }
     }
 
@@ -269,4 +278,40 @@ class MessageService : Service() {
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.notify(notificationId, builder.build())
     }
+
+    private fun showFriendRequestNotification(username: String, nickname: String, actionText: String) {
+        val title = "好友申请"
+        val cleanText = "$nickname (@$username) $actionText"
+
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+
+        val pendingFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
+        }
+
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            username.hashCode(),
+            intent,
+            pendingFlags
+        )
+
+        val builder = NotificationCompat.Builder(this, CHANNEL_MESSAGE_ID)
+            .setContentTitle(title)
+            .setContentText(cleanText)
+            .setSmallIcon(R.drawable.ic_chats)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setCategory(Notification.CATEGORY_SOCIAL)
+
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.notify(username.hashCode(), builder.build())
+    }
 }
+
