@@ -332,8 +332,9 @@ class ChatListFragment : Fragment() {
     }
 
     private fun handleQrCodeResult(content: String) {
-        if (content.startsWith("openboard:qr_login:")) {
-            val qrId = content.substring("openboard:qr_login:".length)
+        val trimmed = content.trim()
+        if (trimmed.startsWith("openboard:qr_login:")) {
+            val qrId = trimmed.substring("openboard:qr_login:".length).trim()
             val api = RetrofitClient.getApiService()
             val req = mapOf("qr_id" to qrId)
             
@@ -345,8 +346,8 @@ class ChatListFragment : Fragment() {
                     showConfirmLoginDialog(qrId)
                 }
             })
-        } else if (content.startsWith("openboard:add_friend:")) {
-            val username = content.substring("openboard:add_friend:".length)
+        } else if (trimmed.startsWith("openboard:add_friend:")) {
+            val username = trimmed.substring("openboard:add_friend:".length).trim()
             showConfirmAddFriendDialog(username)
         } else {
             Toast.makeText(context, "无效的二维码内容", Toast.LENGTH_SHORT).show()
