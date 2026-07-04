@@ -339,6 +339,18 @@
             // 收到新消息时，如果是其他房间的消息，可以加一个小红点逻辑（暂未实现）
         }
 
+        window.openChatFromNotification = function(roomId, senderUsername, senderNickname, senderAvatar) {
+            console.log("openChatFromNotification triggered:", roomId, senderUsername, senderNickname, senderAvatar);
+            if (roomId !== undefined && roomId !== null && roomId !== "" && roomId !== "-1" && roomId !== -1) {
+                const id = parseInt(roomId);
+                const group = globalGroups.find(g => g.id === id);
+                const name = group ? group.name : (id === 0 ? "公共大厅" : "群聊");
+                switchRoom(id, name);
+            } else if (senderUsername) {
+                switchPrivateChat(senderUsername, senderNickname || senderUsername, senderAvatar || "");
+            }
+        };
+
         function handleTyping(msg) {
             const isRelevant = (msg.room_id === currentRoomId && !msg.receiver) || (msg.receiver === currentUser.username && msg.user === currentTargetUser);
             if (isRelevant && msg.user !== currentUser.username) {
