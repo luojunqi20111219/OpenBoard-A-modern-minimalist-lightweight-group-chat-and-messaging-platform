@@ -318,7 +318,7 @@ int main() {
                                     window.desktopNotify(
                                         sender, 
                                         text, 
-                                        String(data.room_id !== undefined && data.room_id !== null ? data.room_id : "-1"), 
+                                        String(data.receiver ? "-1" : (data.room_id !== undefined && data.room_id !== null ? data.room_id : "-1")),  
                                         data.name || "", 
                                         data.nickname || "", 
                                         data.avatar || ""
