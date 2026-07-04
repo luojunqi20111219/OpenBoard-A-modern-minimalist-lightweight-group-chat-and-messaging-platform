@@ -24,6 +24,9 @@ import com.openboard.nativeapp.ui.theme.ThemeManager
 import com.openboard.nativeapp.ui.theme.ThemePickerActivity
 import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
+import android.widget.ImageView
+import com.google.zxing.BarcodeFormat
+import com.journeyapps.barcodescanner.BarcodeEncoder
 
 /**
  * 个人资料中心，提供昵称修改、Base64 头像上传、安全密码更改、账号注销与登出等功能。
@@ -77,6 +80,11 @@ class ProfileFragment : Fragment() {
         // 个性化主题按钮点击
         binding.btnTheme.setOnClickListener {
             themePickerLauncher.launch(Intent(requireContext(), ThemePickerActivity::class.java))
+        }
+
+        // 我的二维码名片点击
+        binding.btnQrCode.setOnClickListener {
+            showMyQrCodeDialog()
         }
 
         // 修改头像点击
@@ -343,6 +351,32 @@ class ProfileFragment : Fragment() {
             }
             .setNegativeButton("关闭", null)
             .show()
+    }
+
+    private fun showMyQrCodeDialog() {
+        val username = SessionManager.username ?: ""
+        if (username.isEmpty()) return
+        val qrContent = "openboard:add_friend:$username"
+        
+        try {
+            val barcodeEncoder = BarcodeEncoder()
+            val bitmap = barcodeEncoder.encodeBitmap(qrContent, BarcodeFormat.QR_CODE, 500, 500)
+            
+            val imageView = ImageView(requireContext()).apply {
+                setImageBitmap(bitmap)
+                val pad = 48
+                setPadding(pad, pad, pad, pad)
+            }
+            
+            AlertDialog.Builder(requireContext())
+                .setTitle("我的二维码名片")
+                .setMessage("让好友使用 OpenBoard 扫一扫添加您")
+                .setView(imageView)
+                .setPositiveButton("确定", null)
+                .show()
+        } catch (e: Exception) {
+            Toast.makeText(requireContext(), "生成二维码失败", Toast.LENGTH_SHORT).show()
+        }
     }
 
     override fun onDestroyView() {
