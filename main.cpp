@@ -204,6 +204,19 @@ LRESULT CALLBACK MyWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 
 #ifdef _WIN32
 int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPSTR lpCmdLine, int nCmdShow) {
+    HANDLE hMutex = CreateMutexW(NULL, TRUE, L"Global\\OpenBoardSingleInstanceMutex");
+    if (GetLastError() == ERROR_ALREADY_EXISTS) {
+        HWND hwndExisting = FindWindowW(NULL, L"信语");
+        if (hwndExisting) {
+            ShowWindow(hwndExisting, SW_SHOW);
+            ShowWindow(hwndExisting, SW_RESTORE);
+            SetActiveWindow(hwndExisting);
+            SetForegroundWindow(hwndExisting);
+        }
+        CloseHandle(hMutex);
+        return 0;
+    }
+    
     // Disable background timer throttling and suspension for WebView2
     SetEnvironmentVariableW(L"WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", L"--disable-background-timer-throttling --disable-renderer-backgrounding");
 #else
@@ -271,5 +284,8 @@ int main() {
 
     w.navigate("http://liuyan.luojunqi.xyz");
     w.run();
+#ifdef _WIN32
+    if (hMutex) CloseHandle(hMutex);
+#endif
     return 0;
 }
