@@ -90,8 +90,10 @@ void SetupTrayIcon(HWND hwnd) {
     SendMessageW(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)g_hIconNormal);
     
     wcscpy_s(g_nid.szTip, L"信语 (OpenBoard)");
+    g_nid.uVersion = NOTIFYICON_VERSION;
     
     Shell_NotifyIconW(NIM_ADD, &g_nid);
+    Shell_NotifyIconW(NIM_SETVERSION, &g_nid);
 }
 
 void ShowNotification(HWND hwnd, const wchar_t* title, const wchar_t* message) {
