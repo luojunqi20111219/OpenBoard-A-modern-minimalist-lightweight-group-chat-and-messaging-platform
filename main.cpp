@@ -92,8 +92,15 @@ void SetupTrayIcon(HWND hwnd) {
     wcscpy_s(g_nid.szTip, L"信语 (OpenBoard)");
     g_nid.uVersion = NOTIFYICON_VERSION;
     
-    Shell_NotifyIconW(NIM_ADD, &g_nid);
-    Shell_NotifyIconW(NIM_SETVERSION, &g_nid);
+    BOOL addRet = Shell_NotifyIconW(NIM_ADD, &g_nid);
+    BOOL verRet = Shell_NotifyIconW(NIM_SETVERSION, &g_nid);
+    
+    FILE* debugF = fopen("C:\\Users\\32709\\Desktop\\debug_tray.txt", "a");
+    if (debugF) {
+        fprintf(debugF, "SetupTrayIcon: NIM_ADD=%d, NIM_SETVERSION=%d (uVersion=%d)\n", 
+                addRet, verRet, (int)g_nid.uVersion);
+        fclose(debugF);
+    }
 }
 
 void ShowNotification(HWND hwnd, const wchar_t* title, const wchar_t* message) {
@@ -170,7 +177,14 @@ LRESULT CALLBACK MyWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
                 Shell_NotifyIconW(NIM_MODIFY, &g_nid);
             }
             break;
-        case WM_TRAYICON:
+        case WM_TRAYICON: {
+            unsigned int eventId = (unsigned int)lParam;
+            FILE* debugF = fopen("C:\\Users\\32709\\Desktop\\debug_tray.txt", "a");
+            if (debugF) {
+                fprintf(debugF, "WM_TRAYICON event received: 0x%X (NIN_BALLOONUSERCLICK is 0x%X, WM_LBUTTONUP is 0x%X)\n", 
+                        eventId, (unsigned int)NIN_BALLOONUSERCLICK, (unsigned int)WM_LBUTTONUP);
+                fclose(debugF);
+            }
             if (lParam == WM_LBUTTONUP || lParam == WM_LBUTTONDBLCLK || lParam == NIN_BALLOONUSERCLICK) {
                 ShowWindow(hwnd, SW_SHOW);
                 ShowWindow(hwnd, SW_RESTORE);
@@ -206,6 +220,7 @@ LRESULT CALLBACK MyWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
                 }
                 DestroyMenu(hMenu);
             }
+        }
             break;
         case WM_DESTROY:
             Shell_NotifyIconW(NIM_DELETE, &g_nid);
