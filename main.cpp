@@ -11,6 +11,11 @@
 NOTIFYICONDATAW g_nid = {0};
 WNDPROC oldWndProc = nullptr;
 HWND g_hwnd = nullptr;
+webview::webview* g_webview = nullptr;
+std::string g_lastNotificationRoomId = "";
+std::string g_lastNotificationSenderUsername = "";
+std::string g_lastNotificationSenderNickname = "";
+std::string g_lastNotificationSenderAvatar = "";
 
 HICON g_hIconNormal = nullptr;
 HICON g_hIconEmpty = nullptr;
@@ -165,11 +170,19 @@ LRESULT CALLBACK MyWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
             break;
         case WM_TRAYICON:
             if (lParam == WM_LBUTTONUP || lParam == WM_LBUTTONDBLCLK || lParam == NIN_BALLOONUSERCLICK) {
-                // Restore window on left click, double click, or clicking the notification toast
                 ShowWindow(hwnd, SW_SHOW);
                 ShowWindow(hwnd, SW_RESTORE);
                 SetActiveWindow(hwnd);
                 SetForegroundWindow(hwnd);
+                
+                if (lParam == NIN_BALLOONUSERCLICK && g_webview) {
+                    std::string js = "if(window.openChatFromNotification) { window.openChatFromNotification('" 
+                        + g_lastNotificationRoomId + "', '" 
+                        + g_lastNotificationSenderUsername + "', '" 
+                        + g_lastNotificationSenderNickname + "', '" 
+                        + g_lastNotificationSenderAvatar + "'); }";
+                    g_webview->eval(js);
+                }
             } else if (lParam == WM_RBUTTONUP) {
                 // Show tray context menu
                 POINT pt;
@@ -227,6 +240,7 @@ int main() {
     w.set_size(1080, 800, WEBVIEW_HINT_NONE);
     
 #ifdef _WIN32
+    g_webview = &w;
     g_hwnd = (HWND)w.window().value();
     SetupTrayIcon(g_hwnd);
     oldWndProc = (WNDPROC)SetWindowLongPtrW(g_hwnd, GWLP_WNDPROC, (LONG_PTR)MyWndProc);
@@ -239,6 +253,18 @@ int main() {
             std::wstring title = Utf8ToUtf16(params[0]);
             std::wstring msg = Utf8ToUtf16(params[1]);
 #ifdef _WIN32
+            if (params.size() >= 3) g_lastNotificationRoomId = params[2];
+            else g_lastNotificationRoomId = "";
+
+            if (params.size() >= 4) g_lastNotificationSenderUsername = params[3];
+            else g_lastNotificationSenderUsername = "";
+
+            if (params.size() >= 5) g_lastNotificationSenderNickname = params[4];
+            else g_lastNotificationSenderNickname = "";
+
+            if (params.size() >= 6) g_lastNotificationSenderAvatar = params[5];
+            else g_lastNotificationSenderAvatar = "";
+
             ShowNotification(g_hwnd, title.c_str(), msg.c_str());
             StartFlashing(g_hwnd);
 #endif
@@ -266,7 +292,14 @@ int main() {
                                     text = text.replace(/\[img:[^\]]+\]/g, "[图片]")
                                                .replace(/\[file:[^\|]+\|([^\]]+)\]/g, "[文件: $1]")
                                                .replace(/\[file:[^\]]+\]/g, "[文件]");
-                                    window.desktopNotify(sender, text);
+                                    window.desktopNotify(
+                                        sender, 
+                                        text, 
+                                        String(data.room_id !== undefined && data.room_id !== null ? data.room_id : "-1"), 
+                                        data.name || "", 
+                                        data.nickname || "", 
+                                        data.avatar || ""
+                                    );
                                 }
                             }
                         } catch(e) {
