@@ -192,6 +192,12 @@ LRESULT CALLBACK MyWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
                 SetForegroundWindow(hwnd);
                 
                 if (lParam == NIN_BALLOONUSERCLICK && g_webview) {
+                    FILE* debugF = fopen("C:\\Users\\32709\\Desktop\\debug_tray.txt", "a");
+                    if (debugF) {
+                        fprintf(debugF, "NIN_BALLOONUSERCLICK clicked. RoomId='%s', SenderUsername='%s', SenderNickname='%s', SenderAvatar='%s'\n",
+                                g_lastNotificationRoomId.c_str(), g_lastNotificationSenderUsername.c_str(), g_lastNotificationSenderNickname.c_str(), g_lastNotificationSenderAvatar.c_str());
+                        fclose(debugF);
+                    }
                     std::string js = "if(window.openChatFromNotification) { window.openChatFromNotification('" 
                         + g_lastNotificationRoomId + "', '" 
                         + g_lastNotificationSenderUsername + "', '" 
