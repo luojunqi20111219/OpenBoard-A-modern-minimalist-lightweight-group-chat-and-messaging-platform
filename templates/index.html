@@ -10,6 +10,7 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@1/index.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <style>
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
@@ -50,7 +51,19 @@
             </div>
             <div id="channel-list" class="px-3 space-y-1"></div>
 
-            <div class="p-4 pb-2 mt-2 border-t border-gray-800 text-xs font-bold text-gray-500 uppercase tracking-widest">私信联系人</div>
+            <div class="p-4 pb-2 mt-2 border-t border-gray-800 text-xs font-bold text-gray-500 uppercase tracking-widest flex justify-between items-center">
+                <span>我的好友</span>
+                <div class="flex items-center gap-2">
+                    <!-- 好友申请通知红点 -->
+                    <button onclick="showFriendRequestsModal()" class="relative hover:text-white transition text-gray-400" title="好友申请">
+                        <i class="fa-solid fa-user-plus text-sm"></i>
+                        <span id="friend-req-badge" class="hidden absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full"></span>
+                    </button>
+                    <button onclick="showSearchFriendsModal()" class="hover:text-white transition text-gray-400" title="添加好友">
+                        <i class="fa-solid fa-magnifying-glass text-sm"></i>
+                    </button>
+                </div>
+            </div>
             <div id="user-list" class="px-3 space-y-1">
                 <div class="text-gray-500 text-xs px-2 italic">请先登录以查看</div>
             </div>
@@ -195,6 +208,73 @@
         </div>
     </div>
 
+    <!-- 添加好友 Modal -->
+    <div id="search-friends-modal" class="fixed inset-0 bg-black/60 hidden flex items-center justify-center z-50 backdrop-blur-sm p-4">
+        <div class="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl relative overflow-hidden">
+            <h2 class="text-xl font-bold text-center mb-4"><i class="fa-solid fa-user-plus text-blue-500 mr-2"></i>添加好友</h2>
+            
+            <!-- Tab: 搜索 / 我的二维码 / 扫码 -->
+            <div class="flex justify-center space-x-4 border-b mb-4 pb-2">
+                <button id="friend-tab-search" onclick="switchFriendTab('search')" class="font-bold text-blue-600 border-b-2 border-blue-600 pb-1 px-1 transition text-xs">搜索用户</button>
+                <button id="friend-tab-my-qr" onclick="switchFriendTab('my-qr')" class="font-bold text-gray-400 hover:text-gray-600 pb-1 px-1 transition text-xs">我的二维码</button>
+                <button id="friend-tab-scan" onclick="switchFriendTab('scan')" class="font-bold text-gray-400 hover:text-gray-600 pb-1 px-1 transition text-xs">扫码加好友</button>
+            </div>
+
+            <!-- 搜索容器 -->
+            <div id="friend-search-container" class="space-y-4">
+                <div class="flex gap-2">
+                    <input id="friend-search-input" type="text" placeholder="输入用户名或昵称" class="flex-1 px-4 py-2.5 bg-gray-100 rounded-xl outline-none text-sm">
+                    <button onclick="performFriendSearch()" class="bg-blue-600 text-white px-4 py-2.5 rounded-xl font-bold hover:bg-blue-700 text-sm shadow-md shadow-blue-500/20 transition">搜索</button>
+                </div>
+                
+                <!-- 搜索结果列表 -->
+                <div id="friend-search-results" class="max-h-60 overflow-y-auto space-y-2 pr-1 no-scrollbar">
+                    <div class="text-center py-6 text-gray-400 text-xs">输入关键词并搜索</div>
+                </div>
+            </div>
+
+            <!-- 我的二维码容器 -->
+            <div id="my-friend-qr-container" class="hidden flex flex-col items-center justify-center py-4">
+                <div id="my-friend-qr-box" class="w-48 h-48 bg-white flex items-center justify-center p-2 border rounded-2xl shadow-sm overflow-hidden">
+                    <!-- 二维码 -->
+                </div>
+                <div class="text-xs text-gray-500 mt-4 text-center">让对方使用客户端扫描此码加好友</div>
+            </div>
+
+            <!-- 扫码容器 -->
+            <div id="friend-scan-container" class="hidden flex flex-col items-center justify-center py-4 space-y-4">
+                <div id="qr-reader" class="w-full max-w-[240px] h-[240px] bg-black rounded-2xl overflow-hidden relative border border-gray-200">
+                    <div id="qr-reader-placeholder" class="absolute inset-0 flex flex-col items-center justify-center text-gray-400 p-4 text-center space-y-3">
+                        <i class="fa-solid fa-camera text-3xl"></i>
+                        <span class="text-[10px]">开启摄像头扫描，或上传二维码图片</span>
+                        <button onclick="startCameraScan()" class="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-700 transition">开启摄像头</button>
+                    </div>
+                </div>
+                
+                <div class="flex gap-2 w-full justify-center">
+                    <button id="btn-stop-scan" onclick="stopCameraScan()" class="hidden bg-red-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-red-600 transition">关闭摄像头</button>
+                    <button onclick="document.getElementById('qr-file-input').click()" class="bg-gray-100 text-gray-700 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-gray-200 transition">
+                        <i class="fa-solid fa-image mr-1"></i> 选择图片
+                    </button>
+                </div>
+                <input type="file" id="qr-file-input" accept="image/*" class="hidden" onchange="scanQrFile(this)">
+            </div>
+
+            <button onclick="hideModal('search-friends-modal')" class="w-full mt-4 text-sm text-gray-400 hover:text-gray-600">关闭</button>
+        </div>
+    </div>
+
+    <!-- 好友申请 Modal -->
+    <div id="friend-requests-modal" class="fixed inset-0 bg-black/60 hidden flex items-center justify-center z-50 backdrop-blur-sm p-4">
+        <div class="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl">
+            <h2 class="text-xl font-bold text-center mb-4"><i class="fa-solid fa-bell text-blue-500 mr-2"></i>好友申请</h2>
+            <div id="friend-requests-list" class="max-h-80 overflow-y-auto space-y-3 no-scrollbar">
+                <div class="text-center py-8 text-gray-400 text-xs">暂无好友申请</div>
+            </div>
+            <button onclick="hideModal('friend-requests-modal')" class="w-full mt-4 text-sm text-gray-400 hover:text-gray-600">关闭</button>
+        </div>
+    </div>
+
     <div id="create-group-modal" class="fixed inset-0 bg-black/60 hidden flex items-center justify-center z-50 backdrop-blur-sm p-4">
         <div class="bg-white w-full max-w-sm rounded-3xl p-8 shadow-2xl">
             <h2 class="text-2xl font-bold text-center mb-6"><i class="fa-solid fa-users text-blue-500 mr-2"></i>新建群聊</h2>
@@ -280,6 +360,7 @@
                 loadUsers(); 
                 setupWebSocket();
                 loadFavoriteEmojis();
+                checkPendingFriendRequests();
             }
             loadGroups().then(() => switchRoom(0, '公共大厅'));
             if (currentUser) {
@@ -311,6 +392,12 @@
                     handleTyping(msg);
                 } else if (msg.type === 'recall') {
                     handleRecall(msg.msg_id);
+                } else if (msg.type === 'friend_request') {
+                    showToast(`收到来自 ${msg.from_nickname || msg.from_user} 的好友申请！`);
+                    document.getElementById('friend-req-badge').classList.remove('hidden');
+                } else if (msg.type === 'friend_accepted') {
+                    showToast(`${msg.by_nickname || msg.by_user} 已同意您的好友申请，你们现在是好友了！`);
+                    loadUsers();
                 }
             };
 
@@ -562,10 +649,23 @@
         }
 
         async function loadUsers() {
-            const res = await fetch('/api/users', { headers: { 'Authorization': currentUser.token } });
+            // First fetch users blocklist
+            try {
+                const blockRes = await fetch('/api/users', { headers: { 'Authorization': currentUser.token } });
+                const blockResult = await blockRes.json();
+                if(blockResult.status === 'success') {
+                    globalBlockedUsers = blockResult.blocked_users || [];
+                }
+            } catch(e) { console.error(e); }
+            
+            // Then fetch only friends
+            const res = await fetch('/api/friends', { headers: { 'Authorization': currentUser.token } });
             const result = await res.json(); if(result.status !== 'success') return;
-            globalBlockedUsers = result.blocked_users || [];
             const list = document.getElementById('user-list'); list.innerHTML = '';
+            if(result.data.length === 0) {
+                list.innerHTML = '<div class="text-gray-500 text-xs px-2 italic py-2 text-center">暂无好友，点击右上角搜索添加</div>';
+                return;
+            }
             result.data.forEach(u => {
                 if(u.username === currentUser.username) return;
                 const name = u.nickname || u.username;
@@ -1447,6 +1547,325 @@
                 msgImageTouchTimer = null;
             }
         });
+
+        // --- 好友系统相关交互逻辑 ---
+        let currentFriendTab = 'search';
+        let html5QrcodeScanner = null;
+
+        function showSearchFriendsModal() {
+            showModal('search-friends-modal');
+            switchFriendTab('search');
+            document.getElementById('friend-search-input').value = '';
+            document.getElementById('friend-search-results').innerHTML = '<div class="text-center py-6 text-gray-400 text-xs">输入关键词并搜索</div>';
+            
+            // Camera scanner cleanup just in case
+            stopCameraScan();
+        }
+
+        function switchFriendTab(tab) {
+            currentFriendTab = tab;
+            const tabs = ['search', 'my-qr', 'scan'];
+            tabs.forEach(t => {
+                const btn = document.getElementById(`friend-tab-${t}`);
+                if (t === tab) {
+                    btn.className = "font-bold text-blue-600 border-b-2 border-blue-600 pb-1 px-1 transition text-xs";
+                } else {
+                    btn.className = "font-bold text-gray-400 hover:text-gray-600 pb-1 px-1 transition text-xs";
+                }
+            });
+
+            // Hide/Show containers
+            document.getElementById('friend-search-container').classList.toggle('hidden', tab !== 'search');
+            document.getElementById('my-friend-qr-container').classList.toggle('hidden', tab !== 'my-qr');
+            document.getElementById('friend-scan-container').classList.toggle('hidden', tab !== 'scan');
+
+            if (tab === 'my-qr') {
+                const qrBox = document.getElementById('my-friend-qr-box');
+                qrBox.innerHTML = '';
+                new QRCode(qrBox, {
+                    text: `openboard:add_friend:${currentUser.username}`,
+                    width: 170,
+                    height: 170,
+                    correctLevel : QRCode.CorrectLevel.H
+                });
+            }
+
+            if (tab !== 'scan') {
+                stopCameraScan();
+            }
+        }
+
+        async function performFriendSearch() {
+            const q = document.getElementById('friend-search-input').value.trim();
+            if (!q) return alert("请输入要搜索的用户名或昵称！");
+            
+            const resultsDiv = document.getElementById('friend-search-results');
+            resultsDiv.innerHTML = '<div class="text-center py-6 text-gray-400 text-xs animate-pulse">正在搜索...</div>';
+            
+            try {
+                const res = await fetch(`/api/users/search?q=${encodeURIComponent(q)}`, {
+                    headers: { 'Authorization': currentUser.token }
+                });
+                const result = await res.json();
+                if (result.status !== 'success') {
+                    resultsDiv.innerHTML = '<div class="text-center py-6 text-red-500 text-xs">搜索失败</div>';
+                    return;
+                }
+                
+                if (result.data.length === 0) {
+                    resultsDiv.innerHTML = '<div class="text-center py-6 text-gray-400 text-xs">未找到匹配的用户</div>';
+                    return;
+                }
+                
+                resultsDiv.innerHTML = '';
+                result.data.forEach(u => {
+                    const name = u.nickname || u.username;
+                    const item = document.createElement('div');
+                    item.className = "flex items-center justify-between p-2 rounded-xl bg-gray-50 border border-gray-100 hover:bg-gray-100 transition";
+                    
+                    let actionButtonHtml = '';
+                    if (u.is_friend) {
+                        actionButtonHtml = '<span class="text-xs text-green-600 bg-green-50 px-2.5 py-1 rounded-lg font-semibold">已是好友</span>';
+                    } else if (u.request_status === 'pending') {
+                        if (u.request_direction === 'sent') {
+                            actionButtonHtml = '<span class="text-xs text-gray-400 bg-gray-100 px-2.5 py-1 rounded-lg font-semibold">等待回复</span>';
+                        } else {
+                            actionButtonHtml = `
+                                <button onclick="respondFriendRequest('${u.username}', 'accept')" class="bg-green-600 text-white text-xs px-2.5 py-1 rounded-lg font-bold hover:bg-green-700 transition">同意</button>
+                            `;
+                        }
+                    } else {
+                        actionButtonHtml = `
+                            <button onclick="sendFriendRequest('${u.username}')" class="bg-blue-600 text-white text-xs px-2.5 py-1 rounded-lg font-bold hover:bg-blue-700 transition">添加</button>
+                        `;
+                    }
+                    
+                    item.innerHTML = `
+                        <div class="flex items-center gap-2.5 overflow-hidden">
+                            ${getAvatarHtml(u.avatar, name, "w-8 h-8 text-[11px]")}
+                            <div class="truncate">
+                                <div class="text-xs font-bold text-gray-700 truncate">${name}</div>
+                                <div class="text-[9px] text-gray-400 truncate">@${u.username}</div>
+                            </div>
+                        </div>
+                        <div class="shrink-0 ml-2">
+                            ${actionButtonHtml}
+                        </div>
+                    `;
+                    resultsDiv.appendChild(item);
+                });
+            } catch(e) {
+                console.error(e);
+                resultsDiv.innerHTML = '<div class="text-center py-6 text-red-500 text-xs">请求出错</div>';
+            }
+        }
+
+        async function sendFriendRequest(username) {
+            try {
+                const res = await fetch('/api/friends/request', {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': currentUser.token 
+                    },
+                    body: JSON.stringify({ to_user: username })
+                });
+                const result = await res.json();
+                if (res.ok) {
+                    showToast(result.msg || "好友申请已发送！");
+                    // Refresh search if in search view
+                    if (document.getElementById('friend-search-input').value.trim()) {
+                        performFriendSearch();
+                    }
+                } else {
+                    alert(result.detail || "发送申请失败");
+                }
+            } catch(e) {
+                console.error(e);
+                alert("发送申请发生错误");
+            }
+        }
+
+        async function showFriendRequestsModal() {
+            showModal('friend-requests-modal');
+            const listDiv = document.getElementById('friend-requests-list');
+            listDiv.innerHTML = '<div class="text-center py-8 text-gray-400 text-xs animate-pulse">正在获取申请列表...</div>';
+            
+            try {
+                const res = await fetch('/api/friends/requests', {
+                    headers: { 'Authorization': currentUser.token }
+                });
+                const result = await res.json();
+                if (result.status !== 'success') {
+                    listDiv.innerHTML = '<div class="text-center py-8 text-red-500 text-xs">获取列表失败</div>';
+                    return;
+                }
+                
+                // Also clear the badge
+                document.getElementById('friend-req-badge').classList.add('hidden');
+                
+                if (result.data.length === 0) {
+                    listDiv.innerHTML = '<div class="text-center py-8 text-gray-400 text-xs">暂无未处理的好友申请</div>';
+                    return;
+                }
+                
+                listDiv.innerHTML = '';
+                result.data.forEach(item => {
+                    const name = item.nickname || item.from_user;
+                    const reqItem = document.createElement('div');
+                    reqItem.className = "flex items-center justify-between p-3 rounded-xl bg-gray-50 border border-gray-100 hover:bg-gray-100 transition";
+                    reqItem.innerHTML = `
+                        <div class="flex items-center gap-2.5 overflow-hidden">
+                            ${getAvatarHtml(item.avatar, name, "w-8 h-8 text-[11px]")}
+                            <div class="truncate">
+                                <div class="text-xs font-bold text-gray-700 truncate">${name}</div>
+                                <div class="text-[9px] text-gray-400 truncate">@${item.from_user}</div>
+                            </div>
+                        </div>
+                        <div class="flex gap-1.5 shrink-0 ml-2">
+                            <button onclick="respondFriendRequest('${item.from_user}', 'accept')" class="bg-green-600 hover:bg-green-700 text-white w-7 h-7 rounded-lg flex items-center justify-center text-xs transition" title="同意"><i class="fa-solid fa-check"></i></button>
+                            <button onclick="respondFriendRequest('${item.from_user}', 'reject')" class="bg-red-50 hover:bg-red-750 text-white w-7 h-7 rounded-lg flex items-center justify-center text-xs transition" title="拒绝"><i class="fa-solid fa-xmark"></i></button>
+                        </div>
+                    `;
+                    listDiv.appendChild(reqItem);
+                });
+            } catch(e) {
+                console.error(e);
+                listDiv.innerHTML = '<div class="text-center py-8 text-red-500 text-xs">获取列表发生错误</div>';
+            }
+        }
+
+        async function respondFriendRequest(username, action) {
+            try {
+                const res = await fetch('/api/friends/respond', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': currentUser.token
+                    },
+                    body: JSON.stringify({ from_user: username, action: action })
+                });
+                const result = await res.json();
+                if (res.ok) {
+                    showToast(result.msg || "处理成功！");
+                    // Reload lists
+                    if (document.getElementById('friend-requests-modal').classList.contains('hidden') === false) {
+                        showFriendRequestsModal();
+                    }
+                    if (document.getElementById('search-friends-modal').classList.contains('hidden') === false && document.getElementById('friend-search-input').value.trim()) {
+                        performFriendSearch();
+                    }
+                    loadUsers(); // Refresh friend sidebar list
+                } else {
+                    alert(result.detail || "操作失败");
+                }
+            } catch(e) {
+                console.error(e);
+                alert("处理请求发生错误");
+            }
+        }
+
+        async function checkPendingFriendRequests() {
+            if (!currentUser) return;
+            try {
+                const res = await fetch('/api/friends/requests', {
+                    headers: { 'Authorization': currentUser.token }
+                });
+                const result = await res.json();
+                if (result.status === 'success' && result.data.length > 0) {
+                    document.getElementById('friend-req-badge').classList.remove('hidden');
+                } else {
+                    document.getElementById('friend-req-badge').classList.add('hidden');
+                }
+            } catch (e) {
+                console.error("Failed to check friend requests:", e);
+            }
+        }
+
+        // --- 扫码加好友逻辑 ---
+        function startCameraScan() {
+            const placeholder = document.getElementById('qr-reader-placeholder');
+            placeholder.innerHTML = '<div class="text-xs text-gray-400 animate-pulse">正在初始化摄像头...</div>';
+            
+            document.getElementById('btn-stop-scan').classList.remove('hidden');
+            
+            try {
+                html5QrcodeScanner = new Html5Qrcode("qr-reader");
+                const qrCodeSuccessCallback = (decodedText, decodedResult) => {
+                    console.log(`QR code scan result: ${decodedText}`);
+                    stopCameraScan();
+                    handleScannedQR(decodedText);
+                };
+                const config = { fps: 10, qrbox: { width: 180, height: 180 } };
+                
+                html5QrcodeScanner.start({ facingMode: "environment" }, config, qrCodeSuccessCallback)
+                    .then(() => {
+                        placeholder.classList.add('hidden');
+                    })
+                    .catch(err => {
+                        console.error("Camera start failed:", err);
+                        showToast("摄像头打开失败：" + err);
+                        stopCameraScan();
+                    });
+            } catch (e) {
+                console.error("Scanner setup failed:", e);
+                showToast("初始化扫码库失败");
+                stopCameraScan();
+            }
+        }
+
+        function stopCameraScan() {
+            const placeholder = document.getElementById('qr-reader-placeholder');
+            placeholder.classList.remove('hidden');
+            placeholder.innerHTML = `
+                <i class="fa-solid fa-camera text-3xl"></i>
+                <span class="text-[10px]">开启摄像头扫描，或上传二维码图片</span>
+                <button onclick="startCameraScan()" class="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-700 transition">开启摄像头</button>
+            `;
+            document.getElementById('btn-stop-scan').classList.add('hidden');
+
+            if (html5QrcodeScanner) {
+                html5QrcodeScanner.stop().then(() => {
+                    html5QrcodeScanner = null;
+                }).catch(err => {
+                    console.error("Failed to stop scanner:", err);
+                    html5QrcodeScanner = null;
+                });
+            }
+        }
+
+        function scanQrFile(input) {
+            if (!input.files || !input.files[0]) return;
+            const file = input.files[0];
+            
+            const html5QrCode = new Html5Qrcode("qr-reader");
+            showToast("正在识别图片...");
+            
+            html5QrCode.scanFile(file, true)
+                .then(decodedText => {
+                    handleScannedQR(decodedText);
+                })
+                .catch(err => {
+                    console.error("File scanning error:", err);
+                    showToast("无法识别此图片中的二维码，请确认图片清晰度");
+                });
+        }
+
+        function handleScannedQR(decodedText) {
+            if (decodedText.startsWith("openboard:add_friend:")) {
+                const username = decodedText.substring("openboard:add_friend:".length).trim();
+                if (username === currentUser.username) {
+                    showToast("不能添加自己为好友");
+                    return;
+                }
+                switchFriendTab('search');
+                document.getElementById('friend-search-input').value = username;
+                performFriendSearch();
+                showToast(`已成功识别用户 @${username}！`);
+            } else {
+                showToast("未能识别出 OpenBoard 好友二维码！");
+            }
+        }
 
         init();
     </script>

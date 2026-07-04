@@ -52,4 +52,15 @@ class ConnectionManager:
                     except Exception:
                         pass
 
+    async def send_personal(self, message: dict, username: str):
+        """Send a message to all active connections of a specific user"""
+        payload = json.dumps(message)
+        if username in self.active_connections:
+            for ws in self.active_connections[username]:
+                try:
+                    await ws.send_text(payload)
+                except Exception:
+                    pass
+
 manager = ConnectionManager()
+

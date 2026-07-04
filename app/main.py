@@ -8,7 +8,7 @@ from app.config import Config
 from app.database import patch_db, get_db, get_db_ctx
 from app.auth import verify_token
 from app.websocket import manager
-from app.routes import auth, messages, groups, admin
+from app.routes import auth, messages, groups, admin, friends
 
 # Run database setup & seeding
 patch_db()
@@ -24,6 +24,7 @@ app.include_router(auth.router)
 app.include_router(messages.router)
 app.include_router(groups.router)
 app.include_router(admin.router)
+app.include_router(friends.router)
 
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():

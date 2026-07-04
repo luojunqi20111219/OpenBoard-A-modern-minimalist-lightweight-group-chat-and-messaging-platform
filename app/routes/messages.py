@@ -79,6 +79,12 @@ async def post_message(
             receiver_blocked_list = [u.strip() for u in (receiver_user['blocked_users'] or '').split(',') if u.strip()]
             if current_user['username'] in receiver_blocked_list:
                 raise HTTPException(status_code=403, detail="对方已将您拉黑，无法发送消息")
+        
+        # Check if users are friends (skip for admins)
+        if current_user['role'] != 1:
+            from app.routes.friends import are_friends
+            if not are_friends(db, current_user['username'], data.receiver):
+                raise HTTPException(status_code=403, detail="你们还不是好友，无法发送私信")
 
     # 3. Handle channel speak permission checks
     if data.room_id > 0 and not data.receiver:
