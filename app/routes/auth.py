@@ -195,3 +195,59 @@ async def register_push_token(request: Request, data: PushTokenData, current_use
     return {"status": "success", "msg": "设备注册及华为推送 Token 已成功上报绑定"}
 
 
+import uuid
+
+@router.get("/qr/generate")
+async def qr_generate(db = Depends(get_db)):
+    qr_id = str(uuid.uuid4())
+    db.execute("INSERT INTO qr_sessions (qr_id, status) VALUES (?, 'pending')", (qr_id,))
+    db.commit()
+    return {"code": 200, "qr_id": qr_id}
+
+@router.get("/qr/status")
+async def qr_status(qr_id: str, db = Depends(get_db)):
+    session = db.execute("SELECT * FROM qr_sessions WHERE qr_id = ?", (qr_id,)).fetchone()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    response = {
+        "status": session["status"],
+        "token": session["token"]
+    }
+    
+    if session["status"] == "authorized" and session["token"]:
+        user = db.execute("SELECT id, username, nickname, avatar, role FROM users WHERE token = ?", (session["token"],)).fetchone()
+        if user:
+            response["user"] = {
+                "id": user["id"],
+                "username": user["username"],
+                "nickname": user["nickname"],
+                "avatar": user["avatar"],
+                "role": user["role"]
+            }
+    return response
+
+@router.post("/qr/scan")
+async def qr_scan(data: dict, db = Depends(get_db)):
+    qr_id = data.get("qr_id")
+    session = db.execute("SELECT * FROM qr_sessions WHERE qr_id = ?", (qr_id,)).fetchone()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    db.execute("UPDATE qr_sessions SET status = 'scanned' WHERE qr_id = ?", (qr_id,))
+    db.commit()
+    return {"code": 200, "msg": "Scanned successfully"}
+
+@router.post("/qr/authorize")
+async def qr_authorize(data: dict, current_user = Depends(get_current_user), db = Depends(get_db)):
+    qr_id = data.get("qr_id")
+    session = db.execute("SELECT * FROM qr_sessions WHERE qr_id = ?", (qr_id,)).fetchone()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    token = current_user.get("token")
+    db.execute("UPDATE qr_sessions SET status = 'authorized', token = ? WHERE qr_id = ?", (token, qr_id))
+    db.commit()
+    return {"code": 200, "msg": "Authorized successfully"}
+
+

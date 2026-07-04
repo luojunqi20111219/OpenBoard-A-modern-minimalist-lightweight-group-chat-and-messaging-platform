@@ -109,6 +109,14 @@ def patch_db():
             UNIQUE(username, emoji)
         )
     """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS qr_sessions (
+            qr_id TEXT PRIMARY KEY,
+            token TEXT DEFAULT NULL,
+            status TEXT DEFAULT 'pending',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
     
     # Check & append missing columns to guarantee backwards compatibility
     columns_to_add = {

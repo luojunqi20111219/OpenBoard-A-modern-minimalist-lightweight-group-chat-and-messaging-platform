@@ -78,4 +78,7 @@ dependencies {
     implementation "androidx.emoji2:emoji2-views:1.4.0"
     implementation "androidx.emoji2:emoji2-views-helper:1.4.0"
     implementation "androidx.emoji2:emoji2-bundled:1.4.0"
+
+    // QR Code Scanning (ZXing)
+    implementation 'com.journeyapps:zxing-android-embedded:4.3.0'
 }

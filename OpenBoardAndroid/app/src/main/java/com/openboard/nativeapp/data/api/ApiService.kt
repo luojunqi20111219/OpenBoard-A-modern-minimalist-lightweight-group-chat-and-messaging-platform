@@ -91,4 +91,10 @@ interface ApiService {
 
     @POST("api/favorites/emojis/delete")
     fun deleteFavoriteEmoji(@Body request: Map<String, String>): Call<ApiResponse<Any>>
+
+    @POST("api/qr/scan")
+    fun scanQrCode(@Body request: Map<String, String>): Call<ApiResponse<Any>>
+
+    @POST("api/qr/authorize")
+    fun authorizeQrCode(@Body request: Map<String, String>): Call<ApiResponse<Any>>
 }

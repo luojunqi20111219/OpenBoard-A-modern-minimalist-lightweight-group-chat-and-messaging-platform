@@ -19,6 +19,13 @@ import com.openboard.nativeapp.ui.adapter.MergedConversationAdapter
 import com.openboard.nativeapp.ui.adapter.MergedItem
 import com.openboard.nativeapp.ui.theme.ThemeManager
 import kotlinx.coroutines.launch
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
+import com.openboard.nativeapp.data.api.RetrofitClient
+import com.openboard.nativeapp.data.model.ApiResponse
+import retrofit2.Call
+import retrofit2.Callback
+import retrofit2.Response
 
 /**
  * 消息会话主页面，统一展示置顶、最近聊天、所有联系人与群聊的合并列表
@@ -28,6 +35,14 @@ class ChatListFragment : Fragment() {
     private val binding get() = _binding!!
     private val repository = ChatRepository()
     private lateinit var adapter: MergedConversationAdapter
+
+    private val barcodeLauncher = registerForActivityResult(ScanContract()) { result ->
+        if (result.contents == null) {
+            Toast.makeText(context, "已取消扫码", Toast.LENGTH_SHORT).show()
+        } else {
+            handleQrCodeResult(result.contents)
+        }
+    }
 
     private var allGroups: List<com.openboard.nativeapp.data.model.Group> = emptyList()
     private var allUsers: List<com.openboard.nativeapp.data.model.User> = emptyList()
@@ -58,6 +73,10 @@ class ChatListFragment : Fragment() {
                 binding.noticeBadge.visibility = View.GONE
             }
             sheet.show(childFragmentManager, "Notifications")
+        }
+
+        binding.btnScan.setOnClickListener {
+            startQrScan()
         }
 
         binding.fabNewChat.setOnClickListener {
@@ -296,6 +315,65 @@ class ChatListFragment : Fragment() {
                 }
             }
         }
+    }
+
+    private fun startQrScan() {
+        val options = ScanOptions().apply {
+            setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+            setPrompt("请对准网页端二维码进行扫描")
+            setCameraId(0)
+            setBeepEnabled(true)
+            setBarcodeImageEnabled(false)
+            setOrientationLocked(true)
+        }
+        barcodeLauncher.launch(options)
+    }
+
+    private fun handleQrCodeResult(content: String) {
+        if (content.startsWith("openboard:qr_login:")) {
+            val qrId = content.substring("openboard:qr_login:".length)
+            val api = RetrofitClient.getApiService()
+            val req = mapOf("qr_id" to qrId)
+            
+            api.scanQrCode(req).enqueue(object : Callback<ApiResponse<Any>> {
+                override fun onResponse(call: Call<ApiResponse<Any>>, response: Response<ApiResponse<Any>>) {
+                    showConfirmLoginDialog(qrId)
+                }
+                override fun onFailure(call: Call<ApiResponse<Any>>, t: Throwable) {
+                    showConfirmLoginDialog(qrId)
+                }
+            })
+        } else {
+            Toast.makeText(context, "无效的登录二维码", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun showConfirmLoginDialog(qrId: String) {
+        AlertDialog.Builder(requireContext())
+            .setTitle("扫码登录确认")
+            .setMessage("确定要在网页端登录您的账号吗？")
+            .setPositiveButton("确认登录") { _, _ ->
+                authorizeQrLogin(qrId)
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun authorizeQrLogin(qrId: String) {
+        val api = RetrofitClient.getApiService()
+        val req = mapOf("qr_id" to qrId)
+        api.authorizeQrCode(req).enqueue(object : Callback<ApiResponse<Any>> {
+            override fun onResponse(call: Call<ApiResponse<Any>>, response: Response<ApiResponse<Any>>) {
+                if (response.isSuccessful && response.body()?.ok == true) {
+                    Toast.makeText(context, "网页端登录成功！", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "授权失败，请重试", Toast.LENGTH_SHORT).show()
+                }
+            }
+            override fun onFailure(call: Call<ApiResponse<Any>>, t: Throwable) {
+                Toast.makeText(context, "网络错误，授权失败", Toast.LENGTH_SHORT).show()
+            }
+        })
     }
 
     override fun onDestroyView() {

@@ -9,6 +9,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@1/index.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
     <style>
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
@@ -140,15 +141,22 @@
 
     <div id="login-modal" class="fixed inset-0 bg-black/60 hidden flex items-center justify-center z-50 backdrop-blur-sm p-4">
         <div class="bg-white w-full max-w-sm rounded-3xl p-8 shadow-2xl relative overflow-hidden">
-            <div class="flex justify-center space-x-8 border-b mb-6 pb-2">
+            <div class="flex justify-center space-x-6 border-b mb-6 pb-2">
                 <button id="tab-login" onclick="switchAuthTab('login')" class="font-bold text-blue-600 border-b-2 border-blue-600 pb-1 px-2 transition">登录</button>
                 <button id="tab-register" onclick="switchAuthTab('register')" class="font-bold text-gray-400 hover:text-gray-600 pb-1 px-2 transition">注册</button>
+                <button id="tab-qr" onclick="switchAuthTab('qr')" class="font-bold text-gray-400 hover:text-gray-600 pb-1 px-2 transition">扫码登录</button>
             </div>
             <div id="auth-form-container">
                 <input id="auth-u" type="text" placeholder="账号名" class="w-full mb-4 px-5 py-3.5 bg-gray-100 rounded-xl outline-none">
                 <input id="auth-p" type="password" placeholder="密码" class="w-full mb-4 px-5 py-3.5 bg-gray-100 rounded-xl outline-none">
                 <input id="auth-n" type="text" placeholder="设置昵称 (选填)" class="w-full mb-6 px-5 py-3.5 bg-gray-100 rounded-xl outline-none hidden">
                 <button id="btn-auth-action" onclick="submitAuth()" class="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-500/30 transition">立即登录</button>
+            </div>
+            <div id="qr-container" class="hidden flex flex-col items-center justify-center py-4">
+                <div id="qr-code-box" class="w-48 h-48 bg-white flex items-center justify-center p-2 border rounded-2xl shadow-sm">
+                    <!-- 二维码渲染区 -->
+                </div>
+                <div id="qr-status-msg" class="text-xs text-gray-500 mt-4 text-center">使用手机客户端扫码登录</div>
             </div>
             <button onclick="hideModal('login-modal')" class="w-full mt-4 text-sm text-gray-400 hover:text-gray-600">稍后再说</button>
         </div>
@@ -1056,18 +1064,118 @@
         }
 
         // --- 注册登录逻辑 ---
+        // --- 注册登录逻辑 ---
+        let qrPollInterval = null;
+        let qrCodeObj = null;
+
         function switchAuthTab(mode) {
             authMode = mode;
-            const tLogin = document.getElementById('tab-login'); const tReg = document.getElementById('tab-register');
-            const fNick = document.getElementById('auth-n'); const btn = document.getElementById('btn-auth-action');
+            const tLogin = document.getElementById('tab-login'); 
+            const tReg = document.getElementById('tab-register');
+            const tQr = document.getElementById('tab-qr');
+            const fNick = document.getElementById('auth-n'); 
+            const btn = document.getElementById('btn-auth-action');
+            const formContainer = document.getElementById('auth-form-container');
+            const qrContainer = document.getElementById('qr-container');
+
+            if (qrPollInterval) {
+                clearInterval(qrPollInterval);
+                qrPollInterval = null;
+            }
+
+            tLogin.className = "font-bold text-gray-400 hover:text-gray-600 pb-1 px-2 transition";
+            tReg.className = "font-bold text-gray-400 hover:text-gray-600 pb-1 px-2 transition";
+            tQr.className = "font-bold text-gray-400 hover:text-gray-600 pb-1 px-2 transition";
+
             if (mode === 'login') {
-                tLogin.className = "font-bold text-blue-600 border-b-2 border-blue-600 pb-1 px-2 transition"; tReg.className = "font-bold text-gray-400 hover:text-gray-600 pb-1 px-2 transition";
-                fNick.classList.add('hidden'); btn.innerText = "立即登录"; btn.className = "w-full bg-blue-600 text-white py-4 rounded-2xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-500/30 transition";
-            } else {
-                tReg.className = "font-bold text-blue-600 border-b-2 border-blue-600 pb-1 px-2 transition"; tLogin.className = "font-bold text-gray-400 hover:text-gray-600 pb-1 px-2 transition";
-                fNick.classList.remove('hidden'); btn.innerText = "完成注册并进入"; btn.className = "w-full bg-green-500 text-white py-4 rounded-2xl font-bold hover:bg-green-600 shadow-lg shadow-green-500/30 transition";
+                tLogin.className = "font-bold text-blue-600 border-b-2 border-blue-600 pb-1 px-2 transition";
+                formContainer.classList.remove('hidden');
+                qrContainer.classList.add('hidden');
+                fNick.classList.add('hidden'); 
+                btn.innerText = "立即登录"; 
+                btn.className = "w-full bg-blue-600 text-white py-4 rounded-2xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-500/30 transition";
+            } else if (mode === 'register') {
+                tReg.className = "font-bold text-blue-600 border-b-2 border-blue-600 pb-1 px-2 transition";
+                formContainer.classList.remove('hidden');
+                qrContainer.classList.add('hidden');
+                fNick.classList.remove('hidden'); 
+                btn.innerText = "完成注册并进入"; 
+                btn.className = "w-full bg-green-500 text-white py-4 rounded-2xl font-bold hover:bg-green-600 shadow-lg shadow-green-500/30 transition";
+            } else if (mode === 'qr') {
+                tQr.className = "font-bold text-blue-600 border-b-2 border-blue-600 pb-1 px-2 transition";
+                formContainer.classList.add('hidden');
+                qrContainer.classList.remove('hidden');
+                startQrLoginFlow();
             }
         }
+
+        async function startQrLoginFlow() {
+            const qrBox = document.getElementById('qr-code-box');
+            const qrMsg = document.getElementById('qr-status-msg');
+            qrBox.innerHTML = '<div class="text-xs text-gray-400">正在生成二维码...</div>';
+            qrMsg.innerText = "使用手机客户端扫码登录";
+
+            try {
+                const response = await fetch('/api/qr/generate');
+                const res = await response.json();
+                if (res.code === 200) {
+                    const qrId = res.qr_id;
+                    qrBox.innerHTML = '';
+                    
+                    qrCodeObj = new QRCode(qrBox, {
+                        text: `openboard:qr_login:${qrId}`,
+                        width: 170,
+                        height: 170,
+                        colorDark : "#1f2937",
+                        colorLight : "#ffffff",
+                        correctLevel : QRCode.CorrectLevel.H
+                    });
+
+                    let attempts = 0;
+                    qrPollInterval = setInterval(async () => {
+                        attempts++;
+                        if (attempts > 80) {
+                            clearInterval(qrPollInterval);
+                            qrBox.innerHTML = '<div class="text-xs text-red-500 font-bold cursor-pointer" onclick="startQrLoginFlow()">二维码已失效<br>点击重新获取</div>';
+                            qrMsg.innerText = "";
+                            return;
+                        }
+                        
+                        try {
+                            const statusResp = await fetch(`/api/qr/status?qr_id=${qrId}`);
+                            const statusRes = await statusResp.json();
+                            
+                            if (statusRes.status === 'scanned') {
+                                qrMsg.innerText = "📱 已扫描，请在手机上确认登录...";
+                            } else if (statusRes.status === 'authorized') {
+                                clearInterval(qrPollInterval);
+                                showToast("登录成功，正在进入...");
+                                // Construct complete AuthResponse mapping
+                                const userObj = {
+                                    code: 200,
+                                    token: statusRes.token,
+                                    username: statusRes.user.username,
+                                    nickname: statusRes.user.nickname,
+                                    avatar: statusRes.user.avatar,
+                                    id: statusRes.user.id,
+                                    role: statusRes.user.role
+                                };
+                                localStorage.setItem('user', JSON.stringify(userObj));
+                                document.cookie = `token=${statusRes.token}; max-age=${3600*24*7}; path=/`;
+                                location.reload();
+                            }
+                        } catch (e) {
+                            console.error("Error polling QR status:", e);
+                        }
+                    }, 1500);
+                } else {
+                    qrBox.innerHTML = '<div class="text-xs text-red-500 cursor-pointer" onclick="startQrLoginFlow()">生成失败，点击重试</div>';
+                }
+            } catch (e) {
+                qrBox.innerHTML = '<div class="text-xs text-red-500 cursor-pointer" onclick="startQrLoginFlow()">网络错误，点击重试</div>';
+            }
+        }
+
         async function submitAuth() {
             const u = document.getElementById('auth-u').value.trim(); const p = document.getElementById('auth-p').value.trim(); const n = document.getElementById('auth-n').value.trim();
             if (!u || !p) return alert("账号和密码必填！");

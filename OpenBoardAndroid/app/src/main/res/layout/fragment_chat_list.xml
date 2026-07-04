@@ -42,6 +42,25 @@
             android:visibility="gone"/>
 
         <FrameLayout
+            android:id="@+id/btn_scan"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:layout_toStartOf="@id/btn_notifications"
+            android:layout_centerVertical="true"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless">
+
+            <ImageView
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_scan"
+                android:contentDescription="扫码"
+                android:tint="@android:color/white"/>
+        </FrameLayout>
+
+        <FrameLayout
             android:id="@+id/btn_notifications"
             android:layout_width="44dp"
             android:layout_height="44dp"
