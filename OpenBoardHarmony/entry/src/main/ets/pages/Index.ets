@@ -107,6 +107,7 @@ struct Index {
   @State token: string = "";
   @State currentUsername: string = "";
   @State currentUserNickname: string = "";
+  @State previewImageUrl: string = "";
 
   // Chat Data
   @State activeRoomId: number = 0;
@@ -659,7 +660,8 @@ struct Index {
   }
 
   build() {
-    Column() {
+    Stack() {
+      Column() {
       if (this.screenState === "LOGIN") {
         // --- LOGIN PANEL ---
         Column({ space: 15 }) {
@@ -925,9 +927,19 @@ struct Index {
                           .fontColor(Color.Gray)
                           .fontStyle(FontStyle.Italic)
                       } else if (msg.content.startsWith("[img:") && msg.content.endsWith("]")) {
-                        Text("🖼️ [图片附件]")
-                          .fontSize(14)
-                          .fontColor(Color.Blue)
+                        Image(msg.content.substring(5, msg.content.length - 1).startsWith("http") ? 
+                          msg.content.substring(5, msg.content.length - 1) : 
+                          `${this.serverUrl}${msg.content.substring(5, msg.content.length - 1)}`
+                        )
+                          .width(180)
+                          .height(180)
+                          .objectFit(ImageFit.Contain)
+                          .borderRadius(6)
+                          .onClick(() => {
+                            this.previewImageUrl = msg.content.substring(5, msg.content.length - 1).startsWith("http") ? 
+                              msg.content.substring(5, msg.content.length - 1) : 
+                              `${this.serverUrl}${msg.content.substring(5, msg.content.length - 1)}`;
+                          })
                       } else if (msg.content.startsWith("[file:") && msg.content.endsWith("]")) {
                         Text("📁 [文件附件]")
                           .fontSize(14)
@@ -1285,6 +1297,26 @@ struct Index {
         .width("100%")
         .height("100%")
         .backgroundColor("#FAFAFA")
+      }
+    }
+    .width("100%")
+    .height("100%")
+      
+      if (this.previewImageUrl) {
+        Column() {
+          Image(this.previewImageUrl)
+            .width("100%")
+            .height("100%")
+            .objectFit(ImageFit.Contain)
+            .onClick(() => {
+              this.previewImageUrl = "";
+            })
+        }
+        .width("100%")
+        .height("100%")
+        .backgroundColor("#E0000000")
+        .justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Center)
       }
     }
     .width("100%")
