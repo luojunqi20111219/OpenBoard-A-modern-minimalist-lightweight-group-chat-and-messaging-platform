@@ -30,6 +30,39 @@ std::wstring Utf8ToUtf16(const std::string& str) {
     return wstrTo;
 }
 
+bool IsAutoStartEnabled() {
+    HKEY hKey;
+    LONG lRes = RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_READ, &hKey);
+    if (lRes != ERROR_SUCCESS) return false;
+    
+    wchar_t value[MAX_PATH] = {0};
+    DWORD size = sizeof(value);
+    lRes = RegQueryValueExW(hKey, L"OpenBoard", NULL, NULL, (LPBYTE)value, &size);
+    RegCloseKey(hKey);
+    
+    if (lRes == ERROR_SUCCESS) {
+        wchar_t currentPath[MAX_PATH] = {0};
+        GetModuleFileNameW(NULL, currentPath, MAX_PATH);
+        return (_wcsicmp(value, currentPath) == 0);
+    }
+    return false;
+}
+
+void SetAutoStart(bool enable) {
+    HKEY hKey;
+    LONG lRes = RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_WRITE, &hKey);
+    if (lRes != ERROR_SUCCESS) return;
+    
+    if (enable) {
+        wchar_t currentPath[MAX_PATH] = {0};
+        GetModuleFileNameW(NULL, currentPath, MAX_PATH);
+        RegSetValueExW(hKey, L"OpenBoard", 0, REG_SZ, (const BYTE*)currentPath, (DWORD)(wcslen(currentPath) + 1) * sizeof(wchar_t));
+    } else {
+        RegDeleteValueW(hKey, L"OpenBoard");
+    }
+    RegCloseKey(hKey);
+}
+
 std::vector<std::string> ParseJsonArray(const std::string& json) {
     std::vector<std::string> res;
     size_t i = 0;
@@ -204,6 +237,13 @@ LRESULT CALLBACK MyWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
                 GetCursorPos(&pt);
                 HMENU hMenu = CreatePopupMenu();
                 AppendMenuW(hMenu, MF_STRING, 1, L"显示主界面");
+                
+                UINT uAutoStartFlags = MF_STRING;
+                if (IsAutoStartEnabled()) {
+                    uAutoStartFlags |= MF_CHECKED;
+                }
+                AppendMenuW(hMenu, uAutoStartFlags, 3, L"开机自启");
+                
                 AppendMenuW(hMenu, MF_STRING, 2, L"退出信语");
                 SetForegroundWindow(hwnd);
                 int tracking = TrackPopupMenu(hMenu, TPM_RETURNCMD | TPM_NONOTIFY, pt.x, pt.y, 0, hwnd, NULL);
@@ -212,6 +252,9 @@ LRESULT CALLBACK MyWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
                     ShowWindow(hwnd, SW_RESTORE);
                     SetActiveWindow(hwnd);
                     SetForegroundWindow(hwnd);
+                } else if (tracking == 3) {
+                    // Toggle auto start
+                    SetAutoStart(!IsAutoStartEnabled());
                 } else if (tracking == 2) {
                     // Clean up and exit
                     Shell_NotifyIconW(NIM_DELETE, &g_nid);
