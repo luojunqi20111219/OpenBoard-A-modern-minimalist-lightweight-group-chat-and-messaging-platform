@@ -493,7 +493,6 @@ struct Index {
         title: item.name,
         buttons: [
           { text: isPinned ? "📌 取消置顶" : "📌 置顶该聊天", color: this.themeColor },
-          { text: "🚫 拉黑对方", color: "#FF9500" },
           { text: "❌ 删除好友关系", color: "#FF3B30" }
         ]
       }, (err: BusinessError, data: promptAction.ActionMenuSuccessResponse) => {
@@ -501,8 +500,6 @@ struct Index {
           if (data.index === 0) {
             this.togglePinChat(item);
           } else if (data.index === 1) {
-            this.toggleBlockUserApi(item.targetUser || "");
-          } else if (data.index === 2) {
             promptAction.showDialog({
               title: "删除好友确认",
               message: `确定要删除好友 @${item.targetUser} 吗？删除后双方将无法发送私信。`,
@@ -1536,22 +1533,6 @@ struct Index {
                       this.changePasswordModalVisible = true;
                     })
 
-                    // Blacklist manager option
-                    Row() {
-                      Text("🚫 黑名单管理")
-                        .fontSize(15)
-                        .fontColor(Color.Black)
-                        .layoutWeight(1)
-                    }
-                    .width("100%")
-                    .padding(16)
-                    .backgroundColor(Color.White)
-                    .borderRadius(8)
-                    .onClick(() => {
-                      this.loadBlockedUsers();
-                      this.blacklistModalVisible = true;
-                    })
-
                     // Settings screen shortcut
                     Row() {
                       Text("⚙️ 调试与服务器接口配置")
@@ -1628,14 +1609,25 @@ struct Index {
               .alignItems(HorizontalAlign.Center)
 
               if (this.activeTargetUser && this.activeTargetUser !== "filehelper") {
-                Text(this.isTargetBlocked ? "解除拉黑" : "拉黑")
+                Text("删除好友")
                   .fontSize(13)
                   .fontColor(Color.Red)
                   .padding({ left: 10, right: 10, top: 5, bottom: 5 })
                   .border({ width: 1, color: Color.Red, radius: 4 })
                   .margin({ right: 16 })
                   .onClick(() => {
-                    this.toggleBlockUserApi(this.activeTargetUser);
+                    promptAction.showDialog({
+                      title: "删除好友确认",
+                      message: `确定要删除好友 @${this.activeTargetUser} 吗？删除后双方将无法发送私信。`,
+                      buttons: [
+                        { text: "取消", color: "#808080" },
+                        { text: "确认删除", color: "#FF3B30" }
+                      ]
+                    }, (dialogErr: BusinessError, dialogData: promptAction.ShowDialogSuccessResponse) => {
+                      if (!dialogErr && dialogData.index === 1) {
+                        this.deleteFriendApi(this.activeTargetUser);
+                      }
+                    });
                   })
               } else {
                 Text("")
@@ -2270,69 +2262,6 @@ struct Index {
                   this.processQrCodeInput();
                 })
             }
-          }
-          .width("80%")
-          .padding(20)
-          .backgroundColor(Color.White)
-          .borderRadius(10)
-        }
-        .width("100%")
-        .height("100%")
-        .backgroundColor("#80000000")
-        .justifyContent(FlexAlign.Center)
-        .alignItems(HorizontalAlign.Center)
-      }
-
-      // --- OVERLAY MODAL: BLACKLIST MANAGEMENT ---
-      if (this.blacklistModalVisible) {
-        Column() {
-          Column({ space: 15 }) {
-            Text("🚫 黑名单管理列表")
-              .fontSize(16)
-              .fontWeight(FontWeight.Bold)
-              .fontColor(Color.Black)
-            
-            if (this.blockedUsers.length === 0) {
-              Text("暂无被拉黑的用户")
-                .fontSize(13)
-                .fontColor(Color.Gray)
-                .width("100%")
-                .textAlign(TextAlign.Center)
-                .margin({ top: 15, bottom: 15 })
-            } else {
-              List() {
-                ForEach(this.blockedUsers, (username: string) => {
-                  ListItem() {
-                    Row() {
-                      Text(`👤 @${username}`)
-                        .fontSize(14)
-                        .fontColor(Color.Black)
-                        .layoutWeight(1)
-                      
-                      Button("解除拉黑")
-                        .fontSize(11)
-                        .height(26)
-                        .backgroundColor(this.themeColor)
-                        .onClick(() => {
-                          this.toggleBlockUserApi(username);
-                        })
-                    }
-                    .width("100%")
-                    .padding({ top: 6, bottom: 6 })
-                  }
-                })
-              }
-              .width("100%")
-              .height(180)
-            }
-
-            Button("关闭")
-              .width("100%")
-              .height(40)
-              .backgroundColor(Color.Gray)
-              .onClick(() => {
-                this.blacklistModalVisible = false;
-              })
           }
           .width("80%")
           .padding(20)
