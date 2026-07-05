@@ -382,23 +382,31 @@ struct Index {
           TextInput({ text: this.serverUrl, placeholder: "服务器地址" })
             .width("85%")
             .height(45)
+            .fontColor(Color.Black)
+            .placeholderColor(Color.Gray)
             .onChange((val: string) => this.serverUrl = val)
           
           TextInput({ text: this.usernameInput, placeholder: "用户名" })
             .width("85%")
             .height(45)
+            .fontColor(Color.Black)
+            .placeholderColor(Color.Gray)
             .onChange((val: string) => this.usernameInput = val)
           
           TextInput({ text: this.passwordInput, placeholder: "密码" })
             .type(InputType.Password)
             .width("85%")
             .height(45)
+            .fontColor(Color.Black)
+            .placeholderColor(Color.Gray)
             .onChange((val: string) => this.passwordInput = val)
 
           if (this.isRegisterMode) {
             TextInput({ text: this.nicknameInput, placeholder: "昵称 (仅注册)" })
               .width("85%")
               .height(45)
+              .fontColor(Color.Black)
+              .placeholderColor(Color.Gray)
               .onChange((val: string) => this.nicknameInput = val)
           }
 
@@ -582,6 +590,8 @@ struct Index {
               TextInput({ text: this.msgInput, placeholder: "快来聊两句吧..." })
                 .layoutWeight(1)
                 .height(40)
+                .fontColor(Color.Black)
+                .placeholderColor(Color.Gray)
                 .onChange((val: string) => this.msgInput = val)
               
               Button("发送")
