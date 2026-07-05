@@ -6,7 +6,7 @@ class Config:
     JWT_SECRET = os.getenv("JWT_SECRET", "openboard-super-secure-jwt-secret-key-2026")
     JWT_ALGORITHM = "HS256"
     JWT_EXP_MINUTES = 60 * 24 * 7  # 7 days
-    CURRENT_VERSION = "v5.0"
+    CURRENT_VERSION = "v6.0"
     REPO_URL = "luojunqi20111219/OpenBoard-A-modern-minimalist-lightweight-group-chat-and-messaging-platform"
     ALLOWED_ADMINS = ["官方账号", "Forest_siri", "Forest_Brian_Birch"]  # Legacy fallback for backwards compatibility
     HMS_APP_ID = os.getenv("HMS_APP_ID", "117953867")
