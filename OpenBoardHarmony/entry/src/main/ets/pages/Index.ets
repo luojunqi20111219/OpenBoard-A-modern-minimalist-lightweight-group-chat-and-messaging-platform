@@ -1,6 +1,7 @@
 import http from '@ohos.net.http';
 import webSocket from '@ohos.net.webSocket';
 import promptAction from '@ohos.promptAction';
+import dataPreferences from '@ohos.data.preferences';
 import { BusinessError } from '@ohos.base';
 
 interface Message {
@@ -52,6 +53,7 @@ interface WsMsg {
   room_id?: number;
   from_user?: string;
   from_nickname?: string;
+  msg_id?: number;
 }
 
 interface SendMsgPayload {
@@ -88,7 +90,7 @@ interface IncomingRequestsResponse {
 @Entry
 @Component
 struct Index {
-  @State screenState: string = "LOGIN"; // LOGIN, MAIN, CHAT, ADD_FRIEND
+  @State screenState: string = "LOGIN"; // LOGIN, MAIN, CHAT, ADD_FRIEND, SETTINGS
   
   // Server config
   @State serverUrl: string = "http://47.93.6.111:5000";
@@ -119,12 +121,48 @@ struct Index {
   @State searchResults: SearchedUserItem[] = [];
   @State incomingRequests: IncomingRequestItem[] = [];
 
+  // Pinned chats list (local settings)
+  @State pinnedChats: string[] = [];
+
+  // List of quick emojis
+  private quickEmojis: string[] = ["😄", "😂", "😊", "😍", "👍", "🎉", "🔥", "❤️", "🤔", "😭", "😡", "👏", "🎂", "🌟", "✨"];
+
   // WebSocket Instance
   private ws: webSocket.WebSocket | null = null;
   private scroller: Scroller = new Scroller();
 
+  aboutToAppear() {
+    this.loadLocalSettings();
+  }
+
   aboutToDisappear() {
     this.closeWebSocket();
+  }
+
+  // Load local settings from Preferences
+  loadLocalSettings() {
+    try {
+      let pref = dataPreferences.getPreferencesSync(getContext(this), { name: "OpenBoardPref" });
+      this.serverUrl = pref.getSync("serverUrl", "http://47.93.6.111:5000") as string;
+      this.wsUrl = pref.getSync("wsUrl", "ws://47.93.6.111:5000") as string;
+      let pins = pref.getSync("pinnedChats", "[]") as string;
+      this.pinnedChats = JSON.parse(pins) as string[];
+    } catch (e) {
+      console.error("Failed to load local settings");
+    }
+  }
+
+  // Save local settings to Preferences
+  saveLocalSettings() {
+    try {
+      let pref = dataPreferences.getPreferencesSync(getContext(this), { name: "OpenBoardPref" });
+      pref.putSync("serverUrl", this.serverUrl);
+      pref.putSync("wsUrl", this.wsUrl);
+      pref.putSync("pinnedChats", JSON.stringify(this.pinnedChats));
+      pref.flushSync();
+    } catch (e) {
+      console.error("Failed to save local settings");
+    }
   }
 
   // Connect WebSocket
@@ -173,6 +211,17 @@ struct Index {
             } else if (dataObj.type === "friend_accepted") {
               promptAction.showToast({ message: `您与 ${dataObj.from_nickname || dataObj.from_user} 已成为好友` });
               this.loadRelations();
+            } else if (dataObj.type === "recall") {
+              // Real-time message recall handler
+              let recalledId = dataObj.msg_id;
+              if (recalledId) {
+                for (let i = 0; i < this.messages.length; i++) {
+                  if (this.messages[i].id === recalledId) {
+                    this.messages[i].content = "[system_recalled]";
+                    break;
+                  }
+                }
+              }
             }
           }
         } catch (e) {
@@ -299,6 +348,92 @@ struct Index {
           }
         }
         checkAndMerge();
+      }
+    );
+  }
+
+  // Sort relations with pinned items floating to the top
+  getSortedRelations(): Relation[] {
+    let pinnedList: Relation[] = [];
+    let unpinnedList: Relation[] = [];
+    
+    for (let i = 0; i < this.relations.length; i++) {
+      let r = this.relations[i];
+      let key = r.type === "group" ? `group:${r.id}` : `friend:${r.targetUser}`;
+      if (this.pinnedChats.indexOf(key) !== -1) {
+        pinnedList.push(r);
+      } else {
+        unpinnedList.push(r);
+      }
+    }
+    return pinnedList.concat(unpinnedList);
+  }
+
+  // Toggle Pinned chat state
+  togglePinChat(item: Relation) {
+    let key = item.type === "group" ? `group:${item.id}` : `friend:${item.targetUser}`;
+    let idx = this.pinnedChats.indexOf(key);
+    if (idx !== -1) {
+      this.pinnedChats.splice(idx, 1);
+      promptAction.showToast({ message: "已取消置顶" });
+    } else {
+      this.pinnedChats.push(key);
+      promptAction.showToast({ message: "已置顶该聊天" });
+    }
+    this.saveLocalSettings();
+  }
+
+  // Check if a relation is pinned
+  isPinned(item: Relation): boolean {
+    let key = item.type === "group" ? `group:${item.id}` : `friend:${item.targetUser}`;
+    return this.pinnedChats.indexOf(key) !== -1;
+  }
+
+  // Show recall action sheet for user messages
+  showMsgActions(msg: Message) {
+    if (msg.name !== this.currentUsername || !msg.id) return;
+    
+    promptAction.showActionMenu({
+      title: "操作消息",
+      buttons: [
+        { text: "撤回消息", color: "#FF3B30" }
+      ]
+    }, (err: BusinessError, data: promptAction.ActionMenuSuccessResponse) => {
+      if (!err && data.index === 0 && msg.id) {
+        this.recallMessageApi(msg.id);
+      }
+    });
+  }
+
+  // Recall Message API Call
+  recallMessageApi(msgId: number) {
+    let httpRequest = http.createHttp();
+    httpRequest.request(
+      `${this.serverUrl}/api/messages/${msgId}`,
+      {
+        method: http.RequestMethod.DELETE,
+        header: { 'Authorization': this.token }
+      },
+      (err: BusinessError, data: http.HttpResponse) => {
+        if (!err && data.responseCode === 200) {
+          promptAction.showToast({ message: "消息已撤回" });
+          // Update locally
+          for (let i = 0; i < this.messages.length; i++) {
+            if (this.messages[i].id === msgId) {
+              this.messages[i].content = "[system_recalled]";
+              break;
+            }
+          }
+        } else {
+          try {
+            let res = JSON.parse(data.result as string) as Record<string, string>;
+            if (res.detail) {
+              promptAction.showToast({ message: res.detail });
+              return;
+            }
+          } catch(e) {}
+          promptAction.showToast({ message: "只能撤回2分钟内的消息" });
+        }
       }
     );
   }
@@ -454,6 +589,7 @@ struct Index {
     } else if (sUrl.startsWith("https://")) {
       this.wsUrl = sUrl.replace("https://", "wss://");
     }
+    this.saveLocalSettings();
     
     let httpRequest = http.createHttp();
     httpRequest.request(
@@ -618,15 +754,26 @@ struct Index {
               .fontColor(Color.White)
               .layoutWeight(1)
             
-            Text("➕ 添加好友")
-              .fontSize(13)
-              .fontColor(Color.White)
-              .padding({ left: 10, right: 10, top: 6, bottom: 6 })
-              .border({ width: 1, color: Color.White, radius: 4 })
-              .onClick(() => {
-                this.screenState = "ADD_FRIEND";
-                this.loadFriendRequests();
-              })
+            Row({ space: 10 }) {
+              Text("⚙️ 设置")
+                .fontSize(13)
+                .fontColor(Color.White)
+                .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+                .border({ width: 1, color: Color.White, radius: 4 })
+                .onClick(() => {
+                  this.screenState = "SETTINGS";
+                })
+
+              Text("➕ 添加好友")
+                .fontSize(13)
+                .fontColor(Color.White)
+                .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+                .border({ width: 1, color: Color.White, radius: 4 })
+                .onClick(() => {
+                  this.screenState = "ADD_FRIEND";
+                  this.loadFriendRequests();
+                })
+            }
           }
           .width("100%")
           .height(56)
@@ -638,10 +785,10 @@ struct Index {
             // Lobby Shortcut
             ListItem() {
               Row() {
-                Text("💬 公共大厅")
+                Text(this.pinnedChats.indexOf("group:0") !== -1 ? "📌 💬 公共大厅" : "💬 公共大厅")
                   .fontSize(16)
                   .fontWeight(FontWeight.Medium)
-                  .fontColor(Color.Black)
+                  .fontColor(this.pinnedChats.indexOf("group:0") !== -1 ? "#1E88E5" : Color.Black)
                   .layoutWeight(1)
                 
                 Text("进入")
@@ -658,15 +805,26 @@ struct Index {
               this.loadHistory();
               this.screenState = "CHAT";
             })
+            .gesture(
+              LongPressGesture({ repeat: false })
+                .onAction(() => {
+                  let r: Relation = { id: 0, name: "公共大厅", type: "group" };
+                  this.togglePinChat(r);
+                })
+            )
+            .backgroundColor(this.pinnedChats.indexOf("group:0") !== -1 ? "#F5F9FF" : Color.White)
             .border({ width: { bottom: 1 }, color: "#F0F0F0" })
 
-            ForEach(this.relations, (item: Relation) => {
+            ForEach(this.getSortedRelations(), (item: Relation) => {
               ListItem() {
                 Row() {
-                  Text(item.type === "group" ? `👥 ${item.name}` : `👤 ${item.name}`)
+                  Text(this.isPinned(item) ? 
+                    (item.type === "group" ? `📌 👥 ${item.name}` : `📌 👤 ${item.name}`) : 
+                    (item.type === "group" ? `👥 ${item.name}` : `👤 ${item.name}`)
+                  )
                     .fontSize(16)
                     .fontWeight(FontWeight.Medium)
-                    .fontColor(Color.Black)
+                    .fontColor(this.isPinned(item) ? "#1E88E5" : Color.Black)
                     .layoutWeight(1)
                   
                   Text("进入")
@@ -688,6 +846,13 @@ struct Index {
                 this.loadHistory();
                 this.screenState = "CHAT";
               })
+              .gesture(
+                LongPressGesture({ repeat: false })
+                  .onAction(() => {
+                    this.togglePinChat(item);
+                  })
+              )
+              .backgroundColor(this.isPinned(item) ? "#F5F9FF" : Color.White)
               .border({ width: { bottom: 1 }, color: "#F0F0F0" })
             })
           }
@@ -754,7 +919,12 @@ struct Index {
 
                   Row() {
                     Column() {
-                      if (msg.content.startsWith("[img:") && msg.content.endsWith("]")) {
+                      if (msg.content === "[system_recalled]") {
+                        Text(msg.name === this.currentUsername ? "您撤回了一条消息" : `"${msg.nickname}" 撤回了一条消息`)
+                          .fontSize(13)
+                          .fontColor(Color.Gray)
+                          .fontStyle(FontStyle.Italic)
+                      } else if (msg.content.startsWith("[img:") && msg.content.endsWith("]")) {
                         Text("🖼️ [图片附件]")
                           .fontSize(14)
                           .fontColor(Color.Blue)
@@ -773,8 +943,16 @@ struct Index {
                       }
                     }
                     .padding(10)
-                    .backgroundColor(msg.name === this.currentUsername ? "#1E88E5" : "#E0E0E0")
+                    .backgroundColor(msg.content === "[system_recalled]" ? "#F0F0F0" : (msg.name === this.currentUsername ? "#1E88E5" : "#E0E0E0"))
                     .borderRadius(8)
+                    .gesture(
+                      LongPressGesture({ repeat: false })
+                        .onAction(() => {
+                          if (msg.content !== "[system_recalled]") {
+                            this.showMsgActions(msg);
+                          }
+                        })
+                    )
                   }
                 }
                 .alignItems(msg.name === this.currentUsername ? HorizontalAlign.End : HorizontalAlign.Start)
@@ -786,6 +964,27 @@ struct Index {
           .width("100%")
           .layoutWeight(1)
           .backgroundColor("#FAFAFA")
+
+          // Quick Emoji Picker Bar
+          Row() {
+            List() {
+              ForEach(this.quickEmojis, (emoji: string) => {
+                ListItem() {
+                  Text(emoji)
+                    .fontSize(22)
+                    .padding(6)
+                    .onClick(() => {
+                      this.msgInput += emoji;
+                    })
+                }
+              })
+            }
+            .listDirection(Axis.Horizontal)
+            .width("100%")
+            .height(38)
+          }
+          .backgroundColor("#F5F7FA")
+          .border({ width: { top: 1, bottom: 1 }, color: "#E8E8E8" })
 
           // Chat bottom input panel
           Row() {
@@ -976,6 +1175,116 @@ struct Index {
         }
         .width("100%")
         .height("100%")
+
+      } else if (this.screenState === "SETTINGS") {
+        // --- SETTINGS SCREEN ---
+        Column() {
+          // Header with back button
+          Row() {
+            Row() {
+              Text("⬅️ 返回")
+                .fontSize(15)
+                .fontColor("#1E88E5")
+                .fontWeight(FontWeight.Medium)
+            }
+            .padding({ left: 16, right: 16 })
+            .onClick(() => {
+              this.screenState = "MAIN";
+            })
+            
+            Text("应用设置")
+              .fontSize(16)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(Color.Black)
+              .layoutWeight(1)
+              .textAlign(TextAlign.Center)
+              .margin({ right: 60 })
+          }
+          .width("100%")
+          .height(56)
+          .backgroundColor("#F5F7FA")
+          .border({ width: { bottom: 1 }, color: "#E0E0E0" })
+          .alignItems(VerticalAlign.Center)
+
+          // Content
+          Column({ space: 20 }) {
+            Column({ space: 8 }) {
+              Text("🌐 API 服务器地址")
+                .fontSize(14)
+                .fontWeight(FontWeight.Bold)
+                .fontColor(Color.Black)
+                .width("100%")
+
+              TextInput({ text: this.serverUrl, placeholder: "http://..." })
+                .width("100%")
+                .height(45)
+                .fontColor(Color.Black)
+                .placeholderColor(Color.Gray)
+                .onChange((val: string) => {
+                  this.serverUrl = val;
+                  this.saveLocalSettings();
+                })
+            }
+            .width("100%")
+
+            Column({ space: 8 }) {
+              Text("⚡ WebSocket 服务器地址")
+                .fontSize(14)
+                .fontWeight(FontWeight.Bold)
+                .fontColor(Color.Black)
+                .width("100%")
+
+              TextInput({ text: this.wsUrl, placeholder: "ws://..." })
+                .width("100%")
+                .height(45)
+                .fontColor(Color.Black)
+                .placeholderColor(Color.Gray)
+                .onChange((val: string) => {
+                  this.wsUrl = val;
+                  this.saveLocalSettings();
+                })
+            }
+            .width("100%")
+
+            Column({ space: 10 }) {
+              Button("清除本地缓存设置")
+                .width("100%")
+                .height(45)
+                .backgroundColor("#FF9500")
+                .onClick(() => {
+                  this.pinnedChats = [];
+                  this.saveLocalSettings();
+                  promptAction.showToast({ message: "已重置并清除缓存" });
+                })
+            }
+            .width("100%")
+            .margin({ top: 20 })
+
+            // About section
+            Column({ space: 5 }) {
+              Text("信语 (OpenBoard) NEXT")
+                .fontSize(16)
+                .fontWeight(FontWeight.Bold)
+                .fontColor(Color.Black)
+              
+              Text("版本号: 6.0.0 (Release)")
+                .fontSize(13)
+                .fontColor(Color.Gray)
+              
+              Text("基于 HarmonyOS NEXT SDK 原生开发")
+                .fontSize(12)
+                .fontColor(Color.Gray)
+            }
+            .width("100%")
+            .alignItems(HorizontalAlign.Center)
+            .margin({ top: 40 })
+          }
+          .width("90%")
+          .margin({ top: 20 })
+        }
+        .width("100%")
+        .height("100%")
+        .backgroundColor("#FAFAFA")
       }
     }
     .width("100%")
