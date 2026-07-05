@@ -45,17 +45,44 @@ interface HistoryResponse {
 
 interface WsMsg {
   type: string;
-  name: string;
+  name?: string;
   nickname?: string;
-  content: string;
+  content?: string;
   time?: string;
   room_id?: number;
+  from_user?: string;
+  from_nickname?: string;
 }
 
 interface SendMsgPayload {
   content: string;
   room_id: number;
   receiver?: string;
+}
+
+interface SearchedUserItem {
+  username: string;
+  nickname?: string;
+  avatar?: string;
+  is_friend: boolean;
+  request_status?: string | null;
+  request_direction?: string | null;
+}
+
+interface SearchResponse {
+  data: SearchedUserItem[];
+}
+
+interface IncomingRequestItem {
+  id: number;
+  from_user: string;
+  nickname?: string;
+  avatar?: string;
+  created_at?: string;
+}
+
+interface IncomingRequestsResponse {
+  data: IncomingRequestItem[];
 }
 
 @Entry
@@ -80,13 +107,18 @@ struct Index {
   @State currentUserNickname: string = "";
 
   // Chat Data
-  @State activeRoomId: number = 0;
+  @State activeRoomId: number = 0; // -1 for Add Friend panel, 0 for Lobby, >0 for Group
   @State activeTargetUser: string = "";
   @State activeChatTitle: string = "公共大厅";
   @State messages: Message[] = [];
   @State msgInput: string = "";
   @State relations: Relation[] = [];
   
+  // Search & Friend requests state
+  @State searchQuery: string = "";
+  @State searchResults: SearchedUserItem[] = [];
+  @State incomingRequests: IncomingRequestItem[] = [];
+
   // WebSocket Instance
   private ws: webSocket.WebSocket | null = null;
   private scroller: Scroller = new Scroller();
@@ -123,9 +155,9 @@ struct Index {
             let dataObj = JSON.parse(dataStr) as WsMsg;
             if (dataObj.type === "message") {
               let msg: Message = {
-                name: dataObj.name,
-                nickname: dataObj.nickname || dataObj.name,
-                content: dataObj.content,
+                name: dataObj.name || "",
+                nickname: dataObj.nickname || dataObj.name || "",
+                content: dataObj.content || "",
                 time: dataObj.time || new Date().toISOString(),
                 room_id: dataObj.room_id || 0
               };
@@ -135,6 +167,12 @@ struct Index {
                 this.messages.push(msg);
                 this.scrollToBottom();
               }
+            } else if (dataObj.type === "friend_request") {
+              promptAction.showToast({ message: `收到来自 ${dataObj.from_nickname || dataObj.from_user} 的好友申请` });
+              this.loadFriendRequests();
+            } else if (dataObj.type === "friend_accepted") {
+              promptAction.showToast({ message: `您与 ${dataObj.from_nickname || dataObj.from_user} 已成为好友` });
+              this.loadRelations();
             }
           }
         } catch (e) {
@@ -238,6 +276,105 @@ struct Index {
           } catch (e) {
             console.error("Error fetching relations");
           }
+        }
+      }
+    );
+  }
+
+  // Fetch pending requests
+  loadFriendRequests() {
+    let httpRequest = http.createHttp();
+    httpRequest.request(
+      `${this.serverUrl}/api/friends/requests`,
+      {
+        method: http.RequestMethod.GET,
+        header: { 'Authorization': this.token }
+      },
+      (err: BusinessError, data: http.HttpResponse) => {
+        if (!err && data.responseCode === 200) {
+          try {
+            let res = JSON.parse(data.result as string) as IncomingRequestsResponse;
+            this.incomingRequests = res.data || [];
+          } catch (e) {
+            console.error("Error parsing friend requests");
+          }
+        }
+      }
+    );
+  }
+
+  // Search users
+  searchUsers() {
+    if (!this.searchQuery.trim()) return;
+    let httpRequest = http.createHttp();
+    httpRequest.request(
+      `${this.serverUrl}/api/users/search?q=${encodeURIComponent(this.searchQuery)}`,
+      {
+        method: http.RequestMethod.GET,
+        header: { 'Authorization': this.token }
+      },
+      (err: BusinessError, data: http.HttpResponse) => {
+        if (!err && data.responseCode === 200) {
+          try {
+            let res = JSON.parse(data.result as string) as SearchResponse;
+            this.searchResults = res.data || [];
+          } catch (e) {
+            console.error("Error parsing user search results");
+          }
+        }
+      }
+    );
+  }
+
+  // Send friend request
+  sendRequest(targetUsername: string) {
+    let httpRequest = http.createHttp();
+    httpRequest.request(
+      `${this.serverUrl}/api/friends/request`,
+      {
+        method: http.RequestMethod.POST,
+        header: {
+          'Content-Type': 'application/json',
+          'Authorization': this.token
+        },
+        extraData: JSON.stringify({
+          to_user: targetUsername
+        })
+      },
+      (err: BusinessError, data: http.HttpResponse) => {
+        if (!err && (data.responseCode === 200 || data.responseCode === 201)) {
+          promptAction.showToast({ message: "好友申请发送成功" });
+          this.searchUsers(); // Refresh search view state
+        } else {
+          promptAction.showToast({ message: "发送申请失败" });
+        }
+      }
+    );
+  }
+
+  // Respond to incoming friend request
+  respondRequest(fromUser: string, action: string) {
+    let httpRequest = http.createHttp();
+    httpRequest.request(
+      `${this.serverUrl}/api/friends/respond`,
+      {
+        method: http.RequestMethod.POST,
+        header: {
+          'Content-Type': 'application/json',
+          'Authorization': this.token
+        },
+        extraData: JSON.stringify({
+          from_user: fromUser,
+          action: action
+        })
+      },
+      (err: BusinessError, data: http.HttpResponse) => {
+        if (!err && data.responseCode === 200) {
+          promptAction.showToast({ message: action === "accept" ? "已同意好友申请" : "已拒绝好友申请" });
+          this.loadFriendRequests(); // Refresh request list
+          this.loadRelations(); // Refresh main sidebar relation list
+        } else {
+          promptAction.showToast({ message: "操作失败" });
         }
       }
     );
@@ -459,11 +596,25 @@ struct Index {
                 .fontSize(16)
                 .fontWeight(FontWeight.Bold)
                 .fontColor(Color.White)
+                .layoutWeight(1)
+              
+              Text("➕ 添加")
+                .fontSize(12)
+                .fontColor(Color.White)
+                .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+                .border({ width: 1, color: Color.White, radius: 4 })
+                .onClick(() => {
+                  this.activeRoomId = -1;
+                  this.activeTargetUser = "";
+                  this.activeChatTitle = "添加好友 / 申请列表";
+                  this.loadFriendRequests();
+                })
             }
             .width("100%")
             .height(55)
             .backgroundColor("#1565C0")
-            .justifyContent(FlexAlign.Center)
+            .padding({ left: 10, right: 10 })
+            .alignItems(VerticalAlign.Center)
 
             List() {
               // Lobby Shortcut
@@ -523,7 +674,7 @@ struct Index {
           .backgroundColor("#FFFFFF")
           .border({ width: { right: 1 }, color: "#E0E0E0" })
 
-          // 2. Right Chat Screen
+          // 2. Right Chat Screen / Add Friend Screen
           Column() {
             // Chat header
             Row() {
@@ -538,73 +689,209 @@ struct Index {
             .padding({ left: 15 })
             .border({ width: { bottom: 1 }, color: "#E0E0E0" })
 
-            // Chat Messages Stream
-            List({ scroller: this.scroller }) {
-              ForEach(this.messages, (msg: Message) => {
-                ListItem() {
-                  Column() {
-                    Row() {
-                      Text(`${msg.nickname} (@${msg.name})`)
-                        .fontSize(11)
-                        .fontColor(Color.Gray)
-                    }
-                    .margin({ bottom: 2 })
+            if (this.activeRoomId === -1) {
+              // --- ADD FRIEND & REQUESTS SCREEN ---
+              Column({ space: 15 }) {
+                // Section 1: User Search
+                Column() {
+                  Text("🔍 查找新朋友")
+                    .fontSize(15)
+                    .fontWeight(FontWeight.Bold)
+                    .fontColor(Color.Black)
+                    .width("100%")
+                    .margin({ bottom: 8 })
 
-                    Row() {
-                      Column() {
-                        if (msg.content.startsWith("[img:") && msg.content.endsWith("]")) {
-                          Text("🖼️ [图片附件]")
-                            .fontSize(14)
-                            .fontColor(Color.Blue)
-                        } else if (msg.content.startsWith("[file:") && msg.content.endsWith("]")) {
-                          Text("📁 [文件附件]")
-                            .fontSize(14)
-                            .fontColor(Color.Green)
-                        } else if (msg.content.startsWith("[user_card:") && msg.content.endsWith("]")) {
-                          Text("📇 [好友名片]")
-                            .fontSize(14)
-                            .fontColor(Color.Orange)
-                        } else {
-                          Text(msg.content)
-                            .fontSize(14)
-                            .fontColor(msg.name === this.currentUsername ? Color.White : Color.Black)
-                        }
-                      }
-                      .padding(10)
-                      .backgroundColor(msg.name === this.currentUsername ? "#1E88E5" : "#E0E0E0")
-                      .borderRadius(8)
-                    }
+                  Row() {
+                    TextInput({ text: this.searchQuery, placeholder: "输入用户名或昵称搜索..." })
+                      .layoutWeight(1)
+                      .height(40)
+                      .fontColor(Color.Black)
+                      .placeholderColor(Color.Gray)
+                      .onChange((val: string) => this.searchQuery = val)
+
+                    Button("搜索")
+                      .width(70)
+                      .height(40)
+                      .margin({ left: 10 })
+                      .backgroundColor("#1E88E5")
+                      .onClick(() => this.searchUsers())
                   }
-                  .alignItems(msg.name === this.currentUsername ? HorizontalAlign.End : HorizontalAlign.Start)
                   .width("100%")
-                  .padding({ left: 10, right: 10, top: 5, bottom: 5 })
-                }
-              })
-            }
-            .width("100%")
-            .layoutWeight(1)
-            .backgroundColor("#FAFAFA")
 
-            // Chat bottom input panel
-            Row() {
-              TextInput({ text: this.msgInput, placeholder: "快来聊两句吧..." })
+                  // Search Results List
+                  List() {
+                    ForEach(this.searchResults, (user: SearchedUserItem) => {
+                      ListItem() {
+                        Row() {
+                          Text(user.nickname ? `${user.nickname} (@${user.username})` : `@${user.username}`)
+                            .fontSize(14)
+                            .fontColor(Color.Black)
+                            .layoutWeight(1)
+
+                          if (user.is_friend) {
+                            Text("已是好友")
+                              .fontSize(13)
+                              .fontColor(Color.Gray)
+                              .padding({ left: 10, right: 10 })
+                          } else if (user.request_status === "pending") {
+                            Text(user.request_direction === "sent" ? "已发送申请" : "待同意")
+                              .fontSize(13)
+                              .fontColor(user.request_direction === "sent" ? Color.Gray : Color.Orange)
+                              .padding({ left: 10, right: 10 })
+                          } else {
+                            Button("➕ 加好友")
+                              .fontSize(12)
+                              .height(30)
+                              .backgroundColor("#4CAF50")
+                              .onClick(() => this.sendRequest(user.username))
+                          }
+                        }
+                        .width("100%")
+                        .padding({ top: 10, bottom: 10 })
+                        .border({ width: { bottom: 1 }, color: "#F0F0F0" })
+                      }
+                    })
+                  }
+                  .width("100%")
+                  .layoutWeight(1)
+                  .margin({ top: 10 })
+                }
+                .width("90%")
                 .layoutWeight(1)
-                .height(40)
-                .fontColor(Color.Black)
-                .placeholderColor(Color.Gray)
-                .onChange((val: string) => this.msgInput = val)
-              
-              Button("发送")
-                .width(70)
-                .height(40)
-                .margin({ left: 10 })
-                .backgroundColor("#1E88E5")
-                .onClick(() => this.sendMessage())
+                .padding(15)
+                .backgroundColor(Color.White)
+                .borderRadius(8)
+
+                // Section 2: Friend Requests List
+                Column() {
+                  Text("🔔 收到的好友申请")
+                    .fontSize(15)
+                    .fontWeight(FontWeight.Bold)
+                    .fontColor(Color.Black)
+                    .width("100%")
+                    .margin({ bottom: 8 })
+
+                  if (this.incomingRequests.length === 0) {
+                    Text("暂无挂起的好友申请")
+                      .fontSize(13)
+                      .fontColor(Color.Gray)
+                      .width("100%")
+                      .textAlign(TextAlign.Center)
+                      .margin({ top: 20, bottom: 20 })
+                  } else {
+                    List() {
+                      ForEach(this.incomingRequests, (req: IncomingRequestItem) => {
+                        ListItem() {
+                          Row() {
+                            Text(req.nickname ? `${req.nickname} (@${req.from_user})` : `@${req.from_user}`)
+                              .fontSize(14)
+                              .fontColor(Color.Black)
+                              .layoutWeight(1)
+
+                            Row({ space: 8 }) {
+                              Button("同意")
+                                .fontSize(11)
+                                .height(26)
+                                .backgroundColor("#4CAF50")
+                                .onClick(() => this.respondRequest(req.from_user, "accept"))
+
+                              Button("拒绝")
+                                .fontSize(11)
+                                .height(26)
+                                .backgroundColor(Color.Red)
+                                .onClick(() => this.respondRequest(req.from_user, "reject"))
+                            }
+                          }
+                          .width("100%")
+                          .padding({ top: 8, bottom: 8 })
+                          .border({ width: { bottom: 1 }, color: "#F0F0F0" })
+                        }
+                      })
+                    }
+                    .width("100%")
+                  }
+                }
+                .width("90%")
+                .layoutWeight(1)
+                .padding(15)
+                .backgroundColor(Color.White)
+                .borderRadius(8)
+              }
+              .width("100%")
+              .height("100%")
+              .backgroundColor("#FAFAFA")
+              .padding({ top: 15, bottom: 15 })
+              .alignItems(HorizontalAlign.Center)
+
+            } else {
+              // Chat Messages Stream
+              List({ scroller: this.scroller }) {
+                ForEach(this.messages, (msg: Message) => {
+                  ListItem() {
+                    Column() {
+                      Row() {
+                        Text(`${msg.nickname} (@${msg.name})`)
+                          .fontSize(11)
+                          .fontColor(Color.Gray)
+                      }
+                      .margin({ bottom: 2 })
+
+                      Row() {
+                        Column() {
+                          if (msg.content.startsWith("[img:") && msg.content.endsWith("]")) {
+                            Text("🖼️ [图片附件]")
+                              .fontSize(14)
+                              .fontColor(Color.Blue)
+                          } else if (msg.content.startsWith("[file:") && msg.content.endsWith("]")) {
+                            Text("📁 [文件附件]")
+                              .fontSize(14)
+                              .fontColor(Color.Green)
+                          } else if (msg.content.startsWith("[user_card:") && msg.content.endsWith("]")) {
+                            Text("📇 [好友名片]")
+                              .fontSize(14)
+                              .fontColor(Color.Orange)
+                          } else {
+                            Text(msg.content)
+                              .fontSize(14)
+                              .fontColor(msg.name === this.currentUsername ? Color.White : Color.Black)
+                          }
+                        }
+                        .padding(10)
+                        .backgroundColor(msg.name === this.currentUsername ? "#1E88E5" : "#E0E0E0")
+                        .borderRadius(8)
+                      }
+                    }
+                    .alignItems(msg.name === this.currentUsername ? HorizontalAlign.End : HorizontalAlign.Start)
+                    .width("100%")
+                    .padding({ left: 10, right: 10, top: 5, bottom: 5 })
+                  }
+                })
+              }
+              .width("100%")
+              .layoutWeight(1)
+              .backgroundColor("#FAFAFA")
+
+              // Chat bottom input panel
+              Row() {
+                TextInput({ text: this.msgInput, placeholder: "快来聊两句吧..." })
+                  .layoutWeight(1)
+                  .height(40)
+                  .fontColor(Color.Black)
+                  .placeholderColor(Color.Gray)
+                  .onChange((val: string) => this.msgInput = val)
+                
+                Button("发送")
+                  .width(70)
+                  .height(40)
+                  .margin({ left: 10 })
+                  .backgroundColor("#1E88E5")
+                  .onClick(() => this.sendMessage())
+              }
+              .width("100%")
+              .padding(10)
+              .backgroundColor("#FFFFFF")
+              .border({ width: { top: 1 }, color: "#E0E0E0" })
             }
-            .width("100%")
-            .padding(10)
-            .backgroundColor("#FFFFFF")
-            .border({ width: { top: 1 }, color: "#E0E0E0" })
           }
           .width("70%")
           .height("100%")
