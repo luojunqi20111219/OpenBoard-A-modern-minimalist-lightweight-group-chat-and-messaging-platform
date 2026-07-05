@@ -19,3 +19,8 @@ OpenBoardAndroid/.idea/
 build/
 dist/
 *.spec
+venv/
+*.log
+google2989fe35afe0729a.html
+*.html.new
+static/
