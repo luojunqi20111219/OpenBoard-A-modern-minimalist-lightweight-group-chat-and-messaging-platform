@@ -5,6 +5,8 @@ import dataPreferences from '@ohos.data.preferences';
 import pasteboard from '@ohos.pasteboard';
 import common from '@ohos.app.ability.common';
 import Want from '@ohos.app.ability.Want';
+import picker from '@ohos.file.picker';
+import fs from '@ohos.file.fs';
 import { BusinessError } from '@ohos.base';
 
 interface Message {
@@ -43,6 +45,7 @@ interface LoginResponse {
   token: string;
   username: string;
   nickname?: string;
+  avatar?: string;
 }
 
 interface HistoryResponse {
@@ -172,6 +175,10 @@ struct Index {
   @State profilePreviewAvatar: string = "";
   @State profilePreviewIsFriend: boolean = false;
 
+  @State avatarModalVisible: boolean = false;
+  @State newAvatarVal: string = "";
+  @State currentUserAvatar: string = "";
+
   // List of quick emojis
   private quickEmojis: string[] = ["😄", "😂", "😊", "😍", "👍", "🎉", "🔥", "❤️", "🤔", "😭", "😡", "👏", "🎂", "🌟", "✨"];
 
@@ -207,6 +214,7 @@ struct Index {
       this.token = pref.getSync("token", "") as string;
       this.currentUsername = pref.getSync("currentUsername", "") as string;
       this.currentUserNickname = pref.getSync("currentUserNickname", "") as string;
+      this.currentUserAvatar = pref.getSync("currentUserAvatar", "") as string;
     } catch (e) {
       console.error("Failed to load local settings");
     }
@@ -223,6 +231,7 @@ struct Index {
       pref.putSync("token", this.token);
       pref.putSync("currentUsername", this.currentUsername);
       pref.putSync("currentUserNickname", this.currentUserNickname);
+      pref.putSync("currentUserAvatar", this.currentUserAvatar);
       pref.flushSync();
     } catch (e) {
       console.error("Failed to save local settings");
@@ -389,6 +398,87 @@ struct Index {
         }
       }
     });
+  }
+
+  // Convert ArrayBuffer to Base64 using pure TypeScript
+  arrayBufferToBase64(buffer: ArrayBuffer): string {
+    let bytes = new Uint8Array(buffer);
+    let len = bytes.byteLength;
+    let base64 = "";
+    let chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    for (let i = 0; i < len; i += 3) {
+      let b1 = bytes[i];
+      let b2 = i + 1 < len ? bytes[i+1] : NaN;
+      let b3 = i + 2 < len ? bytes[i+2] : NaN;
+      
+      let enc1 = b1 >> 2;
+      let enc2 = ((b1 & 3) << 4) | (Number.isNaN(b2) ? 0 : b2 >> 4);
+      let enc3 = Number.isNaN(b2) ? 64 : (((b2 & 15) << 2) | (Number.isNaN(b3) ? 0 : b3 >> 6));
+      let enc4 = Number.isNaN(b3) ? 64 : (b3 & 63);
+      
+      base64 += chars.charAt(enc1) + chars.charAt(enc2) + (enc3 === 64 ? "=" : chars.charAt(enc3)) + (enc4 === 64 ? "=" : chars.charAt(enc4));
+    }
+    return base64;
+  }
+
+  // Open photo picker to select avatar
+  selectAvatarFromGallery() {
+    try {
+      let photoPicker = new picker.PhotoViewPicker();
+      photoPicker.select({
+        MIMEType: picker.PhotoViewMIMETypes.IMAGE_TYPE,
+        maxSelectNumber: 1
+      }).then((result: picker.PhotoSelectResult) => {
+        if (result && result.photoUris && result.photoUris.length > 0) {
+          let uri = result.photoUris[0];
+          
+          let file = fs.openSync(uri, fs.OpenMode.READ_ONLY);
+          let stat = fs.statSync(file.fd);
+          let buffer = new ArrayBuffer(stat.size);
+          fs.readSync(file.fd, buffer);
+          fs.closeSync(file);
+          
+          let base64Str = this.arrayBufferToBase64(buffer);
+          this.newAvatarVal = `data:image/png;base64,${base64Str}`;
+          promptAction.showToast({ message: "本地图片选择成功" });
+        }
+      }).catch((e: BusinessError) => {
+        promptAction.showToast({ message: "图库选择异常" });
+      });
+    } catch(e) {
+      promptAction.showToast({ message: "打开图库失败" });
+    }
+  }
+
+  // Update Avatar API
+  updateAvatarApi() {
+    if (!this.newAvatarVal.trim()) return;
+    let httpRequest = http.createHttp();
+    httpRequest.request(
+      `${this.serverUrl}/api/user/profile`,
+      {
+        method: http.RequestMethod.POST,
+        header: {
+          'Content-Type': 'application/json',
+          'Authorization': this.token
+        },
+        extraData: JSON.stringify({
+          avatar: this.newAvatarVal
+        })
+      },
+      (err: BusinessError, data: http.HttpResponse) => {
+        if (!err && data.responseCode === 200) {
+          promptAction.showToast({ message: "头像更新成功" });
+          this.currentUserAvatar = this.newAvatarVal;
+          this.avatarModalVisible = false;
+          this.newAvatarVal = "";
+          this.saveLocalSettings();
+          this.loadRelations();
+        } else {
+          promptAction.showToast({ message: "头像更新失败" });
+        }
+      }
+    );
   }
 
   // Get consistent hash color for avatars
@@ -1162,6 +1252,7 @@ struct Index {
             this.token = res.token;
             this.currentUsername = res.username;
             this.currentUserNickname = res.nickname || res.username;
+            this.currentUserAvatar = res.avatar || "";
             this.saveLocalSettings();
             this.loginStatusMsg = "";
             this.screenState = "MAIN";
@@ -1545,16 +1636,28 @@ struct Index {
                   Column({ space: 15 }) {
                     // User Profile Card
                     Row() {
-                      Text(this.currentUserNickname.substring(0, 1).toUpperCase())
-                        .fontSize(24)
-                        .fontWeight(FontWeight.Bold)
-                        .fontColor(Color.White)
-                        .width(60)
-                        .height(60)
-                        .borderRadius(30)
-                        .backgroundColor(this.themeColor)
-                        .textAlign(TextAlign.Center)
-                        .margin({ right: 15 })
+                      if (this.currentUserAvatar && this.currentUserAvatar.trim().length > 0) {
+                        Image(this.currentUserAvatar.startsWith("data:image") ? this.currentUserAvatar : (this.currentUserAvatar.startsWith("http") ? this.currentUserAvatar : `${this.serverUrl}${this.currentUserAvatar.startsWith('/') ? '' : '/'}${this.currentUserAvatar}`))
+                          .width(60)
+                          .height(60)
+                          .borderRadius(30)
+                          .objectFit(ImageFit.Cover)
+                          .margin({ right: 15 })
+                          .onClick(() => {
+                            this.previewImageUrl = this.currentUserAvatar.startsWith("data:image") ? this.currentUserAvatar : (this.currentUserAvatar.startsWith("http") ? this.currentUserAvatar : `${this.serverUrl}${this.currentUserAvatar.startsWith('/') ? '' : '/'}${this.currentUserAvatar}`);
+                          })
+                      } else {
+                        Text(this.currentUserNickname.substring(0, 1).toUpperCase())
+                          .fontSize(24)
+                          .fontWeight(FontWeight.Bold)
+                          .fontColor(Color.White)
+                          .width(60)
+                          .height(60)
+                          .borderRadius(30)
+                          .backgroundColor(this.themeColor)
+                          .textAlign(TextAlign.Center)
+                          .margin({ right: 15 })
+                      }
                       
                       Column() {
                         Text(this.currentUserNickname)
@@ -1593,6 +1696,26 @@ struct Index {
                     .onClick(() => {
                       this.newNicknameVal = this.currentUserNickname;
                       this.nicknameModalVisible = true;
+                    })
+
+                    // Avatar option
+                    Row() {
+                      Text("👤 修改个人头像")
+                        .fontSize(15)
+                        .fontColor(Color.Black)
+                        .layoutWeight(1)
+                      
+                      Text("点击更换")
+                        .fontSize(13)
+                        .fontColor(Color.Gray)
+                    }
+                    .width("100%")
+                    .padding(16)
+                    .backgroundColor(Color.White)
+                    .borderRadius(8)
+                    .onClick(() => {
+                      this.newAvatarVal = this.currentUserAvatar;
+                      this.avatarModalVisible = true;
                     })
 
                     // Theme selector option
@@ -1678,6 +1801,7 @@ struct Index {
                         this.token = "";
                         this.currentUsername = "";
                         this.currentUserNickname = "";
+                        this.currentUserAvatar = "";
                         this.saveLocalSettings();
                         this.screenState = "LOGIN";
                       })
@@ -2582,6 +2706,82 @@ struct Index {
           .backgroundColor(Color.White)
           .borderRadius(16)
           .shadow({ radius: 10, color: "#20000000" })
+        }
+        .width("100%")
+        .height("100%")
+        .backgroundColor("#80000000")
+        .justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Center)
+      }
+
+      // --- OVERLAY MODAL: EDIT AVATAR ---
+      if (this.avatarModalVisible) {
+        Column() {
+          Column({ space: 15 }) {
+            Text("👤 修改个人头像")
+              .fontSize(16)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(Color.Black)
+            
+            // Avatar Preview
+            if (this.newAvatarVal && this.newAvatarVal.trim().length > 0) {
+              Image(this.newAvatarVal.startsWith("data:image") ? this.newAvatarVal : (this.newAvatarVal.startsWith("http") ? this.newAvatarVal : `${this.serverUrl}${this.newAvatarVal.startsWith('/') ? '' : '/'}${this.newAvatarVal}`))
+                .width(80)
+                .height(80)
+                .borderRadius(40)
+                .objectFit(ImageFit.Cover)
+                .alignSelf(ItemAlign.Center)
+            } else {
+              Text(this.currentUserNickname.substring(0, 1).toUpperCase())
+                .fontSize(28)
+                .fontWeight(FontWeight.Bold)
+                .fontColor(Color.White)
+                .textAlign(TextAlign.Center)
+                .width(80)
+                .height(80)
+                .borderRadius(40)
+                .backgroundColor(this.themeColor)
+                .alignSelf(ItemAlign.Center)
+            }
+            
+            Button("🖼️ 从手机图库选择图片")
+              .width("100%")
+              .height(40)
+              .backgroundColor(this.themeColor)
+              .onClick(() => {
+                this.selectAvatarFromGallery();
+              })
+
+            TextInput({ text: this.newAvatarVal, placeholder: "或输入网络图片URL/Base64" })
+              .width("100%")
+              .height(45)
+              .onChange((val: string) => this.newAvatarVal = val)
+
+            Row({ space: 12 }) {
+              Button("取消")
+                .layoutWeight(1)
+                .height(40)
+                .backgroundColor(Color.Gray)
+                .onClick(() => {
+                  this.avatarModalVisible = false;
+                  this.newAvatarVal = "";
+                })
+
+              Button("保存")
+                .layoutWeight(1)
+                .height(40)
+                .backgroundColor(this.themeColor)
+                .onClick(() => {
+                  this.updateAvatarApi();
+                })
+            }
+            .width("100%")
+            .margin({ top: 10 })
+          }
+          .width("80%")
+          .padding(20)
+          .backgroundColor(Color.White)
+          .borderRadius(10)
         }
         .width("100%")
         .height("100%")
