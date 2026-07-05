@@ -225,8 +225,8 @@ struct Index {
           try {
             let res = JSON.parse(data.result as string) as HistoryResponse;
             let rawList: Message[] = res.data || [];
-            // API returns newest first, reverse to display historically
-            this.messages = rawList.reverse();
+            // API returns oldest first (ASC), display directly
+            this.messages = rawList;
             this.scrollToBottom();
           } catch (e) {
             console.error("Error parsing chat history");
