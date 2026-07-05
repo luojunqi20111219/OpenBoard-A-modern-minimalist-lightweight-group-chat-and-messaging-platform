@@ -2,6 +2,9 @@ import http from '@ohos.net.http';
 import webSocket from '@ohos.net.webSocket';
 import promptAction from '@ohos.promptAction';
 import dataPreferences from '@ohos.data.preferences';
+import pasteboard from '@ohos.pasteboard';
+import common from '@ohos.app.ability.common';
+import Want from '@ohos.app.ability.Want';
 import { BusinessError } from '@ohos.base';
 
 interface Message {
@@ -309,6 +312,59 @@ struct Index {
       this.ws.close();
       this.ws = null;
     }
+  }
+
+  // Copy to clipboard
+  copyToClipboard(text: string) {
+    try {
+      let pasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
+      let systemPasteboard = pasteboard.getSystemPasteboard();
+      systemPasteboard.setData(pasteData).then(() => {
+        promptAction.showToast({ message: "已复制下载链接到剪贴板" });
+      }).catch((e: BusinessError) => {
+        promptAction.showToast({ message: "复制失败，链接为: " + text });
+      });
+    } catch(e) {
+      promptAction.showToast({ message: "链接为: " + text });
+    }
+  }
+
+  // Open link in browser Want
+  openBrowserUrl(url: string) {
+    try {
+      let context = getContext(this) as common.UIAbilityContext;
+      let want: Want = {
+        action: 'ohos.want.action.viewData',
+        entities: ['entity.system.browsable'],
+        uri: url
+      };
+      context.startAbility(want).then(() => {
+        console.info("Opened URL in browser successfully");
+      }).catch((err: BusinessError) => {
+        promptAction.showToast({ message: "无法打开浏览器，请手动复制链接" });
+      });
+    } catch(e) {
+      promptAction.showToast({ message: "打开链接失败" });
+    }
+  }
+
+  // Prompt options for file card click
+  showFileDownloadOptions(filename: string, url: string) {
+    promptAction.showActionMenu({
+      title: filename,
+      buttons: [
+        { text: "🌐 浏览器打开下载", color: this.themeColor },
+        { text: "📋 复制下载链接", color: "#4CAF50" }
+      ]
+    }, (err: BusinessError, data: promptAction.ActionMenuSuccessResponse) => {
+      if (!err) {
+        if (data.index === 0) {
+          this.openBrowserUrl(url);
+        } else if (data.index === 1) {
+          this.copyToClipboard(url);
+        }
+      }
+    });
   }
 
   // Throttled typing indicator broadcast
@@ -1675,9 +1731,35 @@ struct Index {
                                 `${this.serverUrl}${msg.content.substring(5, msg.content.length - 1)}`;
                             })
                         } else if (msg.content.startsWith("[file:") && msg.content.endsWith("]")) {
-                          Text("📁 [文件附件]")
-                            .fontSize(14)
-                            .fontColor(Color.Green)
+                          Row() {
+                            Text("📎")
+                              .fontSize(22)
+                              .margin({ right: 8 })
+                            Column() {
+                              Text(msg.content.substring(6, msg.content.length - 1).indexOf('|') !== -1 ?
+                                msg.content.substring(6, msg.content.length - 1).substring(msg.content.substring(6, msg.content.length - 1).indexOf('|') + 1) :
+                                msg.content.substring(6, msg.content.length - 1).substring(msg.content.substring(6, msg.content.length - 1).lastIndexOf('/') + 1)
+                              )
+                                .fontSize(14)
+                                .fontWeight(FontWeight.Bold)
+                                .fontColor(msg.name === this.currentUsername ? Color.White : Color.Black)
+                                .maxLines(1)
+                              Text("点击打开链接下载")
+                                .fontSize(11)
+                                .fontColor(msg.name === this.currentUsername ? "#E0E0E0" : Color.Gray)
+                                .margin({ top: 2 })
+                            }
+                            .alignItems(HorizontalAlign.Start)
+                          }
+                          .alignItems(VerticalAlign.Center)
+                          .onClick(() => {
+                            let raw = msg.content.substring(6, msg.content.length - 1);
+                            let pipeIdx = raw.indexOf('|');
+                            let fileUrl = pipeIdx !== -1 ? raw.substring(0, pipeIdx) : raw;
+                            let filename = pipeIdx !== -1 ? raw.substring(pipeIdx + 1) : raw.substring(raw.lastIndexOf('/') + 1);
+                            let fullUrl = fileUrl.startsWith("http") ? fileUrl : `${this.serverUrl}${fileUrl.startsWith('/') ? '' : '/'}${fileUrl}`;
+                            this.showFileDownloadOptions(filename, fullUrl);
+                          })
                         } else if (msg.content.startsWith("[user_card:") && msg.content.endsWith("]")) {
                           Text("📇 [好友名片]")
                             .fontSize(14)
