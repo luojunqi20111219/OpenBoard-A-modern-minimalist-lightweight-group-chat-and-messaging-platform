@@ -223,8 +223,11 @@ class ChatListFragment : Fragment() {
 
         val comparator = compareBy<Conversation> {
             val key = if (it.targetUser != null) "user_${it.targetUser}" else "group_${it.id}"
-            val index = recentOrder.indexOf(key)
-            if (index >= 0) 0 else 1
+            when {
+                it.targetUser == "filehelper" -> -1
+                recentOrder.indexOf(key) >= 0 -> 0
+                else -> 1
+            }
         }.thenBy {
             val key = if (it.targetUser != null) "user_${it.targetUser}" else "group_${it.id}"
             val index = recentOrder.indexOf(key)

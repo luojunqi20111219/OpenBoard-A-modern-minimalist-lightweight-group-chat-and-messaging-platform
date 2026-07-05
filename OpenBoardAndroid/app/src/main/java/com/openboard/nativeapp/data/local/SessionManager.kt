@@ -230,8 +230,9 @@ object SessionManager {
 
     fun isPinned(id: Int, targetUser: String?): Boolean {
         val key = if (targetUser != null) "pinned_user_${targetUser}" else "pinned_group_${id}"
-        if (!prefs.contains(key) && targetUser == null && id == 0) {
-            return true
+        if (!prefs.contains(key)) {
+            if (targetUser == null && id == 0) return true
+            if (targetUser == "filehelper") return true
         }
         return prefs.getBoolean(key, false)
     }
