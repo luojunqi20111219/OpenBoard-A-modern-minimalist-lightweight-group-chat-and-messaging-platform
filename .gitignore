@@ -24,3 +24,15 @@ venv/
 google2989fe35afe0729a.html
 *.html.new
 static/
+
+# HarmonyOS files to ignore
+OpenBoardHarmony/.hvigor/
+OpenBoardHarmony/.idea/
+OpenBoardHarmony/build/
+OpenBoardHarmony/oh_modules/
+OpenBoardHarmony/local.properties
+OpenBoardHarmony/oh-package-lock.json5
+OpenBoardHarmony/entry/.preview/
+OpenBoardHarmony/entry/build/
+OpenBoardHarmony/entry/oh_modules/
+OpenBoardHarmony/entry/local.properties

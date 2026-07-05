@@ -1,0 +1,10 @@
+{
+  "app": {
+    "bundleName": "xyz.luojunqi.zhengjianzhaoshengchengqi",
+    "vendor": "OpenBoard",
+    "versionCode": 6000000,
+    "versionName": "6.0.0",
+    "icon": "$media:layered_image",
+    "label": "$string:app_name"
+  }
+}
