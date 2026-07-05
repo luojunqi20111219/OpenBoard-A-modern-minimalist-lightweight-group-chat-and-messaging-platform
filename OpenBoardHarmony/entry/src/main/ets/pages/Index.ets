@@ -14,6 +14,8 @@ interface Message {
   content: string;
   time: string;
   room_id: number;
+  isRecalled?: number;
+  avatar?: string;
 }
 
 interface Relation {
@@ -57,6 +59,7 @@ interface WsMsg {
   from_user?: string;
   from_nickname?: string;
   msg_id?: number;
+  avatar?: string;
 }
 
 interface SendMsgPayload {
@@ -163,6 +166,12 @@ struct Index {
   @State blockedUsers: string[] = [];
   @State isTargetBlocked: boolean = false;
 
+  @State profilePreviewVisible: boolean = false;
+  @State profilePreviewUser: string = "";
+  @State profilePreviewNickname: string = "";
+  @State profilePreviewAvatar: string = "";
+  @State profilePreviewIsFriend: boolean = false;
+
   // List of quick emojis
   private quickEmojis: string[] = ["😄", "😂", "😊", "😍", "👍", "🎉", "🔥", "❤️", "🤔", "😭", "😡", "👏", "🎂", "🌟", "✨"];
 
@@ -252,7 +261,8 @@ struct Index {
                 nickname: dataObj.nickname || dataObj.name || "",
                 content: dataObj.content || "",
                 time: dataObj.time || new Date().toISOString(),
-                room_id: dataObj.room_id || 0
+                room_id: dataObj.room_id || 0,
+                avatar: dataObj.avatar || ""
               };
               
               let key = msg.room_id > 0 ? `group:${msg.room_id}` : `friend:${msg.name}`;
@@ -379,6 +389,44 @@ struct Index {
         }
       }
     });
+  }
+
+  // Get consistent hash color for avatars
+  getAvatarBgColor(username: string): string {
+    let hash = 0;
+    for (let i = 0; i < username.length; i++) {
+      hash = username.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    let colors = ["#FF5722", "#4CAF50", "#2196F3", "#9C27B0", "#E91E63", "#FF9800", "#009688", "#795548"];
+    let idx = Math.abs(hash) % colors.length;
+    return colors[idx];
+  }
+
+  // Show profile and avatar preview dialog
+  showUserAvatarPreview(nickname: string, username: string, avatar: string) {
+    if (username === "filehelper") {
+      promptAction.showDialog({
+        title: "文件传输助手",
+        message: "这是您的个人专属文件传输助手，发送到这里的消息、图片与文件都将保存在云端并同步到您的其他设备。",
+        buttons: [{ text: "确定", color: this.themeColor }]
+      });
+      return;
+    }
+    
+    this.profilePreviewNickname = nickname;
+    this.profilePreviewUser = username;
+    this.profilePreviewAvatar = avatar;
+    
+    // Check if the user is in relations (friend list)
+    let isFriend = false;
+    for (let i = 0; i < this.relations.length; i++) {
+      if (this.relations[i].type === "friend" && this.relations[i].targetUser === username) {
+        isFriend = true;
+        break;
+      }
+    }
+    this.profilePreviewIsFriend = isFriend;
+    this.profilePreviewVisible = true;
   }
 
   // Throttled typing indicator broadcast
@@ -1720,90 +1768,162 @@ struct Index {
             List({ scroller: this.scroller }) {
               ForEach(this.messages, (msg: Message) => {
                 ListItem() {
-                  Column() {
-                    Row() {
-                      Text(`${msg.nickname} (@${msg.name})`)
-                        .fontSize(11)
-                        .fontColor(Color.Gray)
-                    }
-                    .margin({ bottom: 2 })
-
-                    Row() {
-                      Column() {
-                        if (msg.content === "[system_recalled]") {
-                          Text(msg.name === this.currentUsername ? "您撤回了一条消息" : `"${msg.nickname}" 撤回了一条消息`)
-                            .fontSize(13)
-                            .fontColor(Color.Gray)
-                            .fontStyle(FontStyle.Italic)
-                        } else if (msg.content.startsWith("[img:") && msg.content.endsWith("]")) {
-                          Image(msg.content.substring(5, msg.content.length - 1).startsWith("http") ? 
-                            msg.content.substring(5, msg.content.length - 1) : 
-                            `${this.serverUrl}${msg.content.substring(5, msg.content.length - 1)}`
-                          )
-                            .width(180)
-                            .height(180)
-                            .objectFit(ImageFit.Contain)
-                            .borderRadius(6)
-                            .onClick(() => {
-                              this.previewImageUrl = msg.content.substring(5, msg.content.length - 1).startsWith("http") ? 
-                                msg.content.substring(5, msg.content.length - 1) : 
-                                `${this.serverUrl}${msg.content.substring(5, msg.content.length - 1)}`;
-                            })
-                        } else if (msg.content.startsWith("[file:") && msg.content.endsWith("]")) {
-                          Row() {
-                            Text("📎")
-                              .fontSize(22)
-                              .margin({ right: 8 })
-                            Column() {
-                              Text(msg.content.substring(6, msg.content.length - 1).indexOf('|') !== -1 ?
-                                msg.content.substring(6, msg.content.length - 1).substring(msg.content.substring(6, msg.content.length - 1).indexOf('|') + 1) :
-                                msg.content.substring(6, msg.content.length - 1).substring(msg.content.substring(6, msg.content.length - 1).lastIndexOf('/') + 1)
-                              )
-                                .fontSize(14)
-                                .fontWeight(FontWeight.Bold)
-                                .fontColor(msg.name === this.currentUsername ? Color.White : Color.Black)
-                                .maxLines(1)
-                              Text("点击打开链接下载")
-                                .fontSize(11)
-                                .fontColor(msg.name === this.currentUsername ? "#E0E0E0" : Color.Gray)
-                                .margin({ top: 2 })
-                            }
-                            .alignItems(HorizontalAlign.Start)
-                          }
-                          .alignItems(VerticalAlign.Center)
+                  Row() {
+                    if (msg.name !== this.currentUsername) {
+                      // Avatar on left
+                      if (msg.name === "filehelper") {
+                        Text("📁")
+                          .fontSize(18)
+                          .textAlign(TextAlign.Center)
+                          .width(36)
+                          .height(36)
+                          .borderRadius(18)
+                          .backgroundColor("#E0F2F1")
+                          .fontColor("#00796B")
+                          .margin({ right: 8, top: 4 })
+                      } else if (msg.avatar && msg.avatar.trim().length > 0) {
+                        Image(msg.avatar.startsWith("data:image") ? msg.avatar : (msg.avatar.startsWith("http") ? msg.avatar : `${this.serverUrl}${msg.avatar.startsWith('/') ? '' : '/'}${msg.avatar}`))
+                          .width(36)
+                          .height(36)
+                          .borderRadius(18)
+                          .objectFit(ImageFit.Cover)
+                          .margin({ right: 8, top: 4 })
                           .onClick(() => {
-                            let raw = msg.content.substring(6, msg.content.length - 1);
-                            let pipeIdx = raw.indexOf('|');
-                            let fileUrl = pipeIdx !== -1 ? raw.substring(0, pipeIdx) : raw;
-                            let filename = pipeIdx !== -1 ? raw.substring(pipeIdx + 1) : raw.substring(raw.lastIndexOf('/') + 1);
-                            let fullUrl = fileUrl.startsWith("http") ? fileUrl : `${this.serverUrl}${fileUrl.startsWith('/') ? '' : '/'}${fileUrl}`;
-                            this.showFileDownloadOptions(filename, fullUrl);
+                            this.showUserAvatarPreview(msg.nickname || msg.name, msg.name, msg.avatar || "");
                           })
-                        } else if (msg.content.startsWith("[user_card:") && msg.content.endsWith("]")) {
-                          Text("📇 [好友名片]")
-                            .fontSize(14)
-                            .fontColor(Color.Orange)
-                        } else {
-                          Text(msg.content)
-                            .fontSize(14)
-                            .fontColor(msg.name === this.currentUsername ? Color.White : Color.Black)
-                        }
+                      } else {
+                        Text((msg.nickname || msg.name || "U").substring(0, 1).toUpperCase())
+                          .fontSize(14)
+                          .fontWeight(FontWeight.Bold)
+                          .fontColor(Color.White)
+                          .textAlign(TextAlign.Center)
+                          .width(36)
+                          .height(36)
+                          .borderRadius(18)
+                          .backgroundColor(this.getAvatarBgColor(msg.name))
+                          .margin({ right: 8, top: 4 })
+                          .onClick(() => {
+                            this.showUserAvatarPreview(msg.nickname || msg.name, msg.name, "");
+                          })
                       }
-                      .padding(10)
-                      .backgroundColor(msg.content === "[system_recalled]" ? "#F0F0F0" : (msg.name === this.currentUsername ? this.themeColor : "#E0E0E0"))
-                      .borderRadius(8)
-                      .gesture(
-                        LongPressGesture({ repeat: false })
-                          .onAction(() => {
-                            if (msg.content !== "[system_recalled]") {
-                              this.showMsgActions(msg);
+                    }
+
+                    Column() {
+                      Row() {
+                        Text(`${msg.nickname} (@${msg.name})`)
+                          .fontSize(10)
+                          .fontColor(Color.Gray)
+                      }
+                      .margin({ bottom: 2 })
+
+                      Row() {
+                        Column() {
+                          if (msg.content === "[system_recalled]") {
+                            Text(msg.name === this.currentUsername ? "您撤回了一条消息" : `"${msg.nickname}" 撤回了一条消息`)
+                              .fontSize(13)
+                              .fontColor(Color.Gray)
+                              .fontStyle(FontStyle.Italic)
+                          } else if (msg.content.startsWith("[img:") && msg.content.endsWith("]")) {
+                            Image(msg.content.substring(5, msg.content.length - 1).startsWith("http") ? 
+                              msg.content.substring(5, msg.content.length - 1) : 
+                              `${this.serverUrl}${msg.content.substring(5, msg.content.length - 1)}`
+                            )
+                              .width(180)
+                              .height(180)
+                              .objectFit(ImageFit.Contain)
+                              .borderRadius(6)
+                              .onClick(() => {
+                                this.previewImageUrl = msg.content.substring(5, msg.content.length - 1).startsWith("http") ? 
+                                  msg.content.substring(5, msg.content.length - 1) : 
+                                  `${this.serverUrl}${msg.content.substring(5, msg.content.length - 1)}`;
+                              })
+                          } else if (msg.content.startsWith("[file:") && msg.content.endsWith("]")) {
+                            Row() {
+                              Text("📎")
+                                .fontSize(22)
+                                .margin({ right: 8 })
+                              Column() {
+                                Text(msg.content.substring(6, msg.content.length - 1).indexOf('|') !== -1 ?
+                                  msg.content.substring(6, msg.content.length - 1).substring(msg.content.substring(6, msg.content.length - 1).indexOf('|') + 1) :
+                                  msg.content.substring(6, msg.content.length - 1).substring(msg.content.substring(6, msg.content.length - 1).lastIndexOf('/') + 1)
+                                )
+                                  .fontSize(14)
+                                  .fontWeight(FontWeight.Bold)
+                                  .fontColor(msg.name === this.currentUsername ? Color.White : Color.Black)
+                                  .maxLines(1)
+                                Text("点击打开链接下载")
+                                  .fontSize(11)
+                                  .fontColor(msg.name === this.currentUsername ? "#E0E0E0" : Color.Gray)
+                                  .margin({ top: 2 })
+                              }
+                              .alignItems(HorizontalAlign.Start)
                             }
+                            .alignItems(VerticalAlign.Center)
+                            .onClick(() => {
+                              let raw = msg.content.substring(6, msg.content.length - 1);
+                              let pipeIdx = raw.indexOf('|');
+                              let fileUrl = pipeIdx !== -1 ? raw.substring(0, pipeIdx) : raw;
+                              let filename = pipeIdx !== -1 ? raw.substring(pipeIdx + 1) : raw.substring(raw.lastIndexOf('/') + 1);
+                              let fullUrl = fileUrl.startsWith("http") ? fileUrl : `${this.serverUrl}${fileUrl.startsWith('/') ? '' : '/'}${fileUrl}`;
+                              this.showFileDownloadOptions(filename, fullUrl);
+                            })
+                          } else if (msg.content.startsWith("[user_card:") && msg.content.endsWith("]")) {
+                            Text("📇 [好友名片]")
+                              .fontSize(14)
+                              .fontColor(Color.Orange)
+                          } else {
+                            Text(msg.content)
+                              .fontSize(14)
+                              .fontColor(msg.name === this.currentUsername ? Color.White : Color.Black)
+                          }
+                        }
+                        .padding(10)
+                        .backgroundColor(msg.content === "[system_recalled]" ? "#F0F0F0" : (msg.name === this.currentUsername ? this.themeColor : "#E0E0E0"))
+                        .borderRadius(8)
+                        .gesture(
+                          LongPressGesture({ repeat: false })
+                            .onAction(() => {
+                              if (msg.content !== "[system_recalled]") {
+                                this.showMsgActions(msg);
+                              }
+                            })
+                        )
+                      }
+                    }
+                    .alignItems(msg.name === this.currentUsername ? HorizontalAlign.End : HorizontalAlign.Start)
+                    .layoutWeight(1)
+
+                    if (msg.name === this.currentUsername) {
+                      // Avatar on right
+                      if (msg.avatar && msg.avatar.trim().length > 0) {
+                        Image(msg.avatar.startsWith("data:image") ? msg.avatar : (msg.avatar.startsWith("http") ? msg.avatar : `${this.serverUrl}${msg.avatar.startsWith('/') ? '' : '/'}${msg.avatar}`))
+                          .width(36)
+                          .height(36)
+                          .borderRadius(18)
+                          .objectFit(ImageFit.Cover)
+                          .margin({ left: 8, top: 4 })
+                          .onClick(() => {
+                            this.showUserAvatarPreview(msg.nickname || msg.name, msg.name, msg.avatar || "");
                           })
-                      )
+                      } else {
+                        Text((msg.nickname || msg.name || "U").substring(0, 1).toUpperCase())
+                          .fontSize(14)
+                          .fontWeight(FontWeight.Bold)
+                          .fontColor(Color.White)
+                          .textAlign(TextAlign.Center)
+                          .width(36)
+                          .height(36)
+                          .borderRadius(18)
+                          .backgroundColor(this.getAvatarBgColor(msg.name))
+                          .margin({ left: 8, top: 4 })
+                          .onClick(() => {
+                            this.showUserAvatarPreview(msg.nickname || msg.name, msg.name, "");
+                          })
+                      }
                     }
                   }
-                  .alignItems(msg.name === this.currentUsername ? HorizontalAlign.End : HorizontalAlign.Start)
                   .width("100%")
+                  .alignItems(VerticalAlign.Top)
                   .padding({ left: 16, right: 16, top: 6, bottom: 6 })
                 }
               })
@@ -2368,6 +2488,100 @@ struct Index {
           .padding(20)
           .backgroundColor(Color.White)
           .borderRadius(10)
+        }
+        .width("100%")
+        .height("100%")
+        .backgroundColor("#80000000")
+        .justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Center)
+      }
+
+      // --- OVERLAY MODAL: USER PROFILE PREVIEW ---
+      if (this.profilePreviewVisible) {
+        Column() {
+          Column({ space: 15 }) {
+            // User Avatar (clickable to view in full-screen!)
+            if (this.profilePreviewAvatar && this.profilePreviewAvatar.trim().length > 0) {
+              Image(this.profilePreviewAvatar.startsWith("data:image") ? this.profilePreviewAvatar : (this.profilePreviewAvatar.startsWith("http") ? this.profilePreviewAvatar : `${this.serverUrl}${this.profilePreviewAvatar.startsWith('/') ? '' : '/'}${this.profilePreviewAvatar}`))
+                .width(100)
+                .height(100)
+                .borderRadius(50)
+                .objectFit(ImageFit.Cover)
+                .onClick(() => {
+                  // View full screen image!
+                  this.previewImageUrl = this.profilePreviewAvatar.startsWith("data:image") ? this.profilePreviewAvatar : (this.profilePreviewAvatar.startsWith("http") ? this.profilePreviewAvatar : `${this.serverUrl}${this.profilePreviewAvatar.startsWith('/') ? '' : '/'}${this.profilePreviewAvatar}`);
+                })
+            } else {
+              Text(this.profilePreviewNickname.substring(0, 1).toUpperCase())
+                .fontSize(36)
+                .fontWeight(FontWeight.Bold)
+                .fontColor(Color.White)
+                .textAlign(TextAlign.Center)
+                .width(100)
+                .height(100)
+                .borderRadius(50)
+                .backgroundColor(this.getAvatarBgColor(this.profilePreviewUser))
+            }
+
+            Text(this.profilePreviewNickname)
+              .fontSize(20)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(Color.Black)
+            
+            Text(`@${this.profilePreviewUser}`)
+              .fontSize(14)
+              .fontColor(Color.Gray)
+            
+            Row({ space: 12 }) {
+              if (this.profilePreviewUser !== this.currentUsername) {
+                if (this.profilePreviewIsFriend) {
+                  Button("❌ 删除好友")
+                    .layoutWeight(1)
+                    .height(40)
+                    .backgroundColor("#FF3B30")
+                    .onClick(() => {
+                      this.profilePreviewVisible = false;
+                      promptAction.showDialog({
+                        title: "删除好友确认",
+                        message: `确定要删除好友 @${this.profilePreviewUser} 吗？`,
+                        buttons: [
+                          { text: "取消", color: "#808080" },
+                          { text: "确认删除", color: "#FF3B30" }
+                        ]
+                      }, (dialogErr: BusinessError, dialogData: promptAction.ShowDialogSuccessResponse) => {
+                        if (!dialogErr && dialogData.index === 1) {
+                          this.deleteFriendApi(this.profilePreviewUser);
+                        }
+                      });
+                    })
+                } else {
+                  Button("➕ 添加好友")
+                    .layoutWeight(1)
+                    .height(40)
+                    .backgroundColor(this.themeColor)
+                    .onClick(() => {
+                      this.profilePreviewVisible = false;
+                      this.sendRequest(this.profilePreviewUser);
+                    })
+                }
+              }
+              
+              Button("关闭")
+                .layoutWeight(1)
+                .height(40)
+                .backgroundColor(Color.Gray)
+                .onClick(() => {
+                  this.profilePreviewVisible = false;
+                })
+            }
+            .width("100%")
+            .margin({ top: 10 })
+          }
+          .width("80%")
+          .padding(24)
+          .backgroundColor(Color.White)
+          .borderRadius(16)
+          .shadow({ radius: 10, color: "#20000000" })
         }
         .width("100%")
         .height("100%")
