@@ -172,6 +172,14 @@ struct Index {
 
   aboutToAppear() {
     this.loadLocalSettings();
+    if (this.token) {
+      this.screenState = "MAIN";
+      this.activeTabIndex = 0;
+      this.connectWebSocket();
+      this.loadRelations();
+      this.loadBlockedUsers();
+      this.loadHistory();
+    }
   }
 
   aboutToDisappear() {
@@ -187,6 +195,9 @@ struct Index {
       this.themeColor = pref.getSync("themeColor", "#1565C0") as string;
       let pins = pref.getSync("pinnedChats", "[]") as string;
       this.pinnedChats = JSON.parse(pins) as string[];
+      this.token = pref.getSync("token", "") as string;
+      this.currentUsername = pref.getSync("currentUsername", "") as string;
+      this.currentUserNickname = pref.getSync("currentUserNickname", "") as string;
     } catch (e) {
       console.error("Failed to load local settings");
     }
@@ -200,6 +211,9 @@ struct Index {
       pref.putSync("wsUrl", this.wsUrl);
       pref.putSync("themeColor", this.themeColor);
       pref.putSync("pinnedChats", JSON.stringify(this.pinnedChats));
+      pref.putSync("token", this.token);
+      pref.putSync("currentUsername", this.currentUsername);
+      pref.putSync("currentUserNickname", this.currentUserNickname);
       pref.flushSync();
     } catch (e) {
       console.error("Failed to save local settings");
@@ -1100,6 +1114,7 @@ struct Index {
             this.token = res.token;
             this.currentUsername = res.username;
             this.currentUserNickname = res.nickname || res.username;
+            this.saveLocalSettings();
             this.loginStatusMsg = "";
             this.screenState = "MAIN";
             this.activeTabIndex = 0;
@@ -1612,6 +1627,10 @@ struct Index {
                       .margin({ top: 15 })
                       .onClick(() => {
                         this.closeWebSocket();
+                        this.token = "";
+                        this.currentUsername = "";
+                        this.currentUserNickname = "";
+                        this.saveLocalSettings();
                         this.screenState = "LOGIN";
                       })
                   }
