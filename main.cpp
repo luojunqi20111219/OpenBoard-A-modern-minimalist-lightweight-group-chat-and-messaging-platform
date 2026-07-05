@@ -157,13 +157,6 @@ LRESULT CALLBACK MyWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
             // Intercept close button and hide window to keep running in background
             ShowWindow(hwnd, SW_HIDE);
             return 0;
-        case WM_SIZE:
-            if (wParam == SIZE_MINIMIZED) {
-                // Intercept minimize button and hide window to tray
-                ShowWindow(hwnd, SW_HIDE);
-                return 0;
-            }
-            break;
         case WM_ACTIVATE:
             // Stop flashing when window becomes active
             if (LOWORD(wParam) != WA_INACTIVE) {
