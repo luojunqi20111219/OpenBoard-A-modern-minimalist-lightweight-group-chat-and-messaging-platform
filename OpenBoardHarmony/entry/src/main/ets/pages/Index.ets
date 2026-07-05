@@ -7,6 +7,7 @@ import common from '@ohos.app.ability.common';
 import Want from '@ohos.app.ability.Want';
 import picker from '@ohos.file.picker';
 import fs from '@ohos.file.fs';
+import request from '@ohos.request';
 import { BusinessError } from '@ohos.base';
 
 interface Message {
@@ -386,18 +387,64 @@ struct Index {
     promptAction.showActionMenu({
       title: filename,
       buttons: [
-        { text: "🌐 浏览器打开下载", color: this.themeColor },
+        { text: "📥 直接下载到手机", color: this.themeColor },
+        { text: "🌐 浏览器打开下载", color: "#FF9800" },
         { text: "📋 复制下载链接", color: "#4CAF50" }
       ]
     }, (err: BusinessError, data: promptAction.ActionMenuSuccessResponse) => {
       if (!err) {
         if (data.index === 0) {
-          this.openBrowserUrl(url);
+          this.downloadFileNatively(filename, url);
         } else if (data.index === 1) {
+          this.openBrowserUrl(url);
+        } else if (data.index === 2) {
           this.copyToClipboard(url);
         }
       }
     });
+  }
+
+  // Native background download via ohos.request
+  downloadFileNatively(filename: string, url: string) {
+    try {
+      let context = getContext(this) as common.UIAbilityContext;
+      let filesDir = context.filesDir;
+      let localPath = `${filesDir}/${filename}`;
+      
+      // Delete existing to prevent collisions
+      try {
+        if (fs.accessSync(localPath)) {
+          fs.unlinkSync(localPath);
+        }
+      } catch (e) {
+        // file doesn't exist
+      }
+      
+      promptAction.showToast({ message: "正在开始后台下载..." });
+      
+      request.downloadFile(context, {
+        url: url,
+        filePath: localPath
+      }).then((downloadTask: request.DownloadTask) => {
+        downloadTask.on('complete', () => {
+          promptAction.showDialog({
+            title: "下载完成",
+            message: `文件已成功下载到应用沙盒！\n名称: ${filename}\n路径: ${localPath}`,
+            buttons: [
+              { text: "确定", color: this.themeColor }
+            ]
+          });
+        });
+        
+        downloadTask.on('fail', (errCode: number) => {
+          promptAction.showToast({ message: `下载失败，错误码: ${errCode}` });
+        });
+      }).catch((e: BusinessError) => {
+        promptAction.showToast({ message: "创建下载任务失败" });
+      });
+    } catch(e) {
+      promptAction.showToast({ message: "下载文件发生异常" });
+    }
   }
 
   // Convert ArrayBuffer to Base64 using pure TypeScript
