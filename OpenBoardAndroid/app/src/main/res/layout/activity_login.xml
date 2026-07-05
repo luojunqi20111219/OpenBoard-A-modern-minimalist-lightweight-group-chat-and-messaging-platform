@@ -38,7 +38,7 @@
                 android:id="@+id/tv_title"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="信语"
+                android:text="🛡️ 信语 ROOT 系统"
                 android:textSize="26sp"
                 android:textStyle="bold"
                 android:textColor="@color/text_primary"
