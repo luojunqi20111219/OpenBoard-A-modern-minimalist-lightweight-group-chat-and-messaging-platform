@@ -185,8 +185,25 @@ class ChatActivity : AppCompatActivity() {
 
         // 附件上传点击
         binding.btnAttach.setOnClickListener {
-            currentPickerMode = PickerMode.ATTACHMENT
-            pickMediaLauncher.launch("*/*")
+            val options = arrayOf("发送图片", "发送文件", "推送好友名片")
+            AlertDialog.Builder(this)
+                .setTitle("选择操作")
+                .setItems(options) { _, which ->
+                    when (which) {
+                        0 -> {
+                            currentPickerMode = PickerMode.ATTACHMENT
+                            pickMediaLauncher.launch("image/*")
+                        }
+                        1 -> {
+                            currentPickerMode = PickerMode.ATTACHMENT
+                            pickMediaLauncher.launch("*/*")
+                        }
+                        2 -> {
+                            showShareCardFriendListDialog()
+                        }
+                    }
+                }
+                .show()
         }
 
         // 发送按钮点击
@@ -337,6 +354,52 @@ class ChatActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 binding.progressBar.visibility = View.GONE
                 Toast.makeText(this@ChatActivity, "上传异常: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun showShareCardFriendListDialog() {
+        lifecycleScope.launch {
+            binding.progressBar.visibility = View.VISIBLE
+            val result = repository.getFriends()
+            binding.progressBar.visibility = View.GONE
+            
+            result.onSuccess { friends ->
+                val myUsername = SessionManager.username ?: ""
+                val filtered = friends.filter { it.username != "filehelper" && it.username != myUsername }
+                
+                if (filtered.isEmpty()) {
+                    Toast.makeText(this@ChatActivity, "暂无好友可推荐", Toast.LENGTH_SHORT).show()
+                    return@onSuccess
+                }
+                
+                val displayNames = filtered.map { it.nickname ?: it.username }.toTypedArray()
+                
+                AlertDialog.Builder(this@ChatActivity)
+                    .setTitle("选择要推荐的好友")
+                    .setItems(displayNames) { _, which ->
+                        val target = filtered[which]
+                        val encodedNickname = java.net.URLEncoder.encode(target.nickname ?: target.username, "UTF-8")
+                        val cardContent = "[user_card:${target.username}:$encodedNickname]"
+                        
+                        lifecycleScope.launch {
+                            val sendResult = repository.sendMessage(
+                                SendMessageRequest(
+                                    content = cardContent,
+                                    roomId = roomId,
+                                    receiver = targetUser
+                                )
+                            )
+                            sendResult.onSuccess {
+                                loadMessages()
+                            }.onFailure { e ->
+                                Toast.makeText(this@ChatActivity, "发送名片失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                    .show()
+            }.onFailure { e ->
+                Toast.makeText(this@ChatActivity, "获取好友列表失败: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -963,65 +1026,159 @@ class ChatActivity : AppCompatActivity() {
             ivAvatar.setImageResource(R.drawable.ic_person)
         }
         
+        val buttonContainer = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+        root.addView(buttonContainer)
+        
         if (!isMe) {
-            val blockedList = SessionManager.blockedUsers
-            var isBlocked = blockedList.contains(target)
-            
-            val btnChat = android.widget.Button(this).apply {
-                layoutParams = android.widget.LinearLayout.LayoutParams(
-                    android.view.ViewGroup.LayoutParams.MATCH_PARENT, 
-                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    bottomMargin = 20
-                }
-                text = "发消息"
-                setTextColor(0xFFFFFFFF.toInt())
-                setBackgroundColor(resources.getColor(R.color.primary, null))
-                setOnClickListener {
-                    dialog.dismiss()
-                    if (targetUser == target) {
-                        return@setOnClickListener
-                    }
-                    val intent = Intent(this@ChatActivity, ChatActivity::class.java).apply {
-                        putExtra("room_id", 0)
-                        putExtra("room_name", message.nickname ?: target)
-                        putExtra("target_user", target)
-                    }
-                    startActivity(intent)
-                    finish()
-                }
+            val tvLoading = android.widget.TextView(this).apply {
+                text = "正在获取好友状态..."
+                gravity = android.view.Gravity.CENTER
+                setPadding(0, 20, 0, 20)
+                setTextColor(0xFF757575.toInt())
             }
-            root.addView(btnChat)
+            buttonContainer.addView(tvLoading)
             
-            val btnDeleteFriend = android.widget.Button(this).apply {
-                layoutParams = android.widget.LinearLayout.LayoutParams(
-                    android.view.ViewGroup.LayoutParams.MATCH_PARENT, 
-                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT
-                )
-                text = "删除好友"
-                setTextColor(0xFFFFFFFF.toInt())
-                setBackgroundColor(0xFFE53935.toInt())
-                setOnClickListener {
-                    dialog.dismiss()
-                    AlertDialog.Builder(this@ChatActivity)
-                        .setTitle("删除好友")
-                        .setMessage("确定要删除好友 @$target 吗？删除后你们将无法发送私信。")
-                        .setPositiveButton("删除") { _, _ ->
-                            lifecycleScope.launch {
-                                val result = repository.removeFriend(target)
-                                result.onSuccess {
-                                    Toast.makeText(this@ChatActivity, "已成功删除该好友", Toast.LENGTH_SHORT).show()
-                                    finish() // Close the chat screen
-                                }.onFailure { e ->
-                                    Toast.makeText(this@ChatActivity, "删除好友失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            lifecycleScope.launch {
+                val result = repository.searchUsers(target)
+                buttonContainer.removeAllViews()
+                
+                result.onSuccess { users ->
+                    val u = users.find { it.username == target }
+                    if (u != null) {
+                        tvNickname.text = u.nickname ?: target
+                        val serverAvatar = u.avatar
+                        if (!serverAvatar.isNullOrEmpty() && avatarStr.isNullOrEmpty()) {
+                            try {
+                                val base64Data = if (serverAvatar.startsWith("data:image")) {
+                                    serverAvatar.substringAfter("base64,")
+                                } else {
+                                    serverAvatar
+                                }
+                                val bytes = Base64.decode(base64Data, Base64.DEFAULT)
+                                val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                                ivAvatar.setImageBitmap(bmp)
+                            } catch (e: Exception) {}
+                        }
+                        
+                        if (u.isFriend == true) {
+                            val btnChat = android.widget.Button(this@ChatActivity).apply {
+                                layoutParams = android.widget.LinearLayout.LayoutParams(
+                                    android.view.ViewGroup.LayoutParams.MATCH_PARENT, 
+                                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+                                ).apply { bottomMargin = 20 }
+                                text = "发消息"
+                                setTextColor(0xFFFFFFFF.toInt())
+                                setBackgroundColor(resources.getColor(R.color.primary, null))
+                                setOnClickListener {
+                                    dialog.dismiss()
+                                    if (targetUser == target) return@setOnClickListener
+                                    val intent = Intent(this@ChatActivity, ChatActivity::class.java).apply {
+                                        putExtra("room_id", 0)
+                                        putExtra("room_name", u.nickname ?: target)
+                                        putExtra("target_user", target)
+                                    }
+                                    startActivity(intent)
+                                    finish()
                                 }
                             }
+                            buttonContainer.addView(btnChat)
+                            
+                            val btnDelete = android.widget.Button(this@ChatActivity).apply {
+                                layoutParams = android.widget.LinearLayout.LayoutParams(
+                                    android.view.ViewGroup.LayoutParams.MATCH_PARENT, 
+                                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+                                )
+                                text = "删除好友"
+                                setTextColor(0xFFFFFFFF.toInt())
+                                setBackgroundColor(0xFFE53935.toInt())
+                                setOnClickListener {
+                                    dialog.dismiss()
+                                    AlertDialog.Builder(this@ChatActivity)
+                                        .setTitle("删除好友")
+                                        .setMessage("确定要删除好友 @$target 吗？删除后你们将无法发送私信。")
+                                        .setPositiveButton("删除") { _, _ ->
+                                            lifecycleScope.launch {
+                                                repository.removeFriend(target).onSuccess {
+                                                    Toast.makeText(this@ChatActivity, "已成功删除该好友", Toast.LENGTH_SHORT).show()
+                                                    if (targetUser == target) finish()
+                                                }.onFailure { e ->
+                                                    Toast.makeText(this@ChatActivity, "删除失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        }
+                                        .setNegativeButton("取消", null)
+                                        .show()
+                                }
+                            }
+                            buttonContainer.addView(btnDelete)
+                        } else {
+                            val btnAdd = android.widget.Button(this@ChatActivity).apply {
+                                layoutParams = android.widget.LinearLayout.LayoutParams(
+                                    android.view.ViewGroup.LayoutParams.MATCH_PARENT, 
+                                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+                                )
+                                setTextColor(0xFFFFFFFF.toInt())
+                                setBackgroundColor(resources.getColor(R.color.primary, null))
+                                
+                                when {
+                                    u.requestStatus == "pending" && u.requestDirection == "sent" -> {
+                                        text = "已发送验证 (等待验证)"
+                                        isEnabled = false
+                                        alpha = 0.6f
+                                    }
+                                    u.requestStatus == "pending" && u.requestDirection == "received" -> {
+                                        text = "同意好友验证申请"
+                                        setOnClickListener {
+                                            dialog.dismiss()
+                                            lifecycleScope.launch {
+                                                repository.respondFriendRequest(target, "accept").onSuccess {
+                                                    Toast.makeText(this@ChatActivity, "已同意好友申请", Toast.LENGTH_SHORT).show()
+                                                }.onFailure { e ->
+                                                    Toast.makeText(this@ChatActivity, "处理失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        }
+                                    }
+                                    else -> {
+                                        text = "加为好友"
+                                        setOnClickListener {
+                                            dialog.dismiss()
+                                            lifecycleScope.launch {
+                                                repository.sendFriendRequest(target).onSuccess {
+                                                    Toast.makeText(this@ChatActivity, "好友申请已发送", Toast.LENGTH_SHORT).show()
+                                                }.onFailure { e ->
+                                                    Toast.makeText(this@ChatActivity, "发送失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            buttonContainer.addView(btnAdd)
                         }
-                        .setNegativeButton("取消", null)
-                        .show()
+                    } else {
+                        val tvError = android.widget.TextView(this@ChatActivity).apply {
+                            text = "无法获取该用户信息"
+                            gravity = android.view.Gravity.CENTER
+                            setTextColor(0xFFE53935.toInt())
+                        }
+                        buttonContainer.addView(tvError)
+                    }
+                }.onFailure { e ->
+                    val tvError = android.widget.TextView(this@ChatActivity).apply {
+                        text = "加载失败: ${e.message}"
+                        gravity = android.view.Gravity.CENTER
+                        setTextColor(0xFFE53935.toInt())
+                    }
+                    buttonContainer.addView(tvError)
                 }
             }
-            root.addView(btnDeleteFriend)
         }
         
         dialog.setView(root)

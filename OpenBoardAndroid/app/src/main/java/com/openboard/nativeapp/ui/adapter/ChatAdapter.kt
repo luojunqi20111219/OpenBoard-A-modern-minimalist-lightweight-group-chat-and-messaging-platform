@@ -50,6 +50,7 @@ class ChatAdapter(
     
     private val imgRegex = Regex("\\[img:(.*?)\\]")
     private val fileRegex = Regex("\\[file:(.*?)\\|(.*?)\\]")
+    private val cardRegex = Regex("\\[user_card:([^:]+):?(.*?)\\]")
 
     override fun getItemCount() = messages.size
 
@@ -97,8 +98,42 @@ class ChatAdapter(
 
         val imgMatch = imgRegex.find(content)
         val fileMatch = fileRegex.find(content)
+        val cardMatch = cardRegex.find(content)
 
         when {
+            cardMatch != null -> {
+                val targetUsername = cardMatch.groupValues[1]
+                val encodedNickname = cardMatch.groupValues[2]
+                val targetNickname = try {
+                    java.net.URLDecoder.decode(encodedNickname, "UTF-8")
+                } catch (e: Exception) {
+                    encodedNickname
+                }.ifEmpty { targetUsername }
+
+                tvContent.visibility = View.VISIBLE
+                ivImageNormal.visibility = View.GONE
+                
+                val cardText = "📇 个人名片\n" +
+                               "━━━━━━━━━━━━━━━\n" +
+                               "昵称：$targetNickname\n" +
+                               "账号：@$targetUsername\n" +
+                               "━━━━━━━━━━━━━━━\n" +
+                               "点击此处查看名片 / 添加好友"
+                tvContent.text = cardText
+                tvContent.setTextColor(0xFF3F51B5.toInt())
+                tvContent.setOnClickListener {
+                    val dummyMessage = Message(
+                        id = 0,
+                        roomId = 0,
+                        name = targetUsername,
+                        nickname = targetNickname,
+                        content = "",
+                        time = "",
+                        avatar = null
+                    )
+                    onAvatarClick?.invoke(dummyMessage)
+                }
+            }
             imgMatch != null -> {
                 val url = imgMatch.groupValues[1]
                 tvContent.visibility = View.GONE
