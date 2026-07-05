@@ -16,3 +16,6 @@ OpenBoardAndroid/.idea/
 *.apk
 *.iml
 *.exe
+build/
+dist/
+*.spec
