@@ -88,17 +88,33 @@ jobs:
 
               post_install do |installer|
                 flutter_post_install(installer) if defined?(flutter_post_install)
+                installer.pods_project.targets.each do |target|
+                  target.build_configurations.each do |config|
+                    config.build_settings['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
+                  end
+                end
+                installer.pods_project.build_configurations.each do |config|
+                  config.build_settings['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
+                end
               end
           ''')
           with open(podfile_path, 'w') as f:
               f.write(podfile_content)
 
-          # 3. Update project.pbxproj deployment target to 13.0
+          # 3. Update project.pbxproj deployment target to 13.0 and bypass signing
           proj_path = 'OpenBoardFlutter/ios/Runner.xcodeproj/project.pbxproj'
           with open(proj_path, 'r') as f:
               proj_content = f.read()
           proj_content = proj_content.replace('IPHONEOS_DEPLOYMENT_TARGET = 11.0', 'IPHONEOS_DEPLOYMENT_TARGET = 13.0')
           proj_content = proj_content.replace('IPHONEOS_DEPLOYMENT_TARGET = 12.0', 'IPHONEOS_DEPLOYMENT_TARGET = 13.0')
+          
+          # Inject code signing bypass settings after deployment target
+          signing_bypass = '''IPHONEOS_DEPLOYMENT_TARGET = 13.0;
+          CODE_SIGNING_ALLOWED = NO;
+          CODE_SIGNING_REQUIRED = NO;
+          CODE_SIGN_IDENTITY = "";'''
+          proj_content = proj_content.replace('IPHONEOS_DEPLOYMENT_TARGET = 13.0;', signing_bypass)
+          
           with open(proj_path, 'w') as f:
               f.write(proj_content)
           EOF
