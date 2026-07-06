@@ -29,9 +29,10 @@ dev_dependencies:
   flutter_launcher_icons: ^0.13.1
 
 flutter_launcher_icons:
-  android: "launcher_icon"
+  android: false
   ios: true
   image_path: "../OpenBoardHarmony/entry/src/main/resources/base/media/app_icon.png"
+  remove_alpha_ios: true
 
 flutter:
   uses-material-design: true
