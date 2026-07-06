@@ -30,9 +30,11 @@ jobs:
           cd OpenBoardFlutter
           flutter create --platforms=ios .
 
-      - name: Configure iOS Permissions
+      - name: Configure iOS Permissions and Deployment Target
         run: |
           python3 -c "
+          import re
+          # 1. Add camera and photo permissions to Info.plist
           plist_path = 'OpenBoardFlutter/ios/Runner/Info.plist'
           with open(plist_path, 'r') as f:
               content = f.read()
@@ -43,9 +45,27 @@ jobs:
               <string>我们需要您的相册权限来识别相册中的二维码。</string>
           '''
           if '</dict>' in content:
-              new_content = content.replace('</dict>', permission_keys + '</dict>', 1)
+              content = content.replace('</dict>', permission_keys + '</dict>', 1)
               with open(plist_path, 'w') as f:
-                  f.write(new_content)
+                  f.write(content)
+
+          # 2. Update Podfile deployment target to 13.0 (required by mobile_scanner)
+          podfile_path = 'OpenBoardFlutter/ios/Podfile'
+          with open(podfile_path, 'r') as f:
+              p_content = f.read()
+          p_content = re.sub(r'#\s*platform :ios,\s*\'\d+\.\d+\'', 'platform :ios, \'13.0\'', p_content)
+          p_content = re.sub(r'platform :ios,\s*\'\d+\.\d+\'', 'platform :ios, \'13.0\'', p_content)
+          with open(podfile_path, 'w') as f:
+              f.write(p_content)
+
+          # 3. Update project.pbxproj deployment target to 13.0
+          proj_path = 'OpenBoardFlutter/ios/Runner.xcodeproj/project.pbxproj'
+          with open(proj_path, 'r') as f:
+              proj_content = f.read()
+          proj_content = proj_content.replace('IPHONEOS_DEPLOYMENT_TARGET = 11.0', 'IPHONEOS_DEPLOYMENT_TARGET = 13.0')
+          proj_content = proj_content.replace('IPHONEOS_DEPLOYMENT_TARGET = 12.0', 'IPHONEOS_DEPLOYMENT_TARGET = 13.0')
+          with open(proj_path, 'w') as f:
+              f.write(proj_content)
           "
 
       - name: Get Dependencies
