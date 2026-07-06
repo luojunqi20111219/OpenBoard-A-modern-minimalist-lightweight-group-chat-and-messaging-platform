@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -106,10 +107,10 @@ class _ScanScreenState extends State<ScanScreen> {
             onPressed: _scanFromGallery,
           ),
           IconButton(
-            icon: ValueListenableBuilder(
-              valueListenable: _scannerController.torchState,
+            icon: ValueListenableBuilder<MobileScannerState>(
+              valueListenable: _scannerController,
               builder: (context, state, child) {
-                switch (state) {
+                switch (state.torchState) {
                   case TorchState.on:
                     return const Icon(Icons.flash_on);
                   case TorchState.off:

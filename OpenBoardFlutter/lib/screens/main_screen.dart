@@ -503,7 +503,7 @@ class _MainScreenState extends State<MainScreen> {
             IconButton(
               icon: const Icon(Icons.qr_code_scanner, color: Colors.white),
               tooltip: '扫码',
-              onPressed: _startQrScan,
+              onPressed: _startScanFromHeader,
             ),
             IconButton(
               icon: const Icon(Icons.group_add, color: Colors.white),
