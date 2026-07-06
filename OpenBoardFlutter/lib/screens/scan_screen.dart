@@ -110,10 +110,11 @@ class _ScanScreenState extends State<ScanScreen> {
               valueListenable: _scannerController.torchState,
               builder: (context, state, child) {
                 switch (state) {
-                  case TorchState.off:
-                    return const Icon(Icons.flash_off);
                   case TorchState.on:
                     return const Icon(Icons.flash_on);
+                  case TorchState.off:
+                  default:
+                    return const Icon(Icons.flash_off);
                 }
               },
             ),
