@@ -109,12 +109,18 @@ jobs:
           proj_content = proj_content.replace('IPHONEOS_DEPLOYMENT_TARGET = 11.0', 'IPHONEOS_DEPLOYMENT_TARGET = 13.0')
           proj_content = proj_content.replace('IPHONEOS_DEPLOYMENT_TARGET = 12.0', 'IPHONEOS_DEPLOYMENT_TARGET = 13.0')
           
-          # Inject code signing bypass settings after deployment target
-          signing_bypass = '''IPHONEOS_DEPLOYMENT_TARGET = 13.0;
-          CODE_SIGNING_ALLOWED = NO;
-          CODE_SIGNING_REQUIRED = NO;
-          CODE_SIGN_IDENTITY = "";'''
-          proj_content = proj_content.replace('IPHONEOS_DEPLOYMENT_TARGET = 13.0;', signing_bypass)
+          # Force Manual signing style
+          proj_content = proj_content.replace('ProvisioningStyle = Automatic;', 'ProvisioningStyle = Manual;')
+          
+          # Remove Code Sign Identity and Development Team settings
+          import re
+          proj_content = re.sub(r'CODE_SIGN_IDENTITY\s*=\s*[^;]+;', 'CODE_SIGN_IDENTITY = "";', proj_content)
+          proj_content = re.sub(r'CODE_SIGN_IDENTITY\[sdk=iphoneos\*\]\s*=\s*[^;]+;', 'CODE_SIGN_IDENTITY[sdk=iphoneos*] = "";', proj_content)
+          proj_content = re.sub(r'DEVELOPMENT_TEAM\s*=\s*[^;]+;', 'DEVELOPMENT_TEAM = "";', proj_content)
+          
+          # Inject CODE_SIGNING_ALLOWED = NO and CODE_SIGNING_REQUIRED = NO after code sign identities
+          proj_content = proj_content.replace('CODE_SIGN_IDENTITY = "";', 'CODE_SIGN_IDENTITY = "";\n          CODE_SIGNING_ALLOWED = NO;\n          CODE_SIGNING_REQUIRED = NO;')
+          proj_content = proj_content.replace('CODE_SIGN_IDENTITY[sdk=iphoneos*] = "";', 'CODE_SIGN_IDENTITY[sdk=iphoneos*] = "";\n          CODE_SIGNING_ALLOWED = NO;\n          CODE_SIGNING_REQUIRED = NO;')
           
           with open(proj_path, 'w') as f:
               f.write(proj_content)
