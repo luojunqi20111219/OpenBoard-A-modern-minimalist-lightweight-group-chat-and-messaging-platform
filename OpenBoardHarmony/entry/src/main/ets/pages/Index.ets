@@ -58,9 +58,22 @@ interface HistoryResponse {
   data: Message[];
 }
 
+interface WsMsgData {
+  id?: number;
+  name: string;
+  nickname: string;
+  content: string;
+  time: string;
+  room_id: number;
+  avatar?: string;
+  receiver?: string;
+}
+
 interface WsMsg {
   type: string;
+  data?: WsMsgData;
   name?: string;
+  user?: string;
   nickname?: string;
   content?: string;
   time?: string;
@@ -69,6 +82,7 @@ interface WsMsg {
   from_nickname?: string;
   msg_id?: number;
   avatar?: string;
+  receiver?: string;
 }
 
 interface SendMsgPayload {
@@ -295,17 +309,18 @@ struct Index {
           }
           if (dataStr) {
             let dataObj = JSON.parse(dataStr) as WsMsg;
-            if (dataObj.type === "message") {
+            if (dataObj.type === "message" && dataObj.data) {
+              let msgData = dataObj.data;
               let msg: Message = {
-                name: dataObj.name || "",
-                nickname: dataObj.nickname || dataObj.name || "",
-                content: dataObj.content || "",
-                time: dataObj.time || new Date().toISOString(),
-                room_id: dataObj.room_id || 0,
-                avatar: dataObj.avatar || ""
+                name: msgData.name || "",
+                nickname: msgData.nickname || msgData.name || "",
+                content: msgData.content || "",
+                time: msgData.time || new Date().toISOString(),
+                room_id: msgData.room_id || 0,
+                avatar: msgData.avatar || ""
               };
               
-              let key = msg.room_id > 0 ? `group:${msg.room_id}` : `friend:${msg.name}`;
+              let key = msg.room_id > 0 ? `group:${msg.room_id}` : `friend:${msg.name === this.currentUsername ? msgData.receiver : msg.name}`;
               
               // Extract snippet representation
               let snippet = msg.content;
@@ -316,23 +331,33 @@ struct Index {
               
               // Increment unread count if we are not actively in this screen
               let isCurrentActiveScreen = (this.screenState === "CHAT" && 
-                (msg.room_id > 0 ? this.activeRoomId === msg.room_id : this.activeTargetUser === msg.name));
+                (msg.room_id > 0 ? this.activeRoomId === msg.room_id : (this.activeTargetUser === msg.name || this.activeTargetUser === msgData.receiver)));
               
               if (!isCurrentActiveScreen) {
                 this.unreadCounts[key] = (this.unreadCounts[key] || 0) + 1;
               }
               
               // Check if matches active screen
-              if (msg.room_id === this.activeRoomId && (msg.room_id > 0 || msg.name === this.activeTargetUser || this.currentUsername === msg.name)) {
+              let isMatchActive = false;
+              if (msg.room_id > 0) {
+                isMatchActive = (msg.room_id === this.activeRoomId);
+              } else {
+                isMatchActive = (this.activeRoomId === 0 && 
+                  ((msg.name === this.activeTargetUser && msgData.receiver === this.currentUsername) ||
+                   (msg.name === this.currentUsername && msgData.receiver === this.activeTargetUser)));
+              }
+
+              if (isMatchActive) {
                 this.messages.push(msg);
                 this.scrollToBottom();
               }
             } else if (dataObj.type === "typing") {
               // Show typing indicator if match
+              let typingUser = dataObj.user || "";
               let isMyChat = (dataObj.room_id === this.activeRoomId && 
-                (dataObj.room_id > 0 || dataObj.name === this.activeTargetUser));
+                (dataObj.room_id > 0 || typingUser === this.activeTargetUser));
               
-              if (isMyChat && dataObj.name !== this.currentUsername) {
+              if (isMyChat && typingUser !== this.currentUsername) {
                 this.typingIndicator = "对方正在输入...";
                 if (this.typingTimer) {
                   clearTimeout(this.typingTimer);
