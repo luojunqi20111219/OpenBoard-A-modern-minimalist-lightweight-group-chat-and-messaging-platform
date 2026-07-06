@@ -243,7 +243,7 @@ class QrScannerOverlayShape extends ShapeBorder {
     // Draw overlay mask with cutout
     canvas.drawPath(
       Path.combine(
-        PathOp.difference,
+        PathOperation.difference,
         Path()..addRect(rect),
         Path()..addRRect(RRect.fromRectAndRadius(cutoutRect, Radius.circular(borderRadius))),
       ),
