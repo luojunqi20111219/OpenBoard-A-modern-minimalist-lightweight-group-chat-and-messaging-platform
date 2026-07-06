@@ -117,11 +117,11 @@ jobs:
           # Remove Code Sign Identity and Development Team settings
           proj_content = re.sub(r'CODE_SIGN_IDENTITY\s*=\s*[^;]+;', 'CODE_SIGN_IDENTITY = "";', proj_content)
           proj_content = re.sub(r'CODE_SIGN_IDENTITY\[sdk=iphoneos\*\]\s*=\s*[^;]+;', 'CODE_SIGN_IDENTITY[sdk=iphoneos*] = "";', proj_content)
-          proj_content = re.sub(r'DEVELOPMENT_TEAM\s*=\s*[^;]+;', 'DEVELOPMENT_TEAM = "";', proj_content)
+          proj_content = re.sub(r'DEVELOPMENT_TEAM\s*=\s*[^;]+;', 'DEVELOPMENT_TEAM = ABCDE12345;', proj_content)
           
-          # Inject CODE_SIGNING_ALLOWED = NO and CODE_SIGNING_REQUIRED = NO after code sign identities
-          proj_content = proj_content.replace('CODE_SIGN_IDENTITY = "";', 'CODE_SIGN_IDENTITY = "";\n          CODE_SIGNING_ALLOWED = NO;\n          CODE_SIGNING_REQUIRED = NO;')
-          proj_content = proj_content.replace('CODE_SIGN_IDENTITY[sdk=iphoneos*] = "";', 'CODE_SIGN_IDENTITY[sdk=iphoneos*] = "";\n          CODE_SIGNING_ALLOWED = NO;\n          CODE_SIGNING_REQUIRED = NO;')
+          # Inject CODE_SIGNING_ALLOWED = NO, CODE_SIGNING_REQUIRED = NO and DEVELOPMENT_TEAM = ABCDE12345 after code sign identities
+          proj_content = proj_content.replace('CODE_SIGN_IDENTITY = "";', 'CODE_SIGN_IDENTITY = "";\n          CODE_SIGNING_ALLOWED = NO;\n          CODE_SIGNING_REQUIRED = NO;\n          DEVELOPMENT_TEAM = ABCDE12345;')
+          proj_content = proj_content.replace('CODE_SIGN_IDENTITY[sdk=iphoneos*] = "";', 'CODE_SIGN_IDENTITY[sdk=iphoneos*] = "";\n          CODE_SIGNING_ALLOWED = NO;\n          CODE_SIGNING_REQUIRED = NO;\n          DEVELOPMENT_TEAM = ABCDE12345;')
           
           with open(proj_path, 'w') as f:
               f.write(proj_content)
@@ -132,7 +132,7 @@ jobs:
               path = os.path.join(config_dir, config_file)
               if os.path.exists(path):
                   with open(path, 'a') as f:
-                      f.write('\nCODE_SIGNING_ALLOWED = NO\nCODE_SIGNING_REQUIRED = NO\nCODE_SIGN_IDENTITY =\nDEVELOPMENT_TEAM =\n')
+                      f.write('\nCODE_SIGNING_ALLOWED = NO\nCODE_SIGNING_REQUIRED = NO\nCODE_SIGN_IDENTITY =\nDEVELOPMENT_TEAM = ABCDE12345\n')
           EOF
 
       - name: Get Dependencies
