@@ -9,6 +9,11 @@ import picker from '@ohos.file.picker';
 import fs from '@ohos.file.fs';
 import request from '@ohos.request';
 import { BusinessError } from '@ohos.base';
+import cameraPicker from '@ohos.multimedia.cameraPicker';
+import camera from '@ohos.multimedia.camera';
+import { scanBarcode, scanCore } from '@kit.ScanKit';
+import { RGBLuminanceSource, BinaryBitmap, HybridBinarizer, MultiFormatReader, DecodeHintType, BarcodeFormat } from '@ohos/zxing';
+import image from '@ohos.multimedia.image';
 
 interface Message {
   id?: number;
@@ -103,11 +108,24 @@ interface TypingFrame {
   receiver?: string;
 }
 
+const EMOJI_CATEGORIES: Record<string, string[]> = {
+  "❤️ 收藏": [],
+  "😀 表情": ["😀", "😃", "😄", "😁", "😆", "😅", "😂", "🤣", "😊", "😇", "🙂", "🙃", "😉", "😌", "😍", "🥰", "😘", "😗", "😙", "😚", "😋", "😛", "😝", "😜", "🤪", "🤨", "🧐", "🤓", "😎", "🤩", "🥳", "😏", "😒", "😞", "😔", "😟", "😕", "🙁", "☹️", "😣", "😖", "😫", "😩", "🥺", "😢", "😭", "😤", "😠", "😡", "🤬", "🤯", "😳", "🥵", "🥶", "😱", "😨", "😰", "😥", "😓", "🤗", "🤔", "🤭", "🤫", "🤥", "😶", "😐", "😑", "😬", "🙄", "😯", "😦", "😧", "😮", "😲", "🥱", "😴", "🤤", "😪", "😵", "🤐", "🥴", "🤢", "🤮", "🤧", "😷", "🤒", "🤕"],
+  "👤 人物": ["👋", "🤚", "🖐️", "✋", "🖖", "👌", "✌️", "🤞", "🤟", "🤘", "🤙", "👈", "👉", "👆", "🖕", "👇", "☝️", "👍", "👎", "✊", "👊", "🤛", "🤜", "👏", "🙌", "👐", "🤲", "🤝", "🙏", "✍️", "💅", "🤳", "💪", "🦾", "🦿", "🦵", "🦶", "👂", "🦻", "👃", "🧠", "🦷", "🦴", "👀", "👁️", "👅", "👄", "💋", "🩸"],
+  "🐱 动物": ["🙈", "🙉", "🙊", "💥", "💫", "💦", "💨", "🐵", "🐒", "🦍", "🦧", "🐶", "🐕", "🦮", "🐩", "🐺", "🦊", "🦝", "🐱", "🐈", "🦁", "🐯", "🐅", "🐆", "🐴", "🐎", "🦄", "🦓", "🦌", "🐮", "🐂", "🐃", "🐄", "🐷", "🐖", "🐗", "🐽", "🐏", "🐑", "🐐", "🐪", "🐫", "🦒", "🐘", "🦏", "🦛", "🐭", "🐁", "🐀", "打地鼠", "🐰", "🐇", "🐿️", "🦔", "🦇", "🐻", "🐨", "🐼", "🦥", "🦦", "🦖", "🦕"],
+  "🍔 食物": ["🍏", "🍎", "🍐", "🍊", "🍋", "🍌", "🍉", "🍇", "🍓", "🍒", "🍑", "🥭", "🍍", "🥥", "🥝", "🍅", "🍆", "🥑", "🥦", "🥬", "🥒", "🌶️", "🫑", "🌽", "🥕", "🥔", "🍠", "🥐", "面包", "🥖", "🥨", "🧀", "🍳", "🥞", "🧇", "🥓", "🥩", "🍗", "🍖", "🌭", "🍔", "🍟", "🍕", "🥪", "🥙", "🌮", "🌯", "🥗", "🥘", "🍝", "🍜", "🍲", "🍛", "🍣", "🍱", "🥟", "🍤", "🍙", "🍚", "🍘", "🍢", "🍡", "🍧", "🍨", "🍦", "🥧", "蛋糕", "🎂", "🍮", "甜甜圈", "🍩", "🍪", "🌰", "🥜", "🍯"],
+  "🚗 出行": ["🚗", "🚕", "🚙", "🚌", "🚎", "🏎️", "🚓", "🚑", "🚒", "🚐", "🛻", "🚚", "🚛", "🚜", "🛵", "🏍️", "🛺", "🚲", "🛴", "🛹", "🚏", "卫星", "🚀", "🛸", "直升机", "🛶", "⛵", "游艇", "🛳️", "⛴️", "🚢", "✈️", "上升", "降落", "地图", "🏔️", "⛰️", "火山", "🗻", "帐篷", "沙滩", "沙漠", "岛屿", "城市", "城堡", "日式", "体育馆", "摩天轮", "过山车", "东京铁塔", "自由女神", "喷泉"],
+  "🎮 活动": ["⚽", "🏀", "🏈", "⚾", "🥎", "玩球", "排球", "橄榄球", "飞盘", "台球", "溜溜球", "乒乓", "羽毛球", "冰球", "曲棍球", "长曲棍球", "弓箭", "钓鱼", "潜水", "拳套", "武术", "滑冰", "滑雪", "雪橇", "冰壶", "飞镖", "手风琴", "游戏机", "摇杆", "拉霸", "骰子", "拼图", "保龄球", "面具", "调色板", "场记板", "麦克风", "耳机", "五线谱", "钢琴", "鼓", "萨克斯", "喇叭", "吉他", "小提琴"],
+  "💡 物品": ["⌚", "📱", "📲", "电脑", "键盘", "显示器", "打印机", "鼠标", "💾", "💿", "相机", "📸", "摄像机", "电影", "投影机", "底片", "电话", "传呼", "传真", "电视", "收音", "麦克", "调音台", "旋钮", "指南针", "秒表", "时钟", "沙漏", "电池", "插头", "电灯", "手电", "蜡烛", "垃圾桶", "油桶", "美金", "硬币", "信用卡", "钻石", "天平", "扳手", "锤子", "工具", "锯", "镐", "斧头", "螺丝", "齿轮", "盾牌", "十字", "炸带", "螺丝刀"],
+  "🔣 符号": ["💘", "💝", "💖", "💗", "💓", "💞", "💕", "💟", "❣️", "💔", "❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "🤍", "美观", "花札", "红中", "大王", "花朵", "旋风", "睡觉", "ATM", "洗手间", "残疾", "停车", "电梯", "男厕", "女厕", "婴儿", "无性别", "公共卫生", "垃圾箱", "电影院", "信号", "日本", "空余", "免费", "禁止", "合格", "满员", "折扣", "营业", "得"],
+  "🚩 旗帜": ["🏁", "🚩", "🎌", "🏴", "🏳️", "🏳️‍🌈", "🏳️‍⚧️", "🏴‍☠️", "🇨🇳", "🇭🇰", "🇲🇴", "🇹🇼", "🇺🇸", "🇬🇧", "🇯🇵", "🇰🇷", "🇩🇪", "🇫🇷", "🇷🇺", "🇮🇹", "🇨🇦", "🇦🇺", "🇸🇬", "🇲🇾", "🇪🇸", "🇧🇷", "🇮🇳", "🇿🇦"]
+};
+
 @Entry
 @Component
 struct Index {
   @State screenState: string = "LOGIN"; // LOGIN, MAIN, CHAT, ADD_FRIEND, SETTINGS
-  @State activeTabIndex: number = 0; // 0:最近会话, 1:联系人, 2:群组, 3:设置
+  @State activeTabIndex: number = 0; // 0:聊天, 1:设置
   @State themeColor: string = "#1565C0"; // Dynamic Theme Accent color
 
   // Server config
@@ -142,8 +160,19 @@ struct Index {
 
   // Search & Friend requests state
   @State searchQuery: string = "";
+  @State chatSearchQuery: string = "";
   @State searchResults: SearchedUserItem[] = [];
   @State incomingRequests: IncomingRequestItem[] = [];
+
+  @State localSearchQuery: string = "";
+  @State qrScanModalVisible: boolean = false;
+  @State qrScanInputVal: string = "";
+
+  @State activeEmojiCategory: string = "😀 表情";
+  @State favoriteEmojis: string[] = [];
+  @State isEmojiPickerVisible: boolean = false;
+  @State emojiCategories: Record<string, string[]> = EMOJI_CATEGORIES;
+  @State emojiCategoryNames: string[] = ["❤️ 收藏", "😀 表情", "👤 人物", "🐱 动物", "🍔 食物", "🚗 出行", "🎮 活动", "💡 物品", "🔣 符号", "🚩 旗帜"];
 
   // Pinned chats list (local settings)
   @State pinnedChats: string[] = [];
@@ -196,6 +225,7 @@ struct Index {
       this.loadRelations();
       this.loadBlockedUsers();
       this.loadHistory();
+      this.loadFavoriteEmojis();
     }
   }
 
@@ -530,9 +560,10 @@ struct Index {
 
   // Get consistent hash color for avatars
   getAvatarBgColor(username: string): string {
+    let name = username || "U";
     let hash = 0;
-    for (let i = 0; i < username.length; i++) {
-      hash = username.charCodeAt(i) + ((hash << 5) - hash);
+    for (let i = 0; i < name.length; i++) {
+      hash = name.charCodeAt(i) + ((hash << 5) - hash);
     }
     let colors = ["#FF5722", "#4CAF50", "#2196F3", "#9C27B0", "#E91E63", "#FF9800", "#009688", "#795548"];
     let idx = Math.abs(hash) % colors.length;
@@ -584,9 +615,14 @@ struct Index {
 
   // Auto-scroll helper
   scrollToBottom() {
+    if (this.messages.length === 0) return;
     setTimeout(() => {
-      this.scroller.scrollEdge(Edge.Bottom);
-    }, 150);
+      try {
+        this.scroller.scrollEdge(Edge.Bottom);
+      } catch (e) {
+        console.error("scrollToBottom error: scroller might not be bound yet");
+      }
+    }, 300);
   }
 
   // Load chat history
@@ -635,6 +671,30 @@ struct Index {
         }
       }
     );
+  }
+
+  // Filter messages in current chat window based on search query
+  getFilteredMessages(): Message[] {
+    let query = this.chatSearchQuery.trim().toLowerCase();
+    if (!query) {
+      return this.messages;
+    }
+    return this.messages.filter((msg: Message) => {
+      if (msg.content === "[system_recalled]") {
+        return false;
+      }
+      let text = msg.content.toLowerCase();
+      if (text.indexOf(query) !== -1) {
+        return true;
+      }
+      if (msg.name && msg.name.toLowerCase().indexOf(query) !== -1) {
+        return true;
+      }
+      if (msg.nickname && msg.nickname.toLowerCase().indexOf(query) !== -1) {
+        return true;
+      }
+      return false;
+    });
   }
 
   // Load groups & friends in parallel to avoid mutual blockages
@@ -786,16 +846,32 @@ struct Index {
 
   // Show recall action sheet for user messages
   showMsgActions(msg: Message) {
-    if (msg.name !== this.currentUsername || !msg.id) return;
+    if (!msg.id) return;
+    let buttonsList: promptAction.Button[] = [
+      { text: "📋 复制文本内容", color: "#4CAF50" }
+    ];
+    let isSticker = msg.content.startsWith("[img:") && msg.content.endsWith("]");
+    let isEmoji = msg.content.trim().length <= 4;
+    if (isSticker || isEmoji) {
+      buttonsList.push({ text: "❤️ 收藏此表情", color: "#FF2D55" });
+    }
+    if (msg.name === this.currentUsername) {
+      buttonsList.push({ text: "↩️ 撤回消息", color: "#FF3B30" });
+    }
     
     promptAction.showActionMenu({
-      title: "操作消息",
-      buttons: [
-        { text: "撤回消息", color: "#FF3B30" }
-      ]
+      title: "消息选项",
+      buttons: buttonsList as [promptAction.Button, promptAction.Button?, promptAction.Button?, promptAction.Button?, promptAction.Button?, promptAction.Button?]
     }, (err: BusinessError, data: promptAction.ActionMenuSuccessResponse) => {
-      if (!err && data.index === 0 && msg.id) {
-        this.recallMessageApi(msg.id);
+      if (!err) {
+        let btnText = buttonsList[data.index].text;
+        if (btnText === "📋 复制文本内容") {
+          this.copyToClipboard(msg.content);
+        } else if (btnText === "❤️ 收藏此表情") {
+          this.addFavoriteEmoji(msg.content);
+        } else if (btnText === "↩️ 撤回消息" && msg.id) {
+          this.recallMessageApi(msg.id);
+        }
       }
     });
   }
@@ -1231,7 +1307,8 @@ struct Index {
       buttons: [
         { text: "👥 创建新群聊", color: this.themeColor },
         { text: "🔍 查找并添加好友", color: "#4CAF50" },
-        { text: "🔐 扫码登录测试", color: "#FF9500" }
+        { text: "🔐 扫码登录测试", color: "#FF9500" },
+        { text: "📷 扫描二维码", color: "#9C27B0" }
       ]
     }, (err: BusinessError, data: promptAction.ActionMenuSuccessResponse) => {
       if (!err) {
@@ -1242,6 +1319,8 @@ struct Index {
           this.loadFriendRequests();
         } else if (data.index === 2) {
           this.qrLoginModalVisible = true;
+        } else if (data.index === 3) {
+          this.startQrScan();
         }
       }
     });
@@ -1262,6 +1341,485 @@ struct Index {
     .height(52)
     .justifyContent(FlexAlign.Center)
     .backgroundColor("#FFFFFF")
+  }
+
+  // Safely get emojis of active category
+  getActiveEmojis(): string[] {
+    let cat = this.activeEmojiCategory;
+    if (this.emojiCategories[cat]) {
+      return this.emojiCategories[cat];
+    }
+    return [];
+  }
+
+  // Fetch user's favorite emojis list
+  loadFavoriteEmojis() {
+    if (!this.token) return;
+    let httpRequest = http.createHttp();
+    httpRequest.request(
+      `${this.serverUrl}/api/favorites/emojis`,
+      {
+        method: http.RequestMethod.GET,
+        header: {
+          'Content-Type': 'application/json',
+          'Authorization': this.token
+        }
+      },
+      (err: BusinessError, data: http.HttpResponse) => {
+        if (!err && data.responseCode === 200) {
+          try {
+            let res = JSON.parse(data.result as string) as Record<string, string[]>;
+            this.favoriteEmojis = res.data || [];
+            this.emojiCategories["❤️ 收藏"] = this.favoriteEmojis;
+          } catch(e) {
+            // parse error
+          }
+        }
+      }
+    );
+  }
+
+  // Add emoji to favorites
+  addFavoriteEmoji(emoji: string) {
+    if (!this.token) return;
+    let httpRequest = http.createHttp();
+    httpRequest.request(
+      `${this.serverUrl}/api/favorites/emojis`,
+      {
+        method: http.RequestMethod.POST,
+        header: {
+          'Content-Type': 'application/json',
+          'Authorization': this.token
+        },
+        extraData: JSON.stringify({
+          emoji: emoji
+        })
+      },
+      (err: BusinessError, data: http.HttpResponse) => {
+        if (!err && (data.responseCode === 200 || data.responseCode === 201)) {
+          promptAction.showToast({ message: "已添加至收藏" });
+          this.loadFavoriteEmojis();
+        } else {
+          promptAction.showToast({ message: "添加收藏失败" });
+        }
+      }
+    );
+  }
+
+  // Delete emoji from favorites
+  deleteFavoriteEmoji(emoji: string) {
+    if (!this.token) return;
+    let httpRequest = http.createHttp();
+    httpRequest.request(
+      `${this.serverUrl}/api/favorites/emojis`,
+      {
+        method: http.RequestMethod.DELETE,
+        header: {
+          'Content-Type': 'application/json',
+          'Authorization': this.token
+        },
+        extraData: JSON.stringify({
+          emoji: emoji
+        })
+      },
+      (err: BusinessError, data: http.HttpResponse) => {
+        if (!err && data.responseCode === 200) {
+          promptAction.showToast({ message: "已从收藏中移除" });
+          this.loadFavoriteEmojis();
+        } else {
+          promptAction.showToast({ message: "移除收藏失败" });
+        }
+      }
+    );
+  }
+
+  // Send raw content directly
+  sendRawMessage(text: string) {
+    let postData: SendMsgPayload = {
+      content: text,
+      room_id: this.activeRoomId
+    };
+    if (this.activeTargetUser) {
+      postData.receiver = this.activeTargetUser;
+    }
+    
+    let httpRequest = http.createHttp();
+    httpRequest.request(
+      `${this.serverUrl}/api/messages`,
+      {
+        method: http.RequestMethod.POST,
+        header: {
+          'Content-Type': 'application/json',
+          'Authorization': this.token
+        },
+        extraData: JSON.stringify(postData)
+      },
+      (err: BusinessError, data: http.HttpResponse) => {
+        if (!err) {
+          this.loadHistory();
+        } else {
+          promptAction.showToast({ message: "发送消息失败" });
+        }
+      }
+    );
+  }
+
+  // Combine and upload file using multipart form data
+  uploadFileAndSend(uri: string, filename: string, isImage: boolean) {
+    try {
+      let file = fs.openSync(uri, fs.OpenMode.READ_ONLY);
+      let stat = fs.statSync(file.fd);
+      let buffer = new ArrayBuffer(stat.size);
+      fs.readSync(file.fd, buffer);
+      fs.closeSync(file);
+      
+      let boundary = "----WebKitFormBoundaryHarmonyOS" + Date.now().toString(16);
+      let headerStr = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${isImage ? 'image/png' : 'application/octet-stream'}\r\n\r\n`;
+      let footerStr = `\r\n--${boundary}--\r\n`;
+      
+      let headerBuf = this.stringToArrayBuffer(headerStr);
+      let footerBuf = this.stringToArrayBuffer(footerStr);
+      
+      let combined = new Uint8Array(headerBuf.byteLength + buffer.byteLength + footerBuf.byteLength);
+      combined.set(new Uint8Array(headerBuf), 0);
+      combined.set(new Uint8Array(buffer), headerBuf.byteLength);
+      combined.set(new Uint8Array(footerBuf), headerBuf.byteLength + buffer.byteLength);
+      
+      let httpRequest = http.createHttp();
+      httpRequest.request(
+        `${this.serverUrl}/api/upload`,
+        {
+          method: http.RequestMethod.POST,
+          header: {
+            'Content-Type': `multipart/form-data; boundary=${boundary}`,
+            'Authorization': this.token
+          },
+          extraData: combined.buffer
+        },
+        (err: BusinessError, data: http.HttpResponse) => {
+          if (!err && (data.responseCode === 200 || data.responseCode === 201)) {
+            try {
+              let res = JSON.parse(data.result as string) as Record<string, string>;
+              let fileUrl = res.url || "";
+              if (fileUrl) {
+                if (isImage) {
+                  this.sendRawMessage(`[img:${fileUrl}]`);
+                } else {
+                  this.sendRawMessage(`[file:${fileUrl}|${filename}]`);
+                }
+              } else {
+                promptAction.showToast({ message: "文件上传失败：返回的链接为空" });
+              }
+            } catch(e) {
+              promptAction.showToast({ message: "解析上传响应失败" });
+            }
+          } else {
+            promptAction.showToast({ message: `文件上传失败 code=${data ? data.responseCode : -1}` });
+          }
+        }
+      );
+    } catch(e) {
+      promptAction.showToast({ message: "打开/读取 file 失败" });
+    }
+  }
+
+  stringToArrayBuffer(str: string): ArrayBuffer {
+    let buf = new ArrayBuffer(str.length);
+    let bufView = new Uint8Array(buf);
+    for (let i = 0; i < str.length; i++) {
+      bufView[i] = str.charCodeAt(i);
+    }
+    return buf;
+  }
+
+  // Open photo picker to select image
+  selectImageForChat() {
+    try {
+      let photoPicker = new picker.PhotoViewPicker();
+      photoPicker.select({
+        MIMEType: picker.PhotoViewMIMETypes.IMAGE_TYPE,
+        maxSelectNumber: 1
+      }).then((result: picker.PhotoSelectResult) => {
+        if (result && result.photoUris && result.photoUris.length > 0) {
+          let uri = result.photoUris[0];
+          let filename = "image_" + Date.now().toString() + ".png";
+          this.uploadFileAndSend(uri, filename, true);
+        }
+      }).catch((e: BusinessError) => {
+        promptAction.showToast({ message: "选择图片异常" });
+      });
+    } catch(e) {
+      promptAction.showToast({ message: "打开相册失败" });
+    }
+  }
+
+  // Capture photo via camera picker
+  takePhotoForChat() {
+    try {
+      let mContext = getContext(this) as common.UIAbilityContext;
+      let pickerProfile: cameraPicker.PickerProfile = {
+        cameraPosition: camera.CameraPosition.CAMERA_POSITION_BACK
+      };
+      cameraPicker.pick(mContext, [cameraPicker.PickerMediaType.PHOTO], pickerProfile).then((pickerResult: cameraPicker.PickerResult) => {
+        if (pickerResult && pickerResult.resultUri) {
+          let uri = pickerResult.resultUri;
+          let filename = "photo_" + Date.now().toString() + ".png";
+          this.uploadFileAndSend(uri, filename, true);
+        }
+      }).catch((e: BusinessError) => {
+        promptAction.showToast({ message: "拍照异常" });
+      });
+    } catch(e) {
+      promptAction.showToast({ message: "打开相机失败" });
+    }
+  }
+
+  // Select document picker to select file
+  selectFileForChat() {
+    try {
+      let documentPicker = new picker.DocumentViewPicker();
+      documentPicker.select({
+        maxSelectNumber: 1
+      }).then((result: string[]) => {
+        if (result && result.length > 0) {
+          let uri = result[0];
+          let filename = "file_" + Date.now().toString() + ".bin";
+          this.uploadFileAndSend(uri, filename, false);
+        }
+      }).catch((e: BusinessError) => {
+        promptAction.showToast({ message: "选择文件异常" });
+      });
+    } catch(e) {
+      promptAction.showToast({ message: "打开文件管理器失败" });
+    }
+  }
+
+  // Trigger attachment options menu
+  showAttachmentMenu() {
+    promptAction.showActionMenu({
+      title: "发送附件",
+      buttons: [
+        { text: "🖼️ 发送图片 (相册)", color: this.themeColor },
+        { text: "📷 现场拍照并发送", color: "#FF9500" },
+        { text: "📁 发送文档/文件", color: "#4CAF50" }
+      ]
+    }, (err: BusinessError, data: promptAction.ActionMenuSuccessResponse) => {
+      if (!err) {
+        if (data.index === 0) {
+          this.selectImageForChat();
+        } else if (data.index === 1) {
+          this.takePhotoForChat();
+        } else if (data.index === 2) {
+          this.selectFileForChat();
+        }
+      }
+    });
+  }
+
+  // Capture photo for avatar replacement
+  takePhotoForAvatar() {
+    try {
+      let mContext = getContext(this) as common.UIAbilityContext;
+      let pickerProfile: cameraPicker.PickerProfile = {
+        cameraPosition: camera.CameraPosition.CAMERA_POSITION_BACK
+      };
+      cameraPicker.pick(mContext, [cameraPicker.PickerMediaType.PHOTO], pickerProfile).then((pickerResult: cameraPicker.PickerResult) => {
+        if (pickerResult && pickerResult.resultUri) {
+          let uri = pickerResult.resultUri;
+          let file = fs.openSync(uri, fs.OpenMode.READ_ONLY);
+          let stat = fs.statSync(file.fd);
+          let buffer = new ArrayBuffer(stat.size);
+          fs.readSync(file.fd, buffer);
+          fs.closeSync(file);
+          
+          let base64Str = this.arrayBufferToBase64(buffer);
+          this.newAvatarVal = `data:image/png;base64,${base64Str}`;
+          promptAction.showToast({ message: "拍摄头像成功" });
+        }
+      }).catch((e: BusinessError) => {
+        promptAction.showToast({ message: "拍摄头像异常" });
+      });
+    } catch(e) {
+      promptAction.showToast({ message: "打开相机失败" });
+    }
+  }
+
+  // Start system camera QR scanning with fallback to camera picker + JS decoder
+  startQrScan() {
+    try {
+      let options: scanBarcode.ScanOptions = {
+        scanTypes: [scanCore.ScanType.ALL],
+        enableMultiMode: true,
+        enableAlbum: true
+      };
+      let mContext = getContext(this) as common.UIAbilityContext;
+      scanBarcode.startScanForResult(mContext, options)
+        .then((result: scanBarcode.ScanResult) => {
+          if (result && result.originalValue) {
+            this.handleQrCodeResult(result.originalValue);
+          } else {
+            promptAction.showToast({ message: "未识别到二维码" });
+          }
+        })
+        .catch((error: BusinessError) => {
+          console.warn(`[Scan] startScanForResult failed, falling back to cameraPicker: ${JSON.stringify(error)}`);
+          this.startCameraPickerScan();
+        });
+    } catch (e) {
+      console.warn(`[Scan] startScanForResult exception, falling back to cameraPicker: ${JSON.stringify(e)}`);
+      this.startCameraPickerScan();
+    }
+  }
+
+  // Open camera picker to capture a photo, then decode QR code using zxing
+  async startCameraPickerScan() {
+    try {
+      let mContext = getContext(this) as common.UIAbilityContext;
+      let pickerProfile: cameraPicker.PickerProfile = {
+        cameraPosition: camera.CameraPosition.CAMERA_POSITION_BACK
+      };
+      let pickerResult: cameraPicker.PickerResult = await cameraPicker.pick(
+        mContext,
+        [cameraPicker.PickerMediaType.PHOTO],
+        pickerProfile
+      );
+
+      if (pickerResult && pickerResult.resultUri) {
+        promptAction.showToast({ message: "正在解析图片二维码..." });
+        try {
+          let qrCodeText = await this.decodeQrCodeFromUri(pickerResult.resultUri);
+          if (qrCodeText) {
+            this.handleQrCodeResult(qrCodeText);
+          } else {
+            promptAction.showToast({ message: "未识别到二维码，请手动输入" });
+            this.qrScanModalVisible = true;
+          }
+        } catch (decodeErr) {
+          console.error(`[Scan] QR decode error: ${JSON.stringify(decodeErr)}`);
+          promptAction.showToast({ message: "解析失败或未识别到二维码，请手动输入" });
+          this.qrScanModalVisible = true;
+        }
+      } else {
+        // Cancelled or no image taken
+        this.qrScanModalVisible = true;
+      }
+    } catch (e) {
+      console.error(`[Scan] cameraPicker error: ${JSON.stringify(e)}`);
+      this.qrScanModalVisible = true;
+    }
+  }
+
+  // Decode QR code from image URI using @ohos/zxing pure JS decoder
+  async decodeQrCodeFromUri(uri: string): Promise<string> {
+    let file = fs.openSync(uri, fs.OpenMode.READ_ONLY);
+    let imageSource = image.createImageSource(file.fd);
+    let decodingOptions: image.DecodingOptions = {
+      editable: true,
+      desiredPixelFormat: 3, // RGBA_8888
+    };
+    let pixelMap = await imageSource.createPixelMap(decodingOptions);
+    fs.closeSync(file.fd);
+
+    let width = pixelMap.getImageInfoSync().size.width;
+    let height = pixelMap.getImageInfoSync().size.height;
+    let num = pixelMap.getPixelBytesNumber();
+    let arrayBuffer = new ArrayBuffer(num);
+    await pixelMap.readPixelsToBuffer(arrayBuffer);
+    pixelMap.release();
+    imageSource.release();
+
+    let int32Array = new Int32Array(arrayBuffer);
+    let luminanceSource = new RGBLuminanceSource(int32Array, width, height);
+    let binaryBitmap = new BinaryBitmap(new HybridBinarizer(luminanceSource));
+    let reader = new MultiFormatReader();
+    let hints: Map<DecodeHintType, Array<BarcodeFormat>> = new Map();
+    hints.set(DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.QR_CODE]);
+    reader.setHints(hints);
+
+    let decodeResult = reader.decode(binaryBitmap);
+    return decodeResult.getText();
+  }
+
+  // Handle scanned QR Code results
+  handleQrCodeResult(val: string) {
+    let text = val.trim();
+    if (text.startsWith("openboard:add_friend:")) {
+      let username = text.replace("openboard:add_friend:", "");
+      if (username.length > 0) {
+        promptAction.showDialog({
+          title: "添加好友确认",
+          message: `确定要添加扫码用户 @${username} 为好友吗？`,
+          buttons: [
+            { text: "取消", color: "#808080" },
+            { text: "发送请求", color: this.themeColor }
+          ]
+        }, (err: BusinessError, data: promptAction.ShowDialogSuccessResponse) => {
+          if (!err && data.index === 1) {
+            this.sendRequest(username);
+          }
+        });
+      } else {
+        promptAction.showToast({ message: "无效的加好友链接" });
+      }
+    } else if (text.startsWith("openboard:login:")) {
+      let token = text.replace("openboard:login:", "");
+      this.qrCodeInput = token;
+      this.qrLoginModalVisible = true;
+    } else {
+      promptAction.showToast({ message: `识别内容: ${text}` });
+    }
+  }
+
+  // Filter and sort relations
+  getFilteredSortedRelations(): Relation[] {
+    let query = this.localSearchQuery.trim().toLowerCase();
+    let filtered = this.relations;
+    if (query.length > 0) {
+      filtered = this.relations.filter((r: Relation) => {
+        let nameMatch = r.name && r.name.toLowerCase().indexOf(query) !== -1;
+        let userMatch = r.targetUser && r.targetUser.toLowerCase().indexOf(query) !== -1;
+        return nameMatch || userMatch;
+      });
+    }
+    let pinnedList: Relation[] = [];
+    let unpinnedList: Relation[] = [];
+    
+    for (let i = 0; i < filtered.length; i++) {
+      let r = filtered[i];
+      let key = r.type === "group" ? `group:${r.id}` : `friend:${r.targetUser}`;
+      if (this.pinnedChats.indexOf(key) !== -1) {
+        pinnedList.push(r);
+      } else {
+        unpinnedList.push(r);
+      }
+    }
+    return pinnedList.concat(unpinnedList);
+  }
+
+  // Filter contacts
+  getFilteredContacts(): Relation[] {
+    let query = this.localSearchQuery.trim().toLowerCase();
+    let friends = this.relations.filter(r => r.type === "friend");
+    if (query.length > 0) {
+      return friends.filter((r: Relation) => {
+        let nameMatch = r.name && r.name.toLowerCase().indexOf(query) !== -1;
+        let userMatch = r.targetUser && r.targetUser.toLowerCase().indexOf(query) !== -1;
+        return nameMatch || userMatch;
+      });
+    }
+    return friends;
+  }
+
+  // Filter groups
+  getFilteredGroups(): Relation[] {
+    let query = this.localSearchQuery.trim().toLowerCase();
+    let groups = this.relations.filter(r => r.type === "group");
+    if (query.length > 0) {
+      return groups.filter((r: Relation) => {
+        return r.name && r.name.toLowerCase().indexOf(query) !== -1;
+      });
+    }
+    return groups;
   }
 
   // Handle Login click
@@ -1310,6 +1868,7 @@ struct Index {
             this.loadRelations();
             this.loadBlockedUsers();
             this.loadHistory();
+            this.loadFavoriteEmojis();
           } catch (e) {
             this.loginStatusMsg = "登录异常，请重试";
           }
@@ -1449,8 +2008,16 @@ struct Index {
                 .fontColor(Color.White)
                 .layoutWeight(1)
               
-              // Bell notification requests manager
-              Row({ space: 15 }) {
+              Row({ space: 10 }) {
+                Text("📷 扫码")
+                  .fontSize(13)
+                  .fontColor(Color.White)
+                  .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+                  .border({ width: 1, color: Color.White, radius: 4 })
+                  .onClick(() => {
+                    this.startQrScan();
+                  })
+
                 Text("🔔 申请")
                   .fontSize(13)
                   .fontColor(Color.White)
@@ -1471,192 +2038,114 @@ struct Index {
             Tabs({ barPosition: BarPosition.End }) {
               // Tab 0: 最近会话 (Recent Chats)
               TabContent() {
-                List() {
-                  // Public Lobby Shortcut
-                  ListItem() {
-                    Row() {
-                      Text(this.pinnedChats.indexOf("group:0") !== -1 ? "📌 💬 公共大厅" : "💬 公共大厅")
-                        .fontSize(16)
-                        .fontWeight(FontWeight.Medium)
-                        .fontColor(this.pinnedChats.indexOf("group:0") !== -1 ? this.themeColor : Color.Black)
-                        .layoutWeight(1)
-                      
-                      if (this.lastMessages["group:0"]) {
-                        Text(this.lastMessages["group:0"])
-                          .fontSize(13)
-                          .fontColor(Color.Gray)
-                          .maxLines(1)
-                          .margin({ right: 10 })
-                      }
-                    }
-                    .padding({ left: 16, right: 16, top: 16, bottom: 16 })
-                    .width("100%")
-                  }
-                  .onClick(() => {
-                    this.activeRoomId = 0;
-                    this.activeTargetUser = "";
-                    this.activeChatTitle = "公共大厅";
-                    
-                    this.unreadCounts["group:0"] = 0;
-                    this.loadHistory();
-                    this.screenState = "CHAT";
-                  })
-                  .gesture(
-                    LongPressGesture({ repeat: false })
-                      .onAction(() => {
-                        let r: Relation = { id: 0, name: "公共大厅", type: "group" };
-                        this.togglePinChat(r);
-                      })
-                  )
-                  .backgroundColor(this.pinnedChats.indexOf("group:0") !== -1 ? "#F5F9FF" : Color.White)
-                  .border({ width: { bottom: 1 }, color: "#F0F0F0" })
+                Column() {
+                  TextInput({ text: this.localSearchQuery, placeholder: "🔍 搜索最近会话或好友..." })
+                    .width("96%")
+                    .height(40)
+                    .margin(8)
+                    .fontColor(Color.Black)
+                    .placeholderColor(Color.Gray)
+                    .onChange((val: string) => this.localSearchQuery = val)
 
-                  ForEach(this.getSortedRelations(), (item: Relation) => {
-                    ListItem() {
-                      Row() {
-                        Column() {
-                          Row() {
-                            Text(this.isPinned(item) ? 
-                              (item.type === "group" ? `📌 👥 ${item.name}` : `📌 👤 ${item.name}`) : 
-                              (item.type === "group" ? `👥 ${item.name}` : `👤 ${item.name}`)
-                            )
-                              .fontSize(16)
-                              .fontWeight(FontWeight.Medium)
-                              .fontColor(this.isPinned(item) ? this.themeColor : Color.Black)
-                              
-                            if (this.unreadCounts[item.type === "group" ? `group:${item.id}` : `friend:${item.targetUser}`]) {
-                              Text(this.unreadCounts[item.type === "group" ? `group:${item.id}` : `friend:${item.targetUser}`].toString())
-                                .fontSize(10)
-                                .fontColor(Color.White)
-                                .backgroundColor(Color.Red)
-                                .borderRadius(8)
-                                .padding({ left: 6, right: 6, top: 2, bottom: 2 })
-                                .margin({ left: 8 })
-                            }
-                          }
-                          .alignItems(VerticalAlign.Center)
-                          .width("100%")
+                  List() {
+                    // Public Lobby Shortcut
+                    if ("公共大厅".indexOf(this.localSearchQuery.trim().toLowerCase()) !== -1 || this.localSearchQuery.trim() === "") {
+                      ListItem() {
+                        Row() {
+                          Text(this.pinnedChats.indexOf("group:0") !== -1 ? "📌 💬 公共大厅" : "💬 公共大厅")
+                            .fontSize(16)
+                            .fontWeight(FontWeight.Medium)
+                            .fontColor(this.pinnedChats.indexOf("group:0") !== -1 ? this.themeColor : Color.Black)
+                            .layoutWeight(1)
                           
-                          if (this.lastMessages[item.type === "group" ? `group:${item.id}` : `friend:${item.targetUser}`]) {
-                            Text(this.lastMessages[item.type === "group" ? `group:${item.id}` : `friend:${item.targetUser}`])
+                          if (this.lastMessages["group:0"]) {
+                            Text(this.lastMessages["group:0"])
                               .fontSize(13)
                               .fontColor(Color.Gray)
                               .maxLines(1)
-                              .margin({ top: 4 })
+                              .margin({ right: 10 })
                           }
-                        }
-                        .layoutWeight(1)
-                        .alignItems(HorizontalAlign.Start)
-                        
-                        Text("进入")
-                          .fontSize(13)
-                          .fontColor(Color.Gray)
-                      }
-                      .padding({ left: 16, right: 16, top: 12, bottom: 12 })
-                      .width("100%")
-                    }
-                    .onClick(() => {
-                      if (item.type === "group") {
-                        this.activeRoomId = item.id;
-                        this.activeTargetUser = "";
-                      } else {
-                        this.activeRoomId = 0;
-                        this.activeTargetUser = item.targetUser || "";
-                      }
-                      this.activeChatTitle = item.name;
-                      
-                      let key = item.type === "group" ? `group:${item.id}` : `friend:${item.targetUser}`;
-                      this.unreadCounts[key] = 0;
-                      
-                      this.loadHistory();
-                      this.screenState = "CHAT";
-                    })
-                    .gesture(
-                      LongPressGesture({ repeat: false })
-                        .onAction(() => {
-                          this.showRelationOptions(item);
-                        })
-                    )
-                    .backgroundColor(this.isPinned(item) ? "#F5F9FF" : Color.White)
-                    .border({ width: { bottom: 1 }, color: "#F0F0F0" })
-                  })
-                }
-                .width("100%")
-                .height("100%")
-              }.tabBar(this.TabBuilder("最近会话", 0, "💬"))
-
-              // Tab 1: 联系人 (Contacts / Friends)
-              TabContent() {
-                Column() {
-                  List() {
-                    ForEach(this.relations.filter(r => r.type === "friend"), (item: Relation) => {
-                      ListItem() {
-                        Row() {
-                          Text(`👤 ${item.name}`)
-                            .fontSize(16)
-                            .fontWeight(FontWeight.Medium)
-                            .fontColor(Color.Black)
-                            .layoutWeight(1)
-                          
-                          Text("聊聊")
-                            .fontSize(13)
-                            .fontColor(this.themeColor)
                         }
                         .padding({ left: 16, right: 16, top: 16, bottom: 16 })
                         .width("100%")
                       }
                       .onClick(() => {
                         this.activeRoomId = 0;
-                        this.activeTargetUser = item.targetUser || "";
-                        this.activeChatTitle = item.name;
+                        this.activeTargetUser = "";
+                        this.activeChatTitle = "公共大厅";
                         
-                        this.unreadCounts[`friend:${item.targetUser}`] = 0;
+                        this.unreadCounts["group:0"] = 0;
                         this.loadHistory();
                         this.screenState = "CHAT";
                       })
                       .gesture(
                         LongPressGesture({ repeat: false })
                           .onAction(() => {
-                            this.showRelationOptions(item);
+                            let r: Relation = { id: 0, name: "公共大厅", type: "group" };
+                            this.togglePinChat(r);
                           })
                       )
-                      .backgroundColor(Color.White)
+                      .backgroundColor(this.pinnedChats.indexOf("group:0") !== -1 ? "#F5F9FF" : Color.White)
                       .border({ width: { bottom: 1 }, color: "#F0F0F0" })
-                    })
-                  }
-                  .width("100%")
-                  .layoutWeight(1)
-                }
-                .width("100%")
-                .height("100%")
-              }.tabBar(this.TabBuilder("联系人", 1, "👤"))
+                    }
 
-              // Tab 2: 群组列表 (Groups)
-              TabContent() {
-                Column() {
-                  List() {
-                    ForEach(this.relations.filter(r => r.type === "group"), (item: Relation) => {
+                    ForEach(this.getFilteredSortedRelations(), (item: Relation) => {
                       ListItem() {
                         Row() {
-                          Text(`👥 ${item.name}`)
-                            .fontSize(16)
-                            .fontWeight(FontWeight.Medium)
-                            .fontColor(Color.Black)
-                            .layoutWeight(1)
+                          Column() {
+                            Row() {
+                              Text(this.isPinned(item) ? 
+                                (item.type === "group" ? `📌 👥 ${item.name}` : `📌 👤 ${item.name}`) : 
+                                (item.type === "group" ? `👥 ${item.name}` : `👤 ${item.name}`)
+                              )
+                                .fontSize(16)
+                                .fontWeight(FontWeight.Medium)
+                                .fontColor(this.isPinned(item) ? this.themeColor : Color.Black)
+                                
+                              if (this.unreadCounts[item.type === "group" ? `group:${item.id}` : `friend:${item.targetUser}`]) {
+                                Text(this.unreadCounts[item.type === "group" ? `group:${item.id}` : `friend:${item.targetUser}`].toString())
+                                  .fontSize(10)
+                                  .fontColor(Color.White)
+                                  .backgroundColor(Color.Red)
+                                  .borderRadius(8)
+                                  .padding({ left: 6, right: 6, top: 2, bottom: 2 })
+                                  .margin({ left: 8 })
+                              }
+                            }
+                            .alignItems(VerticalAlign.Center)
+                            .width("100%")
+                            
+                            if (this.lastMessages[item.type === "group" ? `group:${item.id}` : `friend:${item.targetUser}`]) {
+                              Text(this.lastMessages[item.type === "group" ? `group:${item.id}` : `friend:${item.targetUser}`])
+                                .fontSize(13)
+                                .fontColor(Color.Gray)
+                                .maxLines(1)
+                                .margin({ top: 4 })
+                            }
+                          }
+                          .layoutWeight(1)
+                          .alignItems(HorizontalAlign.Start)
                           
                           Text("进入")
                             .fontSize(13)
-                            .fontColor(this.themeColor)
+                            .fontColor(Color.Gray)
                         }
-                        .padding({ left: 16, right: 16, top: 16, bottom: 16 })
+                        .padding({ left: 16, right: 16, top: 12, bottom: 12 })
                         .width("100%")
                       }
                       .onClick(() => {
-                        this.activeRoomId = item.id;
-                        this.activeTargetUser = "";
+                        if (item.type === "group") {
+                          this.activeRoomId = item.id;
+                          this.activeTargetUser = "";
+                        } else {
+                          this.activeRoomId = 0;
+                          this.activeTargetUser = item.targetUser || "";
+                        }
                         this.activeChatTitle = item.name;
                         
-                        this.unreadCounts[`group:${item.id}`] = 0;
+                        let key = item.type === "group" ? `group:${item.id}` : `friend:${item.targetUser}`;
+                        this.unreadCounts[key] = 0;
+                        
                         this.loadHistory();
                         this.screenState = "CHAT";
                       })
@@ -1666,7 +2155,7 @@ struct Index {
                             this.showRelationOptions(item);
                           })
                       )
-                      .backgroundColor(Color.White)
+                      .backgroundColor(this.isPinned(item) ? "#F5F9FF" : Color.White)
                       .border({ width: { bottom: 1 }, color: "#F0F0F0" })
                     })
                   }
@@ -1675,9 +2164,9 @@ struct Index {
                 }
                 .width("100%")
                 .height("100%")
-              }.tabBar(this.TabBuilder("群组列表", 2, "👥"))
+              }.tabBar(this.TabBuilder("聊天", 0, "💬"))
 
-              // Tab 3: 设置中心 (Settings)
+              // Tab 1: 设置 (Settings)
               TabContent() {
                 Scroll() {
                   Column({ space: 15 }) {
@@ -1838,6 +2327,35 @@ struct Index {
                     })
 
                     // Logout button
+                    // QR Code Card for adding friends
+                    Column({ space: 10 }) {
+                      Text("📷 我的二维码名片 (扫码加好友)")
+                        .fontSize(15)
+                        .fontWeight(FontWeight.Bold)
+                        .fontColor(Color.Black)
+                        .width("100%")
+                      
+                      Row() {
+                        Image(`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent("openboard:add_friend:" + this.currentUsername)}`)
+                          .width(180)
+                          .height(180)
+                          .objectFit(ImageFit.Contain)
+                          .onClick(() => {
+                            this.previewImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent("openboard:add_friend:" + this.currentUsername)}`;
+                          })
+                      }
+                      .width("100%")
+                      .justifyContent(FlexAlign.Center)
+                      
+                      Text("点击二维码可放大预览")
+                        .fontSize(12)
+                        .fontColor(Color.Gray)
+                    }
+                    .width("100%")
+                    .padding(16)
+                    .backgroundColor(Color.White)
+                    .borderRadius(8)
+
                     Button("退出登录")
                       .width("100%")
                       .height(45)
@@ -1858,7 +2376,7 @@ struct Index {
                 }
                 .width("100%")
                 .height("100%")
-              }.tabBar(this.TabBuilder("设置中心", 3, "⚙️"))
+              }.tabBar(this.TabBuilder("设置", 1, "⚙️"))
             }
             .layoutWeight(1)
             .width("100%")
@@ -1935,9 +2453,34 @@ struct Index {
             .border({ width: { bottom: 1 }, color: "#E0E0E0" })
             .alignItems(VerticalAlign.Center)
 
+            // Chat history search input
+            Row() {
+              TextInput({ text: this.chatSearchQuery, placeholder: "🔍 搜索聊天记录..." })
+                .layoutWeight(1)
+                .height(36)
+                .fontColor(Color.Black)
+                .placeholderColor(Color.Gray)
+                .onChange((val: string) => {
+                  this.chatSearchQuery = val;
+                })
+              if (this.chatSearchQuery.length > 0) {
+                Button("清除")
+                  .height(36)
+                  .backgroundColor(Color.Transparent)
+                  .fontColor(Color.Gray)
+                  .fontSize(13)
+                  .onClick(() => {
+                    this.chatSearchQuery = "";
+                  })
+              }
+            }
+            .width("96%")
+            .margin({ top: 6, bottom: 6 })
+            .alignItems(VerticalAlign.Center)
+
             // Chat Messages Stream
             List({ scroller: this.scroller }) {
-              ForEach(this.messages, (msg: Message) => {
+              ForEach(this.getFilteredMessages(), (msg: Message) => {
                 ListItem() {
                   Row() {
                     if (msg.name !== this.currentUsername) {
@@ -1981,7 +2524,7 @@ struct Index {
 
                     Column() {
                       Row() {
-                        Text(`${msg.nickname} (@${msg.name})`)
+                        Text(`${msg.nickname || msg.name || "用户"} (@${msg.name || "unknown"})`)
                           .fontSize(10)
                           .fontColor(Color.Gray)
                       }
@@ -1994,7 +2537,7 @@ struct Index {
                               .fontSize(13)
                               .fontColor(Color.Gray)
                               .fontStyle(FontStyle.Italic)
-                          } else if (msg.content.startsWith("[img:") && msg.content.endsWith("]")) {
+                          } else if (msg.content && msg.content.startsWith("[img:") && msg.content.endsWith("]")) {
                             Image(msg.content.substring(5, msg.content.length - 1).startsWith("http") ? 
                               msg.content.substring(5, msg.content.length - 1) : 
                               `${this.serverUrl}${msg.content.substring(5, msg.content.length - 1)}`
@@ -2008,7 +2551,7 @@ struct Index {
                                   msg.content.substring(5, msg.content.length - 1) : 
                                   `${this.serverUrl}${msg.content.substring(5, msg.content.length - 1)}`;
                               })
-                          } else if (msg.content.startsWith("[file:") && msg.content.endsWith("]")) {
+                          } else if (msg.content && msg.content.startsWith("[file:") && msg.content.endsWith("]")) {
                             Row() {
                               Text("📎")
                                 .fontSize(22)
@@ -2038,7 +2581,7 @@ struct Index {
                               let fullUrl = fileUrl.startsWith("http") ? fileUrl : `${this.serverUrl}${fileUrl.startsWith('/') ? '' : '/'}${fileUrl}`;
                               this.showFileDownloadOptions(filename, fullUrl);
                             })
-                          } else if (msg.content.startsWith("[user_card:") && msg.content.endsWith("]")) {
+                          } else if (msg.content && msg.content.startsWith("[user_card:") && msg.content.endsWith("]")) {
                             Text("📇 [好友名片]")
                               .fontSize(14)
                               .fontColor(Color.Orange)
@@ -2097,6 +2640,9 @@ struct Index {
                   .alignItems(VerticalAlign.Top)
                   .padding({ left: 16, right: 16, top: 6, bottom: 6 })
                 }
+              }, (msg: Message) => {
+                let contentSnippet = msg.content ? msg.content.substring(0, 10) : "";
+                return (msg.id ? msg.id.toString() : "") + "_" + msg.time + "_" + (msg.name || "unknown") + "_" + contentSnippet;
               })
             }
             .width("100%")
@@ -2127,6 +2673,17 @@ struct Index {
 
             // Chat bottom input panel
             Row() {
+              Button("＋")
+                .width(42)
+                .height(42)
+                .backgroundColor("#F5F7FA")
+                .fontColor(Color.Black)
+                .fontSize(20)
+                .margin({ right: 8 })
+                .onClick(() => {
+                  this.showAttachmentMenu();
+                })
+
               TextInput({ text: this.msgInput, placeholder: "说点什么吧..." })
                 .layoutWeight(1)
                 .height(42)
@@ -2137,20 +2694,132 @@ struct Index {
                   this.triggerTyping();
                 })
               
+              Button("😃")
+                .width(42)
+                .height(42)
+                .backgroundColor("#F5F7FA")
+                .fontColor(Color.Black)
+                .margin({ left: 8 })
+                .onClick(() => {
+                  this.isEmojiPickerVisible = !this.isEmojiPickerVisible;
+                })
+
               Button("发送")
                 .width(70)
                 .height(42)
-                .margin({ left: 10 })
+                .margin({ left: 8 })
                 .backgroundColor(this.themeColor)
-                .onClick(() => this.sendMessage())
+                .onClick(() => {
+                  this.sendMessage();
+                  this.isEmojiPickerVisible = false;
+                })
+            }.width("100%").padding(10).backgroundColor("#FFFFFF").border({ width: { top: 1 }, color: "#E0E0E0" })
+
+            // Complete Emoji Picker & Favorites Keyboard Panel
+            if (this.isEmojiPickerVisible) {
+              Column() {
+                // Category Tab Row
+                Row() {
+                  List() {
+                    ForEach(this.emojiCategoryNames, (catName: string) => {
+                      ListItem() {
+                        Text(catName)
+                          .fontSize(14)
+                          .fontWeight(this.activeEmojiCategory === catName ? FontWeight.Bold : FontWeight.Normal)
+                          .fontColor(this.activeEmojiCategory === catName ? this.themeColor : Color.Black)
+                          .padding({ left: 12, right: 12, top: 10, bottom: 10 })
+                          .border({ width: { bottom: this.activeEmojiCategory === catName ? 2 : 0 }, color: this.themeColor })
+                          .onClick(() => {
+                            this.activeEmojiCategory = catName;
+                          })
+                      }
+                    })
+                  }
+                  .listDirection(Axis.Horizontal)
+                  .width("100%")
+                  .height(40)
+                }.width("100%").backgroundColor("#F5F7FA").border({ width: { bottom: 1 }, color: "#E8E8E8" })
+
+                // Emoji Grid Area
+                Grid() {
+                  ForEach(this.getActiveEmojis(), (emoji: string) => {
+                    GridItem() {
+                      Column() {
+                        if (emoji.startsWith("[img:") && emoji.endsWith("]")) {
+                          Image(emoji.substring(5, emoji.length - 1).startsWith("http") ? 
+                            emoji.substring(5, emoji.length - 1) : 
+                            `${this.serverUrl}${emoji.substring(5, emoji.length - 1)}`
+                          )
+                            .width(44)
+                            .height(44)
+                            .objectFit(ImageFit.Contain)
+                            .borderRadius(4)
+                        } else {
+                          Text(emoji)
+                            .fontSize(28)
+                        }
+                      }
+                      .width("100%")
+                      .height(54)
+                      .justifyContent(FlexAlign.Center)
+                      .alignItems(HorizontalAlign.Center)
+                      .onClick(() => {
+                        if (this.activeEmojiCategory === "❤️ 收藏") {
+                          if (emoji.startsWith("[img:") && emoji.endsWith("]")) {
+                            // Direct send custom sticker!
+                            this.sendRawMessage(emoji);
+                          } else {
+                            this.msgInput += emoji;
+                          }
+                        } else {
+                          this.msgInput += emoji;
+                        }
+                        this.triggerTyping();
+                      })
+                      .gesture(
+                        LongPressGesture({ repeat: false })
+                          .onAction(() => {
+                            if (this.activeEmojiCategory === "❤️ 收藏") {
+                              promptAction.showDialog({
+                                title: "移除收藏",
+                                message: "确定要将此表情从收藏中移除吗？",
+                                buttons: [
+                                  { text: "取消", color: "#808080" },
+                                  { text: "删除", color: "#FF3B30" }
+                                ]
+                              }, (err: BusinessError, data: promptAction.ShowDialogSuccessResponse) => {
+                                if (!err && data.index === 1) {
+                                  this.deleteFavoriteEmoji(emoji);
+                                }
+                              });
+                            } else {
+                              promptAction.showDialog({
+                                title: "添加收藏",
+                                message: "要将此表情添加到收藏吗？",
+                                buttons: [
+                                  { text: "取消", color: "#808080" },
+                                  { text: "收藏", color: this.themeColor }
+                                ]
+                              }, (err: BusinessError, data: promptAction.ShowDialogSuccessResponse) => {
+                                if (!err && data.index === 1) {
+                                  this.addFavoriteEmoji(emoji);
+                                }
+                              });
+                            }
+                          })
+                      )
+                    }
+                  })
+                }
+                .columnsTemplate("1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr")
+                .columnsGap(4)
+                .rowsGap(4)
+                .padding(8)
+                .layoutWeight(1)
+                .backgroundColor("#FAFAFA")
+              }.width("100%").height(260).backgroundColor("#FAFAFA")
             }
-            .width("100%")
-            .padding(10)
-            .backgroundColor("#FFFFFF")
-            .border({ width: { top: 1 }, color: "#E0E0E0" })
-          }
-          .width("100%")
-          .height("100%")
+          }.width("100%").height("100%")
 
         } else if (this.screenState === "ADD_FRIEND") {
           // --- ADD FRIEND SCREEN ---
@@ -2435,8 +3104,8 @@ struct Index {
       .height("100%")
 
       // --- FLOATING ACTION BUTTON (FAB) ---
-      // Only display FAB on lists tabs (activeTabIndex < 3) when in MAIN view
-      if (this.activeTabIndex < 3 && this.screenState === "MAIN") {
+      // Only display FAB on lists tabs (activeTabIndex === 0) when in MAIN view
+      if (this.activeTabIndex === 0 && this.screenState === "MAIN") {
         Button() {
           Text("＋")
             .fontSize(28)
@@ -2791,10 +3460,19 @@ struct Index {
                 .alignSelf(ItemAlign.Center)
             }
             
+            Button("📷 拍照更换头像")
+              .width("100%")
+              .height(40)
+              .backgroundColor(this.themeColor)
+              .onClick(() => {
+                this.takePhotoForAvatar();
+              })
+
             Button("🖼️ 从手机图库选择图片")
               .width("100%")
               .height(40)
               .backgroundColor(this.themeColor)
+              .margin({ top: 8 })
               .onClick(() => {
                 this.selectAvatarFromGallery();
               })
@@ -2829,12 +3507,59 @@ struct Index {
           .padding(20)
           .backgroundColor(Color.White)
           .borderRadius(10)
-        }
-        .width("100%")
-        .height("100%")
-        .backgroundColor("#80000000")
-        .justifyContent(FlexAlign.Center)
-        .alignItems(HorizontalAlign.Center)
+        }.width("100%").height("100%").backgroundColor("#80000000").justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
+      }
+
+      // --- OVERLAY MODAL: QR SCAN FALLBACK ---
+      if (this.qrScanModalVisible) {
+        Column() {
+          Column({ space: 15 }) {
+            Text("📷 扫描/识别二维码")
+              .fontSize(16)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(Color.Black)
+            
+            Text("请输入二维码包含的内容或链接：\n(如：openboard:add_friend:username)")
+              .fontSize(13)
+              .fontColor(Color.Gray)
+              .width("100%")
+            
+            TextInput({ text: this.qrScanInputVal, placeholder: "二维码内容" })
+              .width("100%")
+              .height(45)
+              .fontColor(Color.Black)
+              .placeholderColor(Color.Gray)
+              .onChange((val: string) => this.qrScanInputVal = val)
+
+            Row({ space: 12 }) {
+              Button("取消")
+                .layoutWeight(1)
+                .height(40)
+                .backgroundColor(Color.Gray)
+                .onClick(() => {
+                  this.qrScanModalVisible = false;
+                  this.qrScanInputVal = "";
+                })
+
+              Button("确定识别")
+                .layoutWeight(1)
+                .height(40)
+                .backgroundColor(this.themeColor)
+                .onClick(() => {
+                  let val = this.qrScanInputVal;
+                  this.qrScanModalVisible = false;
+                  this.qrScanInputVal = "";
+                  this.handleQrCodeResult(val);
+                })
+            }
+            .width("100%")
+            .margin({ top: 10 })
+          }
+          .width("80%")
+          .padding(20)
+          .backgroundColor(Color.White)
+          .borderRadius(10)
+        }.width("100%").height("100%").backgroundColor("#80000000").justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
       }
     }
     .width("100%")

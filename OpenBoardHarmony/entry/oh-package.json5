@@ -5,6 +5,9 @@
   "main": "",
   "author": "",
   "license": "",
-  "dependencies": {}
+  "dependencies": {
+    "@ohos/zxing": "^2.1.2"
+  },
+  "devDependencies": {},
+  "dynamicDependencies": {}
 }
-
