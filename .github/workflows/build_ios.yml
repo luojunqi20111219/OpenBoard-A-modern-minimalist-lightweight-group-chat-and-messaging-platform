@@ -140,6 +140,11 @@ jobs:
           cd OpenBoardFlutter
           flutter pub get
 
+      - name: Generate Launcher Icons
+        run: |
+          cd OpenBoardFlutter
+          dart run flutter_launcher_icons
+
       - name: Build iOS App (Unsigned)
         run: |
           cd OpenBoardFlutter
