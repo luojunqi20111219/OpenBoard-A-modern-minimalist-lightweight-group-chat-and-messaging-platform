@@ -109,11 +109,12 @@ jobs:
           proj_content = proj_content.replace('IPHONEOS_DEPLOYMENT_TARGET = 11.0', 'IPHONEOS_DEPLOYMENT_TARGET = 13.0')
           proj_content = proj_content.replace('IPHONEOS_DEPLOYMENT_TARGET = 12.0', 'IPHONEOS_DEPLOYMENT_TARGET = 13.0')
           
-          # Force Manual signing style
+          # Force Manual signing style in TargetAttributes
+          import re
+          proj_content = re.sub(r'CreatedOnToolsVersion\s*=\s*([^;]+);', r'CreatedOnToolsVersion = \1;\n\t\t\t\t\t\tProvisioningStyle = Manual;', proj_content)
           proj_content = proj_content.replace('ProvisioningStyle = Automatic;', 'ProvisioningStyle = Manual;')
           
           # Remove Code Sign Identity and Development Team settings
-          import re
           proj_content = re.sub(r'CODE_SIGN_IDENTITY\s*=\s*[^;]+;', 'CODE_SIGN_IDENTITY = "";', proj_content)
           proj_content = re.sub(r'CODE_SIGN_IDENTITY\[sdk=iphoneos\*\]\s*=\s*[^;]+;', 'CODE_SIGN_IDENTITY[sdk=iphoneos*] = "";', proj_content)
           proj_content = re.sub(r'DEVELOPMENT_TEAM\s*=\s*[^;]+;', 'DEVELOPMENT_TEAM = "";', proj_content)
@@ -124,6 +125,14 @@ jobs:
           
           with open(proj_path, 'w') as f:
               f.write(proj_content)
+
+          # 4. Append bypass settings to Flutter's xcconfig files
+          config_dir = 'OpenBoardFlutter/ios/Flutter'
+          for config_file in ['Debug.xcconfig', 'Release.xcconfig']:
+              path = os.path.join(config_dir, config_file)
+              if os.path.exists(path):
+                  with open(path, 'a') as f:
+                      f.write('\nCODE_SIGNING_ALLOWED = NO\nCODE_SIGNING_REQUIRED = NO\nCODE_SIGN_IDENTITY =\nDEVELOPMENT_TEAM =\n')
           EOF
 
       - name: Get Dependencies
