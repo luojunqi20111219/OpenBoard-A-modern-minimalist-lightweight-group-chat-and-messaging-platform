@@ -32,7 +32,7 @@ jobs:
 
       - name: Configure iOS Permissions and Deployment Target
         run: |
-          python3 -c "
+          python3 << 'EOF'
           import os, re, textwrap
           # 1. Add camera and photo permissions to Info.plist
           plist_path = 'OpenBoardFlutter/ios/Runner/Info.plist'
@@ -101,7 +101,7 @@ jobs:
           proj_content = proj_content.replace('IPHONEOS_DEPLOYMENT_TARGET = 12.0', 'IPHONEOS_DEPLOYMENT_TARGET = 13.0')
           with open(proj_path, 'w') as f:
               f.write(proj_content)
-          "
+          EOF
 
       - name: Get Dependencies
         run: |

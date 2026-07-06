@@ -11,7 +11,7 @@ proxy_handler = urllib.request.ProxyHandler({})
 https_handler = urllib.request.HTTPSHandler(context=ctx)
 opener = urllib.request.build_opener(proxy_handler, https_handler)
 
-url = "https://api.github.com/repos/luojunqi20111219/OpenBoard-A-modern-minimalist-lightweight-group-chat-and-messaging-platform/actions/runs/28780202684/jobs"
+url = "https://api.github.com/repos/luojunqi20111219/OpenBoard-A-modern-minimalist-lightweight-group-chat-and-messaging-platform/actions/runs/28780384976/jobs"
 req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
 try:
     with opener.open(req) as response:
