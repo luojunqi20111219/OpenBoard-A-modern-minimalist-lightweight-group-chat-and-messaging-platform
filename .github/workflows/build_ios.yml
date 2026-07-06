@@ -25,6 +25,29 @@ jobs:
         with:
           channel: 'stable'
 
+      - name: Create iOS Platform Folder
+        run: |
+          cd OpenBoardFlutter
+          flutter create --platforms=ios .
+
+      - name: Configure iOS Permissions
+        run: |
+          python3 -c "
+          plist_path = 'OpenBoardFlutter/ios/Runner/Info.plist'
+          with open(plist_path, 'r') as f:
+              content = f.read()
+          permission_keys = '''
+              <key>NSCameraUsageDescription</key>
+              <string>我们需要您的相机权限来扫描二维码。</string>
+              <key>NSPhotoLibraryUsageDescription</key>
+              <string>我们需要您的相册权限来识别相册中的二维码。</string>
+          '''
+          if '</dict>' in content:
+              new_content = content.replace('</dict>', permission_keys + '</dict>', 1)
+              with open(plist_path, 'w') as f:
+                  f.write(new_content)
+          "
+
       - name: Get Dependencies
         run: |
           cd OpenBoardFlutter
