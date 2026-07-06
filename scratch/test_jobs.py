@@ -6,7 +6,6 @@ ctx = ssl.create_default_context()
 ctx.check_hostname = False
 ctx.verify_mode = ssl.CERT_NONE
 
-# Bypass proxy and configure ssl context
 proxy_handler = urllib.request.ProxyHandler({})
 https_handler = urllib.request.HTTPSHandler(context=ctx)
 opener = urllib.request.build_opener(proxy_handler, https_handler)
@@ -16,11 +15,15 @@ req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
 try:
     with opener.open(req) as response:
         html = response.read()
-        data = json.loads(html)
+        print("Length of response:", len(html))
+        data = json.loads(html.decode('utf-8'))
+        print("Keys:", data.keys())
         jobs = data.get('jobs', [])
+        print("Jobs length:", len(jobs))
         for j in jobs:
             print(f"Job: {j['name']} ({j['conclusion']})")
             for step in j.get('steps', []):
                 print(f"  Step: {step['name']} -> {step['conclusion']}")
 except Exception as e:
-    print("Error:", e)
+    import traceback
+    traceback.print_exc()

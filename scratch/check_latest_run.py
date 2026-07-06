@@ -6,21 +6,19 @@ ctx = ssl.create_default_context()
 ctx.check_hostname = False
 ctx.verify_mode = ssl.CERT_NONE
 
-# Bypass proxy and configure ssl context
 proxy_handler = urllib.request.ProxyHandler({})
 https_handler = urllib.request.HTTPSHandler(context=ctx)
 opener = urllib.request.build_opener(proxy_handler, https_handler)
 
-url = "https://api.github.com/repos/luojunqi20111219/OpenBoard-A-modern-minimalist-lightweight-group-chat-and-messaging-platform/actions/runs/28779650164/jobs"
+url = "https://api.github.com/repos/luojunqi20111219/OpenBoard-A-modern-minimalist-lightweight-group-chat-and-messaging-platform/actions/runs"
 req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
 try:
     with opener.open(req) as response:
         html = response.read()
         data = json.loads(html)
-        jobs = data.get('jobs', [])
-        for j in jobs:
-            print(f"Job: {j['name']} ({j['conclusion']})")
-            for step in j.get('steps', []):
-                print(f"  Step: {step['name']} -> {step['conclusion']}")
+        runs = data.get('workflow_runs', [])
+        for r in runs[:5]:
+            msg = r['head_commit']['message'].replace('\n', ' ')
+            print(f"Run ID: {r['id']} | Commit: {msg} | Status: {r['status']} | Conclusion: {r['conclusion']}")
 except Exception as e:
     print("Error:", e)

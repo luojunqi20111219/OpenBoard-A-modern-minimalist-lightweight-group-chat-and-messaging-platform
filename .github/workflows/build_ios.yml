@@ -33,7 +33,7 @@ jobs:
       - name: Configure iOS Permissions and Deployment Target
         run: |
           python3 -c "
-          import os, re
+          import os, re, textwrap
           # 1. Add camera and photo permissions to Info.plist
           plist_path = 'OpenBoardFlutter/ios/Runner/Info.plist'
           with open(plist_path, 'r') as f:
@@ -51,23 +51,22 @@ jobs:
 
           # 2. Write standard Flutter Podfile with deployment target 13.0 (required by mobile_scanner)
           podfile_path = 'OpenBoardFlutter/ios/Podfile'
-          podfile_content = '''# Uncomment this line to define a global platform for your project
-platform :ios, '13.0'
+          podfile_content = textwrap.dedent('''\
+              platform :ios, '13.0'
 
-# CocoaPods targets start here
-target 'Runner' do
-  use_frameworks!
-  use_modular_headers!
+              target 'Runner' do
+                use_frameworks!
+                use_modular_headers!
 
-  flutter_install_all_ios_pods File.expand_path('../..', __FILE__)
-end
+                flutter_install_all_ios_pods File.expand_path('../..', __FILE__)
+              end
 
-post_install do |installer|
-  installer.pods_project.targets.each do |target|
-    flutter_additional_ios_build_settings(target)
-  end
-end
-'''
+              post_install do |installer|
+                installer.pods_project.targets.each do |target|
+                  flutter_additional_ios_build_settings(target)
+                end
+              end
+          ''')
           with open(podfile_path, 'w') as f:
               f.write(podfile_content)
 
