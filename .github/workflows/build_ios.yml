@@ -33,7 +33,7 @@ jobs:
       - name: Configure iOS Permissions and Deployment Target
         run: |
           python3 -c "
-          import re
+          import os, re
           # 1. Add camera and photo permissions to Info.plist
           plist_path = 'OpenBoardFlutter/ios/Runner/Info.plist'
           with open(plist_path, 'r') as f:
@@ -49,14 +49,27 @@ jobs:
               with open(plist_path, 'w') as f:
                   f.write(content)
 
-          # 2. Update Podfile deployment target to 13.0 (required by mobile_scanner)
+          # 2. Write standard Flutter Podfile with deployment target 13.0 (required by mobile_scanner)
           podfile_path = 'OpenBoardFlutter/ios/Podfile'
-          with open(podfile_path, 'r') as f:
-              p_content = f.read()
-          p_content = re.sub(r'#\s*platform :ios,\s*\'\d+\.\d+\'', 'platform :ios, \'13.0\'', p_content)
-          p_content = re.sub(r'platform :ios,\s*\'\d+\.\d+\'', 'platform :ios, \'13.0\'', p_content)
+          podfile_content = '''# Uncomment this line to define a global platform for your project
+platform :ios, '13.0'
+
+# CocoaPods targets start here
+target 'Runner' do
+  use_frameworks!
+  use_modular_headers!
+
+  flutter_install_all_ios_pods File.expand_path('../..', __FILE__)
+end
+
+post_install do |installer|
+  installer.pods_project.targets.each do |target|
+    flutter_additional_ios_build_settings(target)
+  end
+end
+'''
           with open(podfile_path, 'w') as f:
-              f.write(p_content)
+              f.write(podfile_content)
 
           # 3. Update project.pbxproj deployment target to 13.0
           proj_path = 'OpenBoardFlutter/ios/Runner.xcodeproj/project.pbxproj'
