@@ -151,7 +151,7 @@ jobs:
           cd OpenBoardFlutter/build/ios/iphoneos
           mkdir Payload
           mv Runner.app Payload/
-          zip -r ../../../build-output/OpenBoard-iOS-Unsigned.ipa Payload
+          zip -r ../../../../build-output/OpenBoard-iOS-Unsigned.ipa Payload
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
