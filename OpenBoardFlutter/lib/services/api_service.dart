@@ -12,7 +12,7 @@ class ApiService {
   factory ApiService() => _instance;
   ApiService._internal();
 
-  String _serverUrl = 'http://127.0.0.1:5000';
+  String _serverUrl = 'http://47.93.6.111:5000';
   String _token = '';
   String _currentUsername = '';
   String _currentNickname = '';
@@ -30,7 +30,7 @@ class ApiService {
 
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
-    _serverUrl = prefs.getString('server_url') ?? 'http://127.0.0.1:5000';
+    _serverUrl = prefs.getString('server_url') ?? 'http://47.93.6.111:5000';
     _token = prefs.getString('token') ?? '';
     _currentUsername = prefs.getString('username') ?? '';
     _currentNickname = prefs.getString('nickname') ?? '';
@@ -51,7 +51,7 @@ class ApiService {
     );
 
     final data = jsonDecode(response.body);
-    if (response.statusCode == 200 && data['status'] == 'success') {
+    if (response.statusCode == 200) {
       _token = data['token'] ?? '';
       _currentUsername = username;
       _currentNickname = data['nickname'] ?? username;
@@ -80,7 +80,7 @@ class ApiService {
     );
 
     final data = jsonDecode(response.body);
-    if (response.statusCode == 200 && data['status'] == 'success') {
+    if (response.statusCode == 200) {
       return {'success': true};
     } else {
       return {'success': false, 'message': data['detail'] ?? '注册失败'};

@@ -177,7 +177,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 controller: _serverController,
                                 decoration: const InputDecoration(
                                   labelText: '服务器地址',
-                                  hintText: 'http://127.0.0.1:5000',
+                                  hintText: 'http://47.93.6.111:5000',
                                   prefixIcon: Icon(Icons.dns),
                                   border: OutlineInputBorder(),
                                 ),
