@@ -124,12 +124,7 @@ class ApiService {
 
       final List<Relation> relations = [];
 
-      // Add Public Lobby (room_id = 0)
-      relations.add(Relation(
-        id: 0,
-        name: '公共大厅',
-        type: 'group',
-      ));
+
 
       if (groupsResponse.statusCode == 200) {
         final groupsData = jsonDecode(groupsResponse.body);
