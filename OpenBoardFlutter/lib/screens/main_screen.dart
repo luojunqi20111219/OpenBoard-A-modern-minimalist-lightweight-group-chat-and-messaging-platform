@@ -195,6 +195,96 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
+  void _showMyQrCodeDialog() {
+    final username = ApiService().currentUsername;
+    final nickname = ApiService().currentNickname;
+    final qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=openboard:add_friend:$username';
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('我的二维码名片', textAlign: TextAlign.center),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AvatarWidget(
+              name: username,
+              nickname: nickname,
+              avatarUrl: ApiService().currentAvatar,
+              size: 60,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              nickname,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            Text(
+              '@$username',
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+            ),
+            const SizedBox(height: 20),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 10,
+                  ),
+                ],
+              ),
+              child: Image.network(
+                qrUrl,
+                width: 200,
+                height: 200,
+                fit: BoxFit.contain,
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  return const SizedBox(
+                    width: 200,
+                    height: 200,
+                    child: Center(child: CircularProgressIndicator()),
+                  );
+                },
+                errorBuilder: (context, error, stackTrace) {
+                  return const SizedBox(
+                    width: 200,
+                    height: 200,
+                    child: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.broken_image, color: Colors.grey, size: 48),
+                          SizedBox(height: 8),
+                          Text('二维码加载失败', style: TextStyle(color: Colors.grey)),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              '让好友扫描上方二维码，即可添加您为好友',
+              style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _openChat(Relation item) async {
     await Navigator.push(
       context,
@@ -756,6 +846,13 @@ class _MainScreenState extends State<MainScreen> {
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             child: Column(
               children: [
+                ListTile(
+                  leading: const Icon(Icons.qr_code, color: Colors.blue),
+                  title: const Text('我的二维码名片'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: _showMyQrCodeDialog,
+                ),
+                const Divider(height: 1),
                 ListTile(
                   leading: const Icon(Icons.lock_outline, color: Colors.deepOrange),
                   title: const Text('修改账户密码'),
