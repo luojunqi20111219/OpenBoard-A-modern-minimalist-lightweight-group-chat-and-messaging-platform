@@ -347,6 +347,78 @@ int main() {
     // Inject message interceptor script
     w.init(R"(
         (function() {
+            function showInAppNotification(title, message, roomId, senderUsername, senderNickname, senderAvatar) {
+                var container = document.getElementById('openboard-toast-container');
+                if (!container) {
+                    container = document.createElement('div');
+                    container.id = 'openboard-toast-container';
+                    container.style.cssText = 'position: fixed; top: 20px; right: 20px; z-index: 999999; display: flex; flex-direction: column; gap: 10px; pointer-events: none;';
+                    document.body.appendChild(container);
+                }
+                
+                var toast = document.createElement('div');
+                toast.style.cssText = 'width: 320px; background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.4); border-radius: 12px; box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.15); display: flex; padding: 12px; pointer-events: auto; cursor: pointer; transform: translateX(360px); transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); align-items: center; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;';
+                
+                var avatarEl = document.createElement('div');
+                avatarEl.style.cssText = 'width: 44px; height: 44px; border-radius: 22px; overflow: hidden; background: #3b82f6; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; flex-shrink: 0; font-size: 16px;';
+                
+                if (senderAvatar && (senderAvatar.startsWith('data:image') || senderAvatar.length > 100)) {
+                    var img = document.createElement('img');
+                    img.src = senderAvatar;
+                    img.style.cssText = 'width: 100%; height: 100%; object-fit: cover;';
+                    avatarEl.appendChild(img);
+                } else {
+                    avatarEl.textContent = (senderNickname || title || '?').substring(0, 1).toUpperCase();
+                }
+                toast.appendChild(avatarEl);
+                
+                var contentArea = document.createElement('div');
+                contentArea.style.cssText = 'margin-left: 12px; flex-grow: 1; min-width: 0; text-align: left;';
+                
+                var senderName = document.createElement('div');
+                senderName.style.cssText = 'font-weight: bold; font-size: 14px; color: #1f2937; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;';
+                senderName.textContent = senderNickname || title;
+                contentArea.appendChild(senderName);
+                
+                var msgText = document.createElement('div');
+                msgText.style.cssText = 'font-size: 12px; color: #4b5563; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;';
+                msgText.textContent = message;
+                contentArea.appendChild(msgText);
+                
+                toast.appendChild(contentArea);
+                
+                var closeBtn = document.createElement('div');
+                closeBtn.innerHTML = '&times;';
+                closeBtn.style.cssText = 'font-size: 20px; color: #9ca3af; cursor: pointer; padding: 0 4px; align-self: flex-start; line-height: 1; margin-left: 4px;';
+                closeBtn.onclick = function(e) {
+                    e.stopPropagation();
+                    toast.style.transform = 'translateX(360px)';
+                    setTimeout(function() { toast.remove(); }, 300);
+                };
+                toast.appendChild(closeBtn);
+                
+                toast.onclick = function() {
+                    if (window.openChatFromNotification) {
+                        window.openChatFromNotification(roomId, senderUsername, senderNickname, senderAvatar);
+                    }
+                    toast.style.transform = 'translateX(360px)';
+                    setTimeout(function() { toast.remove(); }, 300);
+                };
+                
+                container.appendChild(toast);
+                
+                setTimeout(function() {
+                    toast.style.transform = 'translateX(0)';
+                }, 10);
+                
+                setTimeout(function() {
+                    if (toast.parentNode) {
+                        toast.style.transform = 'translateX(360px)';
+                        setTimeout(function() { toast.remove(); }, 300);
+                    }
+                }, 5000);
+            }
+
             function hookMessage() {
                 if (window.handleNewMessage) {
                     var oldHandleNewMessage = window.handleNewMessage;
@@ -356,15 +428,25 @@ int main() {
                         }
                         try {
                             if (currentUser && data.name !== currentUser.username) {
+                                var sender = data.nickname || data.name || "新消息";
+                                var text = data.content || "";
+                                text = text.replace(/\[img:[^\]]+\]/g, "[图片]")
+                                           .replace(/\[file:[^\|]+\|([^\]]+)\]/g, "[文件: $1]")
+                                           .replace(/\[file:[^\]]+\]/g, "[文件]");
+                                
                                 if (window.desktopNotify) {
-                                    // Use data.content for message content, and nickname/name for sender
-                                    var sender = data.nickname || data.name || "新消息";
-                                    var text = data.content || "";
-                                    // Strip html-like tags if any
-                                    text = text.replace(/\[img:[^\]]+\]/g, "[图片]")
-                                               .replace(/\[file:[^\|]+\|([^\]]+)\]/g, "[文件: $1]")
-                                               .replace(/\[file:[^\]]+\]/g, "[文件]");
                                     window.desktopNotify(
+                                        sender, 
+                                        text, 
+                                        String(data.receiver ? "-1" : (data.room_id !== undefined && data.room_id !== null ? data.room_id : "-1")),  
+                                        data.name || "", 
+                                        data.nickname || "", 
+                                        data.avatar || ""
+                                    );
+                                }
+                                
+                                if (navigator.userAgent.indexOf('Windows') === -1) {
+                                    showInAppNotification(
                                         sender, 
                                         text, 
                                         String(data.receiver ? "-1" : (data.room_id !== undefined && data.room_id !== null ? data.room_id : "-1")),  
