@@ -163,17 +163,9 @@ class _ChatScreenState extends State<ChatScreen> {
         'content': text,
       };
 
-      final response = await ApiService().uploadAttachment(
-        // Wait, for standard text we can use a direct HTTP post or WS send.
-        // Let's call the POST messages API using http!
-        File(''), // Empty file represents text message
-      );
-      
-      // Let's implement postMessage directly using http
       final serverUrl = ApiService().serverUrl;
       final token = ApiService().token;
       
-      await ApiService().setServerUrl(serverUrl); // Check server is up
       final res = await http.post(
         Uri.parse('$serverUrl/api/messages'),
         headers: {
@@ -299,6 +291,36 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  void _confirmDeleteFriend() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('删除好友'),
+        content: Text('您确定要解除与 @${widget.targetUser} 的好友关系吗？此操作将无法撤销。'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              final success = await ApiService().removeFriend(widget.targetUser!);
+              if (success) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('已解除好友关系'), backgroundColor: Colors.green),
+                );
+                Navigator.pop(context); // Close the chat screen
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('删除好友失败'), backgroundColor: Colors.red),
+                );
+              }
+            },
+            child: const Text('确定', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -323,6 +345,12 @@ class _ChatScreenState extends State<ChatScreen> {
         backgroundColor: Colors.blue.shade800,
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
+          if (widget.targetUser != null && widget.targetUser != 'filehelper')
+            IconButton(
+              icon: const Icon(Icons.person_remove, color: Colors.white),
+              tooltip: '解除好友',
+              onPressed: _confirmDeleteFriend,
+            ),
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.white),
             onPressed: _loadHistory,

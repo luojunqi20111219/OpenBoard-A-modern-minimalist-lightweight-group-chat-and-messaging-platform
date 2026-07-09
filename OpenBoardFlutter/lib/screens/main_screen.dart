@@ -145,10 +145,13 @@ class _MainScreenState extends State<MainScreen> {
 
   void _handleQrResult(String val) {
     // Check if link contains group invitation or user target
-    // Examples: http://server/invite/group_123 or friend:username
+    // Examples: http://server/invite/group_123 or friend:username or openboard:add_friend:username
     final code = val.trim();
     if (code.startsWith('friend:')) {
       final username = code.substring(7);
+      _showAddFriendDialog(username);
+    } else if (code.startsWith('openboard:add_friend:')) {
+      final username = Uri.decodeComponent(code.substring(21));
       _showAddFriendDialog(username);
     } else {
       showDialog(
@@ -175,14 +178,195 @@ class _MainScreenState extends State<MainScreen> {
           TextButton(
             onPressed: () async {
               Navigator.pop(context);
-              // Call add friend API...
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('已向 @$username 发送好友申请')),
-              );
+              final success = await ApiService().sendFriendRequest(username);
+              if (success) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('已向 @$username 发送好友申请'), backgroundColor: Colors.green),
+                );
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('发送好友申请失败，该用户可能不存在或已是好友'), backgroundColor: Colors.red),
+                );
+              }
             },
             child: const Text('确定'),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showSearchAndAddFriendDialog() {
+    final searchController = TextEditingController();
+    List<Map<String, dynamic>> searchResults = [];
+    bool isSearching = false;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('搜索并添加好友'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: searchController,
+                        decoration: const InputDecoration(
+                          hintText: '输入用户名进行搜索',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      onPressed: isSearching
+                          ? null
+                          : () async {
+                              final query = searchController.text.trim();
+                              if (query.isEmpty) return;
+                              setDialogState(() {
+                                isSearching = true;
+                              });
+                              final results = await ApiService().searchUsers(query);
+                              setDialogState(() {
+                                searchResults = results;
+                                isSearching = false;
+                              });
+                            },
+                      child: isSearching
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text('搜索'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                if (searchResults.isEmpty && searchController.text.isNotEmpty && !isSearching)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 20),
+                    child: Text('无搜索结果', style: TextStyle(color: Colors.grey)),
+                  )
+                else
+                  Flexible(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: searchResults.length,
+                      itemBuilder: (context, index) {
+                        final user = searchResults[index];
+                        final username = user['username'];
+                        final nickname = user['nickname'] ?? username;
+                        return ListTile(
+                          title: Text(nickname),
+                          subtitle: Text('@$username'),
+                          trailing: ElevatedButton(
+                            onPressed: () async {
+                              final success = await ApiService().sendFriendRequest(username);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(success ? '已发送好友申请给 @$username' : '发送申请失败'),
+                                  backgroundColor: success ? Colors.green : Colors.red,
+                                ),
+                              );
+                            },
+                            child: const Text('添加'),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('关闭'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showFriendRequestsDialog() async {
+    List<Map<String, dynamic>> requests = await ApiService().fetchFriendRequests();
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('好友申请列表'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: requests.isEmpty
+                ? const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 20),
+                    child: Text('暂无好友申请', style: TextStyle(color: Colors.grey)),
+                  )
+                : ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: requests.length,
+                    itemBuilder: (context, index) {
+                      final req = requests[index];
+                      final fromUser = req['from_user'];
+                      return ListTile(
+                        title: Text(fromUser),
+                        subtitle: const Text('向您发送了好友申请'),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            TextButton(
+                              onPressed: () async {
+                                final success = await ApiService().respondFriendRequest(fromUser, 'accept');
+                                if (success) {
+                                  final newRequests = await ApiService().fetchFriendRequests();
+                                  setDialogState(() {
+                                    requests = newRequests;
+                                  });
+                                  _fetchRelationsOnly(); // refresh friends list
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('已同意好友申请'), backgroundColor: Colors.green),
+                                  );
+                                }
+                              },
+                              child: const Text('同意', style: TextStyle(color: Colors.green)),
+                            ),
+                            TextButton(
+                              onPressed: () async {
+                                final success = await ApiService().respondFriendRequest(fromUser, 'reject');
+                                if (success) {
+                                  final newRequests = await ApiService().fetchFriendRequests();
+                                  setDialogState(() {
+                                    requests = newRequests;
+                                  });
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('已拒绝好友申请')),
+                                  );
+                                }
+                              },
+                              child: const Text('拒绝', style: TextStyle(color: Colors.red)),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('关闭'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -500,6 +684,16 @@ class _MainScreenState extends State<MainScreen> {
         backgroundColor: Colors.blue.shade800,
         actions: [
           if (_currentIndex == 0) ...[
+            IconButton(
+              icon: const Icon(Icons.person_add, color: Colors.white),
+              tooltip: '添加好友',
+              onPressed: _showSearchAndAddFriendDialog,
+            ),
+            IconButton(
+              icon: const Icon(Icons.people_outline, color: Colors.white),
+              tooltip: '好友申请',
+              onPressed: _showFriendRequestsDialog,
+            ),
             IconButton(
               icon: const Icon(Icons.qr_code_scanner, color: Colors.white),
               tooltip: '扫码',

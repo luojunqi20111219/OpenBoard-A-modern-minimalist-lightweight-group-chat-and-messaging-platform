@@ -118,7 +118,7 @@ class ApiService {
         headers: {'Authorization': _token},
       );
       final friendsResponse = await http.get(
-        Uri.parse('$_serverUrl/api/users'),
+        Uri.parse('$_serverUrl/api/friends'),
         headers: {'Authorization': _token},
       );
 
@@ -360,5 +360,82 @@ class ApiService {
       _wsChannel = null;
       _wsConnected = false;
     }
+  }
+
+  Future<List<Map<String, dynamic>>> searchUsers(String query) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$_serverUrl/api/users/search?q=$query'),
+        headers: {'Authorization': _token},
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['status'] == 'success') {
+          return List<Map<String, dynamic>>.from(data['data']);
+        }
+      }
+    } catch (e) {
+      print('Search users error: $e');
+    }
+    return [];
+  }
+
+  Future<bool> sendFriendRequest(String targetUsername) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$_serverUrl/api/friends/request'),
+        headers: {
+          'Authorization': _token,
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({'to_user': targetUsername}),
+      );
+      return response.statusCode == 200;
+    } catch (_) {}
+    return false;
+  }
+
+  Future<List<Map<String, dynamic>>> fetchFriendRequests() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$_serverUrl/api/friends/requests'),
+        headers: {'Authorization': _token},
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['status'] == 'success') {
+          return List<Map<String, dynamic>>.from(data['data']);
+        }
+      }
+    } catch (e) {
+      print('Fetch requests error: $e');
+    }
+    return [];
+  }
+
+  Future<bool> respondFriendRequest(String fromUser, String action) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$_serverUrl/api/friends/respond'),
+        headers: {
+          'Authorization': _token,
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({'from_user': fromUser, 'action': action}),
+      );
+      return response.statusCode == 200;
+    } catch (_) {}
+    return false;
+  }
+
+  Future<bool> removeFriend(String username) async {
+    try {
+      final response = await http.delete(
+        Uri.parse('$_serverUrl/api/friends/$username'),
+        headers: {'Authorization': _token},
+      );
+      return response.statusCode == 200;
+    } catch (_) {}
+    return false;
   }
 }
