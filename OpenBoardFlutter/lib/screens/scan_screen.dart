@@ -93,6 +93,36 @@ class _ScanScreenState extends State<ScanScreen> {
     );
   }
 
+  void _showManualInputDialog() {
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('手动输入'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            hintText: '请输入内容',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
+          TextButton(
+            onPressed: () {
+              final text = controller.text.trim();
+              Navigator.pop(context);
+              if (text.isNotEmpty) {
+                Navigator.pop(context, text);
+              }
+            },
+            child: const Text('确认'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -101,6 +131,11 @@ class _ScanScreenState extends State<ScanScreen> {
         backgroundColor: Colors.blue.shade800,
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.edit_note),
+            tooltip: '手动输入',
+            onPressed: _showManualInputDialog,
+          ),
           IconButton(
             icon: const Icon(Icons.photo_library),
             tooltip: '从相册选择',
@@ -148,7 +183,7 @@ class _ScanScreenState extends State<ScanScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        '可能是权限不足或模拟器没有物理摄像头。请尝试从相册选择图片，或返回手动输入。',
+                        '可能是权限不足或模拟器没有物理摄像头。请尝试从相册选择图片，或手动输入。',
                         textAlign: TextAlign.center,
                         style: TextStyle(color: Colors.grey.shade600),
                       ),
@@ -156,6 +191,11 @@ class _ScanScreenState extends State<ScanScreen> {
                       ElevatedButton(
                         onPressed: _scanFromGallery,
                         child: const Text('从相册选择图片'),
+                      ),
+                      const SizedBox(height: 8),
+                      OutlinedButton(
+                        onPressed: _showManualInputDialog,
+                        child: const Text('手动输入内容'),
                       )
                     ],
                   ),
