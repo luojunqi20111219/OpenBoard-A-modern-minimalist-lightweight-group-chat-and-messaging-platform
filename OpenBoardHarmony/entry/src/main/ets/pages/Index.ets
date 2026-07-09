@@ -752,7 +752,7 @@ struct Index {
         if (!err && data.responseCode === 200) {
           try {
             let list = JSON.parse(data.result as string) as GroupItem[];
-            grps = list.map((g: GroupItem): Relation => {
+            grps = list.filter((g: GroupItem) => g.id !== 0).map((g: GroupItem): Relation => {
               return { id: g.id, name: g.name, type: "group" };
             });
           } catch (e) {

@@ -36,12 +36,26 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isOtherTyping = false;
   Timer? _typingTimer;
   Timer? _sendTypingThrottle;
+  bool _showEmojiPanel = false;
+  String _selectedEmojiCategory = '😀';
+  List<String> _favoriteEmojis = [];
+
+  static const Map<String, List<String>> _categorizedEmojis = {
+    '😀': ['😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇', '🙂', '🙃', '😉', '😌', '😍', '🥰', '😘', '😗', '😙', '😚', '😋', '😛', '😝', '😜', '🤪', '🤨', '🧐', '🤓', '😎', '🤩', '🥳', '😏', '😒', '😞', '😔', '😟', '😕', '🙁', '☹️', '😣', '😖', '😫', '😩', '🥺', '😢', '😭', '😤', '😠', '😡', '🤬', '🤯', '😳', '🥵', '🥶', '😱', '😨', '😰', '😥', '😓', '🤗', '🤔', '🤭', '🤫', '🤥', '😶', '😐', '😑', '😬', '🙄', '😯', '😦', '😧', '😮', '😲', '🥱', '😴', '🤤', '😪', '😵', '🤐', '🥴', '🤢', '🤮', '🤧', '😷', '🤒', '🤕', '🤑', '🤠', '😈', '👿', '👹', '👺', '🤡', '💩', '👻', '💀', '☠️', '👽', '👾', '🤖', '🎃', '😺', '😸', '😹', '😻', '😼', '😽', '🙀', '😿', '😾'],
+    '🐱': ['🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮', '🐷', '🐽', '🐸', '🐵', '🙈', '🙉', '🙊', '🐒', '🐔', '🐧', '🐦', '🐤', '🐣', '🐥', '🦆', '🦢', '🦉', '🦚', '🦜', '🐺', '🐗', '🐴', '🦄', '🐝', '🐛', '🦋', '🐌', '🐞', '🐜', '🦟', '🦗', '🕷', '🕸', '🦂', '🐢', '🐍', '🦎', '🐙', '🦑', '🦞', '🦀', '🐡', '🐠', '🐟', '🐬', '🐳', '🐋', '🦈', '🐊', '🐅', '🐆', '🦓', '🦍', '🦧', '🐘', '🦛', '🦏', '🐪', '🐫', '🦒', '🦘', '🐃', '🐂', '🐄', '🐎', '🐖', '🐏', '🐑', '🐐', '🦌', '🐕', '🐩', '🐈', '🐓', '🦃', '🦅', '🕊', '🐇', '🐁', '🐀', '🐿', '🦡', '🦔', '🐾', '🐉', '🐲', '🌵', '🎄', '🌲', '🌳', '🌴', '🌱', '🌿', '☘️', '🍀', '🍁', '🍂', '🍃'],
+    '🍏': ['🍏', '🍎', '🍐', '🍊', '🍋', '🍌', '🍉', '🍇', '🍓', '🍈', '🍒', '🍑', '🥭', '🍍', '🥥', '🥝', '🍅', '🍆', '🥑', '🥦', '🥬', '🥒', '🌶', '🌽', '🥕', '🥔', '🍠', '🥐', '🥯', '🍞', '🥖', '🥨', '🧀', '🥚', '🍳', '🥞', '🥓', '🥩', '🍗', '🍖', '🌭', '🍔', '🍟', '🍕', '🥪', '🥙', '🥗', '🍿', '🧂', '🥫', '🍱', '🍘', '🍙', '🍚', '🍛', '🍜', '🍝', '🍠', '🍢', '🍣', '🍤', '🍥', '🦪', '🍡', '🥟', '🧁', '🍰', '🎂', '🍮', '🍭', '🍬', '🍫', '🍿', '🍩', '🍪', '🌰', '🥜', '🍯', '🥛', '☕️', '🍵', '🥤', '🍶', '🍺', '🍻', '🥂', '🍷', '🥃', '🍸', '🍹', '🧉'],
+    '⚽': ['⚽', '🏀', '🏈', '⚾', '🥎', '🎾', '🏐', '🏉', '🥏', '🎱', '🪀', '🏓', '🏸', '🏒', '🏑', '🥍', '🏏', '🥅', '🏹', '🎣', '🤿', '🥊', '🥋', '🎽', '🛹', '🛷', '⛸', '🥌', '🎿', '⛷', '🏂', '🪂', '🏋️', '🤼', '🤸', '⛹️', '抓', '🤺', '🤾', '🏌️', '🏇', '🧘', '🏄', '🏊', '🤽', '🚣', '🧗', '🚵', '🚴', '🏆', '🥇', '🥈', '🥉', '🏅', '🎖', '🎫', '🎟', '🎪', '🤹', '🎭', '🎨', '🎬', '🎤', '🎧', '🎼', '🎹', '🥁', '🎷', '🎺', '🎸', '🪕', '🎻', '🎮', '🕹', '🎯', '🎲', '🎰', '🧩', '🎳'],
+    '🚗': ['🚗', '🚙', '🚌', '🏎', '🚓', '🚑', '🚒', '🚐', '🛻', '🚚', '🚜', '🛵', '🏍', '🛺', '🚲', '🛴', '🚏', '🛣', '⛽', '🚨', '🚥', '🚦', '🛑', '🚧', '⚓', '⛵', '🛶', '🚤', '🛳', '🚢', '✈️', '🛩', '🛫', '🛬', '🪂', '🚁', '🚟', '🚠', '🚡', '🛰', '🚀', '🛸', '🪐', '🌟', '⭐️', '✨', '⚡️', '☄️', '💥', '🔥', '🌪', '🌈', '☀️', '🌤', '⛅️', '🌥', '☁️', '🌦', '🌧', '⛈', '🌨', '❄️', '💨', '🌊', '💧', '💦', '🌫'],
+    '💡': ['⌚️', '📱', '📲', '💻', '⌨️', '🖥', '🖱', '🎛', '🎚', '🎙', '📻', '📺', '📷', '📸', '📹', '📼', '🔍', '🔎', '💡', '🔦', '🏮', '🪔', '📔', '📕', '📖', '📗', '📘', '📙', '📚', '📓', '📒', '📝', '✉️', '📧', '📨', '📩', '📤', '📥', '📦', '🏷', '📁', '📂', '🗂', '📅', '📆', '🗒', '🗓', '🗃', '🗳', '🗄', '📋', '📌', '📍', '📎', '🖇', '📏', '📐', '✂️', '🖊', '🖋', '✒️', '🖌', '🖍', '🔒', '🔓', '🔏', '🔐', '🔑', '🗝', '🔨', '⚒', '🛠', '⛏', '🔩', '⚙️', '🧱', '⛓', '🪓', '🔫', '🔮', '📿', '🏺'],
+    '🏁': ['🏁', '🚩', '🎌', '🏴', '🏳️', '🏳️‍🌈', '🏳️‍⚧️', '🏴‍☠️', '🇨🇳', '🇭🇰', '🇲🇴', '🇹🇼', '🇺🇸', '🇬🇧', '🇯🇵', '🇰🇷', '🇫🇷', '🇩🇪', '🇷🇺', '🇨🇦', '🇦🇺', '🇮🇹', '🇪🇸', '🇮🇳', '🇸🇬', '🇲🇾', '🇹🇭', '🇻🇳', '🇵🇭', '🇮🇩', '🇧🇷', '🇿🇦']
+  };
 
   @override
   void initState() {
     super.initState();
     _loadHistory();
     _subscribeToEvents();
+    _loadFavoriteEmojis();
   }
 
   @override
@@ -395,8 +409,6 @@ class _ChatScreenState extends State<ChatScreen> {
                 style: TextStyle(fontSize: 12.0, color: Colors.grey.shade500, fontStyle: FontStyle.italic),
               ),
             ),
-
-          // Bottom Input Bar
           Container(
             decoration: BoxDecoration(
               color: Colors.white,
@@ -452,17 +464,34 @@ class _ChatScreenState extends State<ChatScreen> {
                     },
                   ),
 
+                  // Emoji Toggle Button
+                  IconButton(
+                    icon: Icon(
+                      _showEmojiPanel ? Icons.keyboard : Icons.sentiment_satisfied_alt,
+                      color: Colors.blue.shade700,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _showEmojiPanel = !_showEmojiPanel;
+                        if (_showEmojiPanel) {
+                          FocusScope.of(context).unfocus();
+                        }
+                      });
+                    },
+                  ),
+
                   // Main Text Input Area
                   Expanded(
                     child: TextField(
                       controller: _textController,
                       onChanged: _onTextChanged,
+                      onTap: _onInputTap,
                       maxLines: 4,
                       minLines: 1,
                       textInputAction: TextInputAction.send,
                       onSubmitted: (_) => _sendMessage(),
                       decoration: InputDecoration(
-                        hintText: '发送新消息...',
+                        hintText: '消息...',
                         contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(20.0),
@@ -486,7 +515,182 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ),
           ),
+
+          // Emoji Panel
+          if (_showEmojiPanel) _buildEmojiPanel(),
         ],
+      ),
+    );
+  }
+
+  void _loadFavoriteEmojis() async {
+    final list = await ApiService().fetchFavoriteEmojis();
+    setState(() {
+      _favoriteEmojis = list;
+    });
+  }
+
+  void _onInputTap() {
+    if (_showEmojiPanel) {
+      setState(() {
+        _showEmojiPanel = false;
+      });
+    }
+  }
+
+  Widget _buildEmojiPanel() {
+    return Container(
+      height: 250,
+      color: Colors.grey.shade50,
+      child: Column(
+        children: [
+          // Emoji Category Headers
+          Container(
+            height: 40,
+            color: Colors.grey.shade200,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: [
+                _buildCategoryBtn('❤️'),
+                _buildCategoryBtn('😀'),
+                _buildCategoryBtn('🐱'),
+                _buildCategoryBtn('🍏'),
+                _buildCategoryBtn('⚽'),
+                _buildCategoryBtn('🚗'),
+                _buildCategoryBtn('💡'),
+                _buildCategoryBtn('🏁'),
+              ],
+            ),
+          ),
+          // Emoji Grid Area
+          Expanded(
+            child: _buildEmojiGrid(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCategoryBtn(String category) {
+    final isSelected = _selectedEmojiCategory == category;
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _selectedEmojiCategory = category;
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        color: isSelected ? Colors.grey.shade50 : Colors.transparent,
+        child: Text(
+          category,
+          style: const TextStyle(fontSize: 16),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmojiGrid() {
+    List<String> emojis = [];
+    if (_selectedEmojiCategory == '❤️') {
+      emojis = _favoriteEmojis;
+    } else {
+      emojis = _categorizedEmojis[_selectedEmojiCategory] ?? [];
+    }
+
+    if (emojis.isEmpty && _selectedEmojiCategory == '❤️') {
+      return const Center(
+        child: Text(
+          '长按下方任意表情即可添加收藏',
+          style: TextStyle(color: Colors.grey, fontSize: 13),
+        ),
+      );
+    }
+
+    return GridView.builder(
+      padding: const EdgeInsets.all(8),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 8,
+        mainAxisSpacing: 8,
+        crossAxisSpacing: 8,
+      ),
+      itemCount: emojis.length + 1, // +1 for delete button
+      itemBuilder: (context, index) {
+        if (index == emojis.length) {
+          // Delete Backspace Button
+          return GestureDetector(
+            onTap: () {
+              final text = _textController.text;
+              if (text.isNotEmpty) {
+                _textController.text = text.characters.skipLast(1).toString();
+              }
+            },
+            child: const Center(
+              child: Icon(Icons.backspace_outlined, color: Colors.grey),
+            ),
+          );
+        }
+
+        final emoji = emojis[index];
+        return GestureDetector(
+          onTap: () {
+            _textController.text += emoji;
+          },
+          onLongPress: () {
+            _showEmojiActions(emoji);
+          },
+          child: Center(
+            child: Text(
+              emoji,
+              style: const TextStyle(fontSize: 24),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showEmojiActions(String emoji) {
+    final isFav = _favoriteEmojis.contains(emoji);
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: Icon(isFav ? Icons.favorite_border : Icons.favorite, color: isFav ? Colors.grey : Colors.red),
+              title: Text(isFav ? '从收藏中删除' : '添加到我的收藏'),
+              onTap: () async {
+                Navigator.pop(context);
+                bool success = false;
+                if (isFav) {
+                  success = await ApiService().removeFavoriteEmoji(emoji);
+                  if (success) {
+                    setState(() {
+                      _favoriteEmojis.remove(emoji);
+                    });
+                  }
+                } else {
+                  success = await ApiService().addFavoriteEmoji(emoji);
+                  if (success) {
+                    setState(() {
+                      if (!_favoriteEmojis.contains(emoji)) {
+                        _favoriteEmojis.add(emoji);
+                      }
+                    });
+                  }
+                }
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(success ? (isFav ? '已删除收藏' : '已添加收藏') : '操作失败'),
+                    duration: const Duration(seconds: 1),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
       ),
     );
   }

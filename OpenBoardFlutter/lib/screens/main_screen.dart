@@ -84,8 +84,23 @@ class _MainScreenState extends State<MainScreen> {
 
   List<Relation> get _filteredRelations {
     final q = _searchQuery.trim().toLowerCase();
-    if (q.isEmpty) return _relations;
-    return _relations.where((r) => r.name.toLowerCase().contains(q)).toList();
+    List<Relation> list = _relations;
+    if (q.isNotEmpty) {
+      list = _relations.where((r) => r.name.toLowerCase().contains(q)).toList();
+    }
+    // Sort pinned relations to the top
+    List<Relation> sortedList = List.from(list);
+    sortedList.sort((a, b) {
+      final aKey = '${a.type}_${a.type == 'group' ? a.id : a.targetUser}';
+      final bKey = '${b.type}_${b.type == 'group' ? b.id : b.targetUser}';
+      final aPinned = ApiService().pinnedKeys.contains(aKey) ? 1 : 0;
+      final bPinned = ApiService().pinnedKeys.contains(bKey) ? 1 : 0;
+      if (aPinned != bPinned) {
+        return bPinned.compareTo(aPinned); // Pinned first
+      }
+      return 0;
+    });
+    return sortedList;
   }
 
   void _logout() async {
@@ -130,6 +145,31 @@ class _MainScreenState extends State<MainScreen> {
     );
     // Refresh when returning from chat to clear unread badges
     _fetchRelationsOnly();
+  }
+
+  void _showRelationActions(Relation item) {
+    final key = '${item.type}_${item.type == 'group' ? item.id : item.targetUser}';
+    final isPinned = ApiService().pinnedKeys.contains(key);
+
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: Icon(isPinned ? Icons.vertical_align_bottom : Icons.vertical_align_top),
+              title: Text(isPinned ? '取消置顶' : '置顶聊天'),
+              onTap: () async {
+                Navigator.pop(context);
+                await ApiService().togglePin(key);
+                setState(() {});
+              },
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _startScanFromHeader() async {
@@ -546,8 +586,11 @@ class _MainScreenState extends State<MainScreen> {
                             final item = _filteredRelations[index];
                             final isOnline = item.targetUser != null &&
                                 _onlineUsers.contains(item.targetUser);
+                            final key = '${item.type}_${item.type == 'group' ? item.id : item.targetUser}';
+                            final isPinned = ApiService().pinnedKeys.contains(key);
 
                             return ListTile(
+                              tileColor: isPinned ? Colors.blue.shade50.withOpacity(0.15) : null,
                               leading: AvatarWidget(
                                 name: item.targetUser ?? (item.id == 0 ? 'lobby' : 'group_${item.id}'),
                                 nickname: item.name,
@@ -578,13 +621,15 @@ class _MainScreenState extends State<MainScreen> {
                               ),
                               subtitle: Text(
                                 item.id == 0
-                                    ? '系统公共聊天大厅，大家都在这里交流'
-                                    : (item.type == 'group' ? '点击进入群聊' : '点击开始私聊'),
+                                    ? '系统群聊'
+                                    : (item.type == 'group' ? '群组' : '私聊'),
                                 style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
+                              trailing: isPinned ? Icon(Icons.push_pin, size: 16, color: Colors.blue.shade600) : null,
                               onTap: () => _openChat(item),
+                              onLongPress: () => _showRelationActions(item),
                             );
                           },
                         ),

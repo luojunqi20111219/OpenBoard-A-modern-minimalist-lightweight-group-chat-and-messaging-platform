@@ -17,6 +17,7 @@ class ApiService {
   String _currentUsername = '';
   String _currentNickname = '';
   int _currentRole = 0;
+  List<String> _pinnedKeys = [];
 
   WebSocketChannel? _wsChannel;
   bool _wsConnected = false;
@@ -27,6 +28,7 @@ class ApiService {
   String get currentNickname => _currentNickname;
   int get currentRole => _currentRole;
   bool get wsConnected => _wsConnected;
+  List<String> get pinnedKeys => _pinnedKeys;
 
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
@@ -35,6 +37,7 @@ class ApiService {
     _currentUsername = prefs.getString('username') ?? '';
     _currentNickname = prefs.getString('nickname') ?? '';
     _currentRole = prefs.getInt('role') ?? 0;
+    _pinnedKeys = prefs.getStringList('pinned_keys') ?? [];
   }
 
   Future<void> setServerUrl(String url) async {
@@ -428,6 +431,64 @@ class ApiService {
       final response = await http.delete(
         Uri.parse('$_serverUrl/api/friends/$username'),
         headers: {'Authorization': _token},
+      );
+      return response.statusCode == 200;
+    } catch (_) {}
+    return false;
+  }
+
+  Future<void> togglePin(String key) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (_pinnedKeys.contains(key)) {
+      _pinnedKeys.remove(key);
+    } else {
+      _pinnedKeys.add(key);
+    }
+    await prefs.setStringList('pinned_keys', _pinnedKeys);
+  }
+
+  Future<List<String>> fetchFavoriteEmojis() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$_serverUrl/api/favorites/emojis'),
+        headers: {'Authorization': _token},
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['status'] == 'success') {
+          return List<String>.from(data['data']);
+        }
+      }
+    } catch (e) {
+      print('Fetch favorite emojis error: $e');
+    }
+    return [];
+  }
+
+  Future<bool> addFavoriteEmoji(String emoji) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$_serverUrl/api/favorites/emojis'),
+        headers: {
+          'Authorization': _token,
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({'emoji': emoji}),
+      );
+      return response.statusCode == 200;
+    } catch (_) {}
+    return false;
+  }
+
+  Future<bool> removeFavoriteEmoji(String emoji) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$_serverUrl/api/favorites/emojis/delete'),
+        headers: {
+          'Authorization': _token,
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({'emoji': emoji}),
       );
       return response.statusCode == 200;
     } catch (_) {}
