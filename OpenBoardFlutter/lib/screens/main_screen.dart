@@ -1,4 +1,7 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../models/relation.dart';
 import '../services/api_service.dart';
 import 'chat_screen.dart';
@@ -114,7 +117,7 @@ class _MainScreenState extends State<MainScreen> {
           TextButton(
             onPressed: () => Navigator.pop(context, true),
             style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('确定登出'),
+            child: const Text('确认登出'),
           ),
         ],
       ),
@@ -126,6 +129,67 @@ class _MainScreenState extends State<MainScreen> {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (context) => const LoginScreen()),
+        );
+      }
+    }
+  }
+
+  void _changeAvatar() async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
+    if (pickedFile != null) {
+      final bytes = await File(pickedFile.path).readAsBytes();
+      final base64Image = 'data:image/png;base64,${base64.encode(bytes)}';
+      setState(() {
+        _isLoading = true;
+      });
+      final success = await ApiService().updateAvatar(base64Image);
+      setState(() {
+        _isLoading = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(success ? '头像更换成功' : '更换头像失败，请重试'),
+            backgroundColor: success ? Colors.green : Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  void _confirmDeleteAccount() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('⚠️ 危险操作：确认注销账号？'),
+        content: const Text('注销账号将永久删除您的个人资料、聊天记录、好友关系及所有相关数据，此操作不可逆！确认永久注销吗？'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('确认永久注销', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      final success = await ApiService().deleteAccount();
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('您的账号已被永久注销')),
+        );
+        if (mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const LoginScreen()),
+          );
+        }
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('注销失败，请稍后重试')),
         );
       }
     }
@@ -656,7 +720,9 @@ class _MainScreenState extends State<MainScreen> {
                   AvatarWidget(
                     name: api.currentUsername,
                     nickname: api.currentNickname,
+                    avatarUrl: api.currentAvatar,
                     size: 64,
+                    onTap: _changeAvatar,
                   ),
                   const SizedBox(width: 16),
                   Expanded(
@@ -702,6 +768,13 @@ class _MainScreenState extends State<MainScreen> {
                   title: const Text('安全退出登录'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: _logout,
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.delete_forever, color: Colors.red),
+                  title: const Text('永久注销账号', style: TextStyle(color: Colors.red)),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: _confirmDeleteAccount,
                 ),
               ],
             ),

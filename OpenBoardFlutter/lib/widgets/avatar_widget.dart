@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 
@@ -52,23 +53,47 @@ class AvatarWidget extends StatelessWidget {
         size: size * 0.5,
       );
     } else if (avatarUrl != null && avatarUrl!.trim().isNotEmpty) {
-      String fullUrl = avatarUrl!;
-      if (!fullUrl.startsWith('http') && !fullUrl.startsWith('data:image')) {
-        fullUrl = '$serverUrl${fullUrl.startsWith('/') ? '' : '/'}$fullUrl';
+      if (avatarUrl!.startsWith('data:image')) {
+        try {
+          final commaIdx = avatarUrl!.indexOf(',');
+          if (commaIdx != -1) {
+            final base64Data = avatarUrl!.substring(commaIdx + 1);
+            final bytes = base64.decode(base64Data);
+            avatarChild = ClipRRect(
+              borderRadius: BorderRadius.circular(size / 2),
+              child: Image.memory(
+                bytes,
+                width: size,
+                height: size,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => _buildTextAvatar(),
+              ),
+            );
+          } else {
+            avatarChild = _buildTextAvatar();
+          }
+        } catch (_) {
+          avatarChild = _buildTextAvatar();
+        }
+      } else {
+        String fullUrl = avatarUrl!;
+        if (!fullUrl.startsWith('http')) {
+          fullUrl = '$serverUrl${fullUrl.startsWith('/') ? '' : '/'}$fullUrl';
+        }
+        
+        avatarChild = ClipRRect(
+          borderRadius: BorderRadius.circular(size / 2),
+          child: Image.network(
+            fullUrl,
+            width: size,
+            height: size,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) {
+              return _buildTextAvatar();
+            },
+          ),
+        );
       }
-      
-      avatarChild = ClipRRect(
-        borderRadius: BorderRadius.circular(size / 2),
-        child: Image.network(
-          fullUrl,
-          width: size,
-          height: size,
-          fit: BoxFit.cover,
-          errorBuilder: (context, error, stackTrace) {
-            return _buildTextAvatar();
-          },
-        ),
-      );
     } else {
       avatarChild = _buildTextAvatar();
     }

@@ -16,6 +16,7 @@ class ApiService {
   String _token = '';
   String _currentUsername = '';
   String _currentNickname = '';
+  String _currentAvatar = '';
   int _currentRole = 0;
   List<String> _pinnedKeys = [];
 
@@ -26,6 +27,7 @@ class ApiService {
   String get token => _token;
   String get currentUsername => _currentUsername;
   String get currentNickname => _currentNickname;
+  String get currentAvatar => _currentAvatar;
   int get currentRole => _currentRole;
   bool get wsConnected => _wsConnected;
   List<String> get pinnedKeys => _pinnedKeys;
@@ -36,6 +38,7 @@ class ApiService {
     _token = prefs.getString('token') ?? '';
     _currentUsername = prefs.getString('username') ?? '';
     _currentNickname = prefs.getString('nickname') ?? '';
+    _currentAvatar = prefs.getString('avatar') ?? '';
     _currentRole = prefs.getInt('role') ?? 0;
     _pinnedKeys = prefs.getStringList('pinned_keys') ?? [];
   }
@@ -58,12 +61,14 @@ class ApiService {
       _token = data['token'] ?? '';
       _currentUsername = username;
       _currentNickname = data['nickname'] ?? username;
+      _currentAvatar = data['avatar'] ?? '';
       _currentRole = data['role'] ?? 0;
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('token', _token);
       await prefs.setString('username', _currentUsername);
       await prefs.setString('nickname', _currentNickname);
+      await prefs.setString('avatar', _currentAvatar);
       await prefs.setInt('role', _currentRole);
       return {'success': true};
     } else {
@@ -224,7 +229,12 @@ class ApiService {
         },
         body: jsonEncode({'avatar': base64Image}),
       );
-      return response.statusCode == 200;
+      if (response.statusCode == 200) {
+        _currentAvatar = base64Image;
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('avatar', base64Image);
+        return true;
+      }
     } catch (_) {}
     return false;
   }
@@ -243,6 +253,28 @@ class ApiService {
         }),
       );
       return response.statusCode == 200;
+    } catch (_) {}
+    return false;
+  }
+
+  Future<bool> deleteAccount() async {
+    try {
+      final response = await http.delete(
+        Uri.parse('$_serverUrl/api/user/account'),
+        headers: {'Authorization': _token},
+      );
+      if (response.statusCode == 200) {
+        _token = '';
+        _currentUsername = '';
+        _currentNickname = '';
+        _currentRole = 0;
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove('token');
+        await prefs.remove('username');
+        await prefs.remove('nickname');
+        await prefs.remove('role');
+        return true;
+      }
     } catch (_) {}
     return false;
   }
