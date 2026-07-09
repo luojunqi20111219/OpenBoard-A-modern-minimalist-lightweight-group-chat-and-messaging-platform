@@ -1,11 +1,38 @@
 #define WEBVIEW_MSWEBVIEW2_EXPLICIT_LINK 1
 #include "webview.h"
+#include <vector>
+#include <string>
+
+std::vector<std::string> ParseJsonArray(const std::string& json) {
+    std::vector<std::string> res;
+    size_t i = 0;
+    while (i < json.length()) {
+        if (json[i] == '"') {
+            std::string s;
+            i++;
+            while (i < json.length()) {
+                if (json[i] == '\\' && i + 1 < json.length()) {
+                    s += json[i+1];
+                    i += 2;
+                } else if (json[i] == '"') {
+                    res.push_back(s);
+                    i++;
+                    break;
+                } else {
+                    s += json[i];
+                    i++;
+                }
+            }
+        } else {
+            i++;
+        }
+    }
+    return res;
+}
 
 #ifdef _WIN32
 #include <windows.h>
 #include <shellapi.h>
-#include <vector>
-#include <string>
 
 #define WM_TRAYICON (WM_APP + 1)
 NOTIFYICONDATAW g_nid = {0};
@@ -61,33 +88,6 @@ void SetAutoStart(bool enable) {
         RegDeleteValueW(hKey, L"OpenBoard");
     }
     RegCloseKey(hKey);
-}
-
-std::vector<std::string> ParseJsonArray(const std::string& json) {
-    std::vector<std::string> res;
-    size_t i = 0;
-    while (i < json.length()) {
-        if (json[i] == '"') {
-            std::string s;
-            i++;
-            while (i < json.length()) {
-                if (json[i] == '\\' && i + 1 < json.length()) {
-                    s += json[i+1];
-                    i += 2;
-                } else if (json[i] == '"') {
-                    res.push_back(s);
-                    i++;
-                    break;
-                } else {
-                    s += json[i];
-                    i++;
-                }
-            }
-        } else {
-            i++;
-        }
-    }
-    return res;
 }
 
 HICON CreateEmptyIcon() {
@@ -322,9 +322,9 @@ int main() {
     w.bind("desktopNotify", [](std::string seq, std::string req, void* arg) -> std::string {
         std::vector<std::string> params = ParseJsonArray(req);
         if (params.size() >= 2) {
+#ifdef _WIN32
             std::wstring title = Utf8ToUtf16(params[0]);
             std::wstring msg = Utf8ToUtf16(params[1]);
-#ifdef _WIN32
             if (params.size() >= 3) g_lastNotificationRoomId = params[2];
             else g_lastNotificationRoomId = "";
 
