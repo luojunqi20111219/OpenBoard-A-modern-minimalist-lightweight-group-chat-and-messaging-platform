@@ -63,7 +63,7 @@ jobs:
         sips -z 512 512   OpenBoardHarmony/entry/src/main/resources/base/media/app_icon.png --out OpenBoard.iconset/icon_256x256@2x.png
         sips -z 512 512   OpenBoardHarmony/entry/src/main/resources/base/media/app_icon.png --out OpenBoard.iconset/icon_512x512.png
         sips -z 1024 1024 OpenBoardHarmony/entry/src/main/resources/base/media/app_icon.png --out OpenBoard.iconset/icon_512x512@2x.png
-        iconutil -c iconset OpenBoard.iconset -o OpenBoard.app/Contents/Resources/app.icns
+        iconutil -c icns OpenBoard.iconset -o OpenBoard.app/Contents/Resources/app.icns
 
     - name: Compress App Bundle
       run: |
