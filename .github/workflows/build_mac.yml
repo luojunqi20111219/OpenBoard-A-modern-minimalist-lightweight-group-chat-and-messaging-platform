@@ -1,0 +1,76 @@
+name: Build macOS Web Client
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Compile macOS Executable
+      run: |
+        clang++ -std=c++11 -O3 main.cpp -framework Cocoa -framework WebKit -o OpenBoard
+
+    - name: Create macOS App Bundle
+      run: |
+        mkdir -p OpenBoard.app/Contents/MacOS
+        mkdir -p OpenBoard.app/Contents/Resources
+        cp OpenBoard OpenBoard.app/Contents/MacOS/
+        
+        # Create Info.plist
+        cat <<EOF > OpenBoard.app/Contents/Info.plist
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>CFBundleExecutable</key>
+            <string>OpenBoard</string>
+            <key>CFBundleIconFile</key>
+            <string>app.icns</string>
+            <key>CFBundleIdentifier</key>
+            <string>xyz.luojunqi.openboard</string>
+            <key>CFBundleName</key>
+            <string>OpenBoard</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>CFBundleShortVersionString</key>
+            <string>1.0</string>
+            <key>LSMinimumSystemVersion</key>
+            <string>10.13</string>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+        </dict>
+        </plist>
+        EOF
+
+        # Convert app_icon.png to app.icns using sips and iconutil
+        mkdir -p OpenBoard.iconset
+        sips -z 16 16     OpenBoardHarmony/entry/src/main/resources/base/media/app_icon.png --out OpenBoard.iconset/icon_16x16.png
+        sips -z 32 32     OpenBoardHarmony/entry/src/main/resources/base/media/app_icon.png --out OpenBoard.iconset/icon_16x16@2x.png
+        sips -z 32 32     OpenBoardHarmony/entry/src/main/resources/base/media/app_icon.png --out OpenBoard.iconset/icon_32x32.png
+        sips -z 64 64     OpenBoardHarmony/entry/src/main/resources/base/media/app_icon.png --out OpenBoard.iconset/icon_32x32@2x.png
+        sips -z 128 128   OpenBoardHarmony/entry/src/main/resources/base/media/app_icon.png --out OpenBoard.iconset/icon_128x128.png
+        sips -z 256 256   OpenBoardHarmony/entry/src/main/resources/base/media/app_icon.png --out OpenBoard.iconset/icon_128x128@2x.png
+        sips -z 256 256   OpenBoardHarmony/entry/src/main/resources/base/media/app_icon.png --out OpenBoard.iconset/icon_256x256.png
+        sips -z 512 512   OpenBoardHarmony/entry/src/main/resources/base/media/app_icon.png --out OpenBoard.iconset/icon_256x256@2x.png
+        sips -z 512 512   OpenBoardHarmony/entry/src/main/resources/base/media/app_icon.png --out OpenBoard.iconset/icon_512x512.png
+        sips -z 1024 1024 OpenBoardHarmony/entry/src/main/resources/base/media/app_icon.png --out OpenBoard.iconset/icon_512x512@2x.png
+        iconutil -c iconset OpenBoard.iconset -o OpenBoard.app/Contents/Resources/app.icns
+
+    - name: Compress App Bundle
+      run: |
+        zip -r OpenBoard-macOS.zip OpenBoard.app
+
+    - name: Upload macOS Executable Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: OpenBoard-macOS
+        path: OpenBoard-macOS.zip
