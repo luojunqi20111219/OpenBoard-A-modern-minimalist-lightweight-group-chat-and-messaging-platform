@@ -149,17 +149,29 @@ jobs:
         run: |
           cd OpenBoardFlutter
           flutter build ios --no-codesign
+          flutter build ios --simulator --no-codesign
 
-      - name: Pack App into IPA
+      - name: Pack App and Simulator Build
         run: |
           mkdir -p build-output
+          # Pack IPA for real devices
           cd OpenBoardFlutter/build/ios/iphoneos
           mkdir Payload
           mv Runner.app Payload/
           zip -r ../../../../build-output/OpenBoard-iOS-Unsigned.ipa Payload
+          cd ../../../..
+          # Pack Simulator App for online simulators (e.g., Appetize.io)
+          cd OpenBoardFlutter/build/ios/iphonesimulator
+          zip -r ../../../../build-output/Runner.app.zip Runner.app
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
           name: OpenBoard-iOS-Unsigned
           path: build-output/OpenBoard-iOS-Unsigned.ipa
+
+      - name: Upload Simulator Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenBoard-iOS-Simulator
+          path: build-output/Runner.app.zip
