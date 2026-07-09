@@ -18,11 +18,11 @@ jobs:
     - name: Install Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev build-essential pkg-config
+        sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev build-essential pkg-config
 
     - name: Compile Linux Executable
       run: |
-        g++ -std=c++11 -O3 main.cpp $(pkg-config --cflags --libs gtk+-3.0 webkit2gtk-4.0) -o OpenBoard
+        g++ -std=c++11 -O3 main.cpp $(pkg-config --cflags --libs gtk+-3.0 webkit2gtk-4.1) -o OpenBoard
 
     - name: Create Linux App Directory Structure
       run: |
