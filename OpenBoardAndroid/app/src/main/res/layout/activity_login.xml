@@ -10,7 +10,7 @@
         android:id="@+id/btn_more"
         android:layout_width="48dp"
         android:layout_height="48dp"
-        android:src="@android:drawable/ic_menu_moreoverflow"
+        android:src="@drawable/ic_more_vert"
         android:background="?attr/selectableItemBackgroundBorderless"
         android:contentDescription="More"
         app:layout_constraintTop_toTopOf="parent"
