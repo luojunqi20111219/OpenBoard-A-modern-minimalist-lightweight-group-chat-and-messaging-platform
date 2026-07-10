@@ -32,9 +32,17 @@ ctx = ssl.create_default_context()
 ctx.check_hostname = False
 ctx.verify_mode = ssl.CERT_NONE
 
+class NoAuthRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # Create a request without the Authorization header to avoid 403 on redirected S3 links
+        new_req = urllib.request.Request(newurl, headers={
+            'User-Agent': 'Mozilla/5.0'
+        })
+        return new_req
+
 proxy_handler = urllib.request.ProxyHandler({})
 https_handler = urllib.request.HTTPSHandler(context=ctx)
-opener = urllib.request.build_opener(proxy_handler, https_handler)
+opener = urllib.request.build_opener(proxy_handler, https_handler, NoAuthRedirectHandler())
 
 def api_request(url):
     req = urllib.request.Request(url, headers={
