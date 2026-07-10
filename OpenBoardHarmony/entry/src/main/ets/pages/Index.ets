@@ -151,6 +151,7 @@ struct Index {
   @State passwordInput: string = "";
   @State nicknameInput: string = "";
   @State isRegisterMode: boolean = false;
+  @State showServerSettings: boolean = false;
   @State loginStatusMsg: string = "";
 
   // Logged-in info
@@ -1951,13 +1952,6 @@ struct Index {
               .fontSize(14)
               .fontColor(Color.Gray)
               .margin({ bottom: 20 })
-
-            TextInput({ text: this.serverUrl, placeholder: "服务器地址" })
-              .width("85%")
-              .height(45)
-              .fontColor(Color.Black)
-              .placeholderColor(Color.Gray)
-              .onChange((val: string) => this.serverUrl = val)
             
             TextInput({ text: this.usernameInput, placeholder: "用户名" })
               .width("85%")
@@ -3585,6 +3579,97 @@ struct Index {
           .backgroundColor(Color.White)
           .borderRadius(10)
         }.width("100%").height("100%").backgroundColor("#80000000").justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
+      }
+
+      if (this.screenState === "LOGIN" && !this.showServerSettings && !this.qrScanModalVisible) {
+        Row() {
+          Blank()
+          Text("⋮")
+            .fontSize(30)
+            .fontColor(Color.Black)
+            .fontWeight(FontWeight.Bold)
+            .padding({ left: 20, right: 20, top: 15, bottom: 15 })
+            .onClick(() => {
+              promptAction.showActionMenu({
+                title: "设置",
+                buttons: [
+                  { text: "⚙️ 设置服务器地址", color: this.themeColor }
+                ]
+              }, (err: BusinessError, data: promptAction.ActionMenuSuccessResponse) => {
+                if (!err && data.index === 0) {
+                  this.showServerSettings = true;
+                }
+              });
+            })
+        }
+        .width("100%")
+        .position({ x: 0, y: 0 })
+      }
+
+      if (this.showServerSettings) {
+        Column() {
+          Column({ space: 15 }) {
+            Text("设置服务器地址")
+              .fontSize(16)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(Color.Black)
+            
+            Text("请输入信语服务端地址 (例：http://ip:port)")
+              .fontSize(13)
+              .fontColor(Color.Gray)
+              .width("100%")
+            
+            TextInput({ text: this.serverUrl, placeholder: "http://47.93.6.111:5000" })
+              .width("100%")
+              .height(45)
+              .fontColor(Color.Black)
+              .placeholderColor(Color.Gray)
+              .onChange((val: string) => {
+                this.serverUrl = val;
+              })
+
+            Row({ space: 12 }) {
+              Button("取消")
+                .layoutWeight(1)
+                .height(40)
+                .backgroundColor(Color.Gray)
+                .onClick(() => {
+                  this.showServerSettings = false;
+                })
+
+              Button("保存")
+                .layoutWeight(1)
+                .height(40)
+                .backgroundColor(this.themeColor)
+                .onClick(() => {
+                  let sUrl = this.serverUrl.trim();
+                  if (!sUrl) {
+                    promptAction.showToast({ message: "服务器地址不能为空" });
+                    return;
+                  }
+                  if (sUrl.startsWith("https://")) {
+                    this.wsUrl = sUrl.replace("https://", "wss://");
+                  } else {
+                    this.wsUrl = sUrl.replace("http://", "ws://");
+                  }
+                  this.saveLocalSettings();
+                  this.showServerSettings = false;
+                  promptAction.showToast({ message: "设置已保存" });
+                })
+            }
+            .width("100%")
+            .margin({ top: 10 })
+          }
+          .width("80%")
+          .padding(20)
+          .backgroundColor(Color.White)
+          .borderRadius(10)
+        }
+        .width("100%")
+        .height("100%")
+        .backgroundColor("#80000000")
+        .justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Center)
       }
     }
     .width("100%")

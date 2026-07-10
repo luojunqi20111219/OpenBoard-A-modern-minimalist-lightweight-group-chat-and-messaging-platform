@@ -6,6 +6,19 @@
     android:background="@color/background"
     android:padding="24dp">
 
+    <ImageButton
+        android:id="@+id/btn_more"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:src="@android:drawable/ic_menu_moreoverflow"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="More"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="8dp"
+        android:layout_marginEnd="8dp"
+        android:tint="@color/primary"/>
+
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
@@ -75,10 +88,12 @@
 
             <!-- Server URL -->
             <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/til_server_url"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:hint="服务器地址"
                 android:layout_marginBottom="16dp"
+                android:visibility="gone"
                 style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
 
                 <com.google.android.material.textfield.TextInputEditText

@@ -127,9 +127,116 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  void _showServerSettingsDialog() {
+    final tempController = TextEditingController(text: _serverController.text);
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('设置服务器地址'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: tempController,
+                          decoration: const InputDecoration(
+                            labelText: '服务器地址',
+                            hintText: 'http://47.93.6.111:5000',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        icon: const Icon(Icons.qr_code_scanner),
+                        onPressed: () async {
+                          final result = await Navigator.push<String>(
+                            context,
+                            MaterialPageRoute(builder: (context) => const ScanScreen()),
+                          );
+                          if (result != null && result.isNotEmpty) {
+                            if (result.startsWith('http://') || result.startsWith('https://')) {
+                              setDialogState(() {
+                                tempController.text = result;
+                              });
+                            } else {
+                              _showError('无法识别的服务器二维码: $result');
+                            }
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('取消'),
+                ),
+                TextButton(
+                  onPressed: () async {
+                    final newUrl = tempController.text.trim();
+                    if (newUrl.isEmpty) {
+                      _showError('服务器地址不能为空');
+                      return;
+                    }
+                    setState(() {
+                      _serverController.text = newUrl;
+                    });
+                    await ApiService().setServerUrl(newUrl);
+                    if (mounted) {
+                      Navigator.pop(context);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('服务器地址已更新'), backgroundColor: Colors.green),
+                      );
+                    }
+                  },
+                  child: const Text('保存'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        actions: [
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert, color: Colors.white),
+            onSelected: (value) {
+              if (value == 'settings') {
+                _showServerSettingsDialog();
+              }
+            },
+            itemBuilder: (BuildContext context) => [
+              const PopupMenuItem<String>(
+                value: 'settings',
+                child: Row(
+                  children: [
+                    Icon(Icons.settings, color: Colors.black54),
+                    SizedBox(width: 8),
+                    Text('设置服务器地址'),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+      extendBodyBehindAppBar: true,
       body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
@@ -167,45 +274,6 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ),
                         const SizedBox(height: 20.0),
-
-                        // Server Address Input with QR Scan Action
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: TextFormField(
-                                controller: _serverController,
-                                decoration: const InputDecoration(
-                                  labelText: '服务器地址',
-                                  hintText: 'http://47.93.6.111:5000',
-                                  prefixIcon: Icon(Icons.dns),
-                                  border: OutlineInputBorder(),
-                                ),
-                                validator: (value) {
-                                  if (value == null || value.trim().isEmpty) {
-                                    return '请输入服务器地址';
-                                  }
-                                  return null;
-                                },
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            SizedBox(
-                              height: 56,
-                              child: ElevatedButton(
-                                onPressed: _startQrScan,
-                                style: ElevatedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                ),
-                                child: const Icon(Icons.qr_code_scanner),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16.0),
 
                         // Username Input
                         TextFormField(

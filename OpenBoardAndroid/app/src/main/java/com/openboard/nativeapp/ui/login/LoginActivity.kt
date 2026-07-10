@@ -49,6 +49,40 @@ class LoginActivity : AppCompatActivity() {
         binding.btnAction.setOnClickListener {
             if (isLoginMode) doLogin() else doRegister()
         }
+        binding.btnMore.setOnClickListener { view ->
+            val popup = androidx.appcompat.widget.PopupMenu(this, view)
+            popup.menu.add(0, 1, 0, "设置服务器地址")
+            popup.setOnMenuItemClickListener { item ->
+                if (item.itemId == 1) {
+                    showServerSettingsDialog()
+                    true
+                } else false
+            }
+            popup.show()
+        }
+    }
+
+    private fun showServerSettingsDialog() {
+        val builder = android.app.AlertDialog.Builder(this)
+        builder.setTitle("设置服务器地址")
+        
+        val input = android.widget.EditText(this)
+        input.inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI
+        input.text = android.text.SpannableStringBuilder(SessionManager.serverUrl)
+        builder.setView(input)
+        
+        builder.setPositiveButton("保存") { dialog, which ->
+            val url = input.text.toString().trim()
+            if (url.isNotEmpty()) {
+                SessionManager.serverUrl = url
+                binding.etServerUrl.setText(url)
+                Toast.makeText(this, "服务器地址已更新", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "地址不能为空", Toast.LENGTH_SHORT).show()
+            }
+        }
+        builder.setNegativeButton("取消") { dialog, which -> dialog.cancel() }
+        builder.show()
     }
 
     private fun switchMode(loginMode: Boolean) {
