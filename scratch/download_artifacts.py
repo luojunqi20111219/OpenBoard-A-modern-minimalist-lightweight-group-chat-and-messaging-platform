@@ -70,7 +70,7 @@ runs = runs_data.get('workflow_runs', [])
 
 target_run = None
 for r in runs:
-    if 'Hide server URL' in r['head_commit']['message']:
+    if 'Hide server URL' in r['head_commit']['message'] and r['name'] == 'Build iOS Client':
         target_run = r
         break
 
