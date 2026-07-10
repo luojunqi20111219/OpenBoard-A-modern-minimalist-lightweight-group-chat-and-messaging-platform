@@ -14,8 +14,8 @@ android {
         applicationId "com.openboard.nativeapp"
         minSdk 24
         targetSdk 34
-        versionCode 6
-        versionName "v6.0"
+        versionCode 7
+        versionName "v7.5"
     }
 
     buildTypes {
