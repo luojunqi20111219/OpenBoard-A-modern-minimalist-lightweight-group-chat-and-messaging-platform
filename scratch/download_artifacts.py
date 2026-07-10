@@ -62,7 +62,7 @@ runs = runs_data.get('workflow_runs', [])
 
 target_run = None
 for r in runs:
-    if 'Fix iOS Info.plist' in r['head_commit']['message']:
+    if 'Hide server URL' in r['head_commit']['message']:
         target_run = r
         break
 
