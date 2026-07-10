@@ -33,21 +33,16 @@ jobs:
       - name: Configure iOS Permissions and Deployment Target
         run: |
           python3 << 'EOF'
-          import os, re, textwrap
-          # 1. Add camera and photo permissions to Info.plist
+          import os, re, textwrap, plistlib
+          # 1. Add camera, photo library and microphone permissions to Info.plist using plistlib
           plist_path = 'OpenBoardFlutter/ios/Runner/Info.plist'
-          with open(plist_path, 'r') as f:
-              content = f.read()
-          permission_keys = '''
-              <key>NSCameraUsageDescription</key>
-              <string>我们需要您的相机权限来扫描二维码。</string>
-              <key>NSPhotoLibraryUsageDescription</key>
-              <string>我们需要您的相册权限来识别相册中的二维码。</string>
-          '''
-          if '</dict>' in content:
-              content = content.replace('</dict>', permission_keys + '</dict>', 1)
-              with open(plist_path, 'w') as f:
-                  f.write(content)
+          with open(plist_path, 'rb') as f:
+              pl = plistlib.load(f)
+          pl['NSCameraUsageDescription'] = '我们需要您的相机权限来扫描二维码。'
+          pl['NSPhotoLibraryUsageDescription'] = '我们需要您的相册权限来识别相册中的二维码。'
+          pl['NSMicrophoneUsageDescription'] = '我们需要您的麦克风权限来识别视频消息（可选）。'
+          with open(plist_path, 'wb') as f:
+              plistlib.dump(pl, f)
 
           # 2. Write standard Flutter Podfile with deployment target 13.0 (required by mobile_scanner)
           podfile_path = 'OpenBoardFlutter/ios/Podfile'
