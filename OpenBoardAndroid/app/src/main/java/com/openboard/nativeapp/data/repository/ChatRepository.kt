@@ -172,6 +172,9 @@ class ChatRepository {
     suspend fun sendFriendRequest(toUser: String): Result<Unit> =
         apiCallVoid { api.sendFriendRequest(mapOf("to_user" to toUser)) }
 
+    suspend fun addFriendDirectly(username: String): Result<Unit> =
+        apiCallVoid { api.addFriendDirectly(mapOf("username" to username)) }
+
     suspend fun respondFriendRequest(fromUser: String, action: String): Result<Unit> =
         apiCallVoid { api.respondFriendRequest(mapOf("from_user" to fromUser, "action" to action)) }
 

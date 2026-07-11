@@ -806,33 +806,59 @@
             let safe = content.replace(/</g, '&lt;').replace(/>/g, '&gt;');
             safe = safe.replace(/\[img:([^\]]+)\]/g, '<img src="$1" class="max-w-[200px] sm:max-w-xs mt-1 rounded-lg cursor-pointer hover:opacity-90 transition" onclick="window.open(\'$1\')">');
             safe = safe.replace(/\[file:([^|]+)\|([^\]]+)\]/g, '<a href="$1" target="_blank" class="flex items-center mt-1 p-2 bg-black/10 rounded-lg hover:bg-black/20 transition underline break-all"><i class="fa-solid fa-file-arrow-down mr-2 shrink-0"></i>$2</a>');
-            safe = safe.replace(/\[user_card:([^:]+):?([^\]]*)\]/g, (match, username, nickname) => {
+            safe = safe.replace(/\[user_card:([^:\]]+)(?::([^:\]]*))?(?::([^\]]*))?\]/g, (match, username, nickname, avatar) => {
                 const decodedNickname = decodeURIComponent(nickname || username);
+                const decodedAvatar = avatar ? decodeURIComponent(avatar) : "";
+                
+                let btnHtml = '';
+                if (currentUser && username === currentUser.username) {
+                    btnHtml = `<button class="w-full mt-3 bg-gray-200 text-gray-500 text-xs font-bold py-1.5 rounded-lg cursor-not-allowed" disabled>我的名片</button>`;
+                } else {
+                    btnHtml = `<button onclick="addFriendDirectly('${username}')" class="w-full mt-3 bg-blue-600 text-white text-xs font-bold py-1.5 rounded-lg hover:bg-blue-700 active:scale-[0.98] transition">加为好友</button>`;
+                }
+
                 return `
                     <div class="user-card-message bg-white border border-gray-200 rounded-xl p-3.5 mt-1.5 shadow-sm max-w-xs select-none text-left">
                         <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 shadow-sm shrink-0">
-                                <i class="fa-solid fa-address-card text-lg"></i>
-                            </div>
+                            ${getAvatarHtml(decodedAvatar, decodedNickname, "w-10 h-10 text-[10px] shrink-0")}
                             <div class="min-w-0 flex-1">
                                 <div class="text-[9px] font-bold text-gray-400 uppercase tracking-wider">个人名片</div>
                                 <div class="font-bold text-sm text-gray-800 truncate">${decodedNickname}</div>
                                 <div class="text-xs text-gray-500 truncate">@${username}</div>
                             </div>
                         </div>
-                        <button onclick="handleNameCardClick('${username}')" class="w-full mt-3 bg-blue-600 text-white text-xs font-bold py-1.5 rounded-lg hover:bg-blue-700 active:scale-[0.98] transition">
-                            查看个人资料
-                        </button>
+                        ${btnHtml}
                     </div>
                 `;
             });
             return safe.replace(/\n/g, '<br>');
         }
 
-        function handleNameCardClick(username) {
-            showSearchFriendsModal();
-            document.getElementById('friend-search-input').value = username;
-            performFriendSearch();
+        async function addFriendDirectly(username) {
+            if (!currentUser) {
+                showToast("请先登录！");
+                return;
+            }
+            if (username === currentUser.username) {
+                showToast("不能添加自己为好友");
+                return;
+            }
+            try {
+                const res = await fetch('/api/friends/add', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token },
+                    body: JSON.stringify({ username: username })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    showToast(data.msg || "添加成功！");
+                    if (window.loadFriends) loadFriends();
+                } else {
+                    showToast(data.detail || "添加失败");
+                }
+            } catch (err) {
+                showToast("添加失败，网络或后台出错");
+            }
         }
 
         async function loadMsgs() {
@@ -989,12 +1015,26 @@
                 }
                 
                 const filtered = result.data.filter(u => u.username !== 'filehelper' && u.username !== currentUser.username);
-                if(filtered.length === 0) {
-                    listDiv.innerHTML = '<div class="text-center py-6 text-gray-400 text-xs">暂无好友可推荐</div>';
-                    return;
-                }
                 
                 listDiv.innerHTML = '';
+
+                // Prepend "我的名片" (own card)
+                const myName = currentUser.nickname || currentUser.username;
+                const myItem = document.createElement('div');
+                myItem.className = "flex items-center justify-between p-3 hover:bg-gray-50 rounded-2xl cursor-pointer transition border border-gray-100 bg-blue-50/30 mb-2";
+                myItem.innerHTML = `
+                    <div class="flex items-center gap-3">
+                        ${getAvatarHtml(currentUser.avatar, myName, "w-8 h-8 text-[10px] shrink-0")}
+                        <div class="text-left">
+                            <div class="font-bold text-sm text-gray-800">${myName} (我)</div>
+                            <div class="text-xs text-gray-500">@${currentUser.username}</div>
+                        </div>
+                    </div>
+                    <button class="bg-blue-600 text-white text-xs px-3 py-1.5 rounded-lg font-bold hover:bg-blue-700 active:scale-95 transition">推送</button>
+                `;
+                myItem.onclick = () => sendCardMessage(currentUser.username, myName, currentUser.avatar || "");
+                listDiv.appendChild(myItem);
+                
                 filtered.forEach(u => {
                     const name = u.nickname || u.username;
                     const item = document.createElement('div');
@@ -1009,7 +1049,7 @@
                         </div>
                         <button class="bg-green-600 text-white text-xs px-3 py-1.5 rounded-lg font-bold hover:bg-green-700 active:scale-95 transition">推送</button>
                     `;
-                    item.onclick = () => sendCardMessage(u.username, name);
+                    item.onclick = () => sendCardMessage(u.username, name, u.avatar || "");
                     listDiv.appendChild(item);
                 });
             } catch(e) {
@@ -1018,10 +1058,11 @@
             }
         }
 
-        async function sendCardMessage(targetUsername, targetNickname) {
+        async function sendCardMessage(targetUsername, targetNickname, targetAvatar) {
             hideModal('share-card-modal');
             const encodedNickname = encodeURIComponent(targetNickname);
-            const cardContent = `[user_card:${targetUsername}:${encodedNickname}]`;
+            const encodedAvatar = encodeURIComponent(targetAvatar || "");
+            const cardContent = `[user_card:${targetUsername}:${encodedNickname}:${encodedAvatar}]`;
             await sendMsgDirect(cardContent);
         }
 

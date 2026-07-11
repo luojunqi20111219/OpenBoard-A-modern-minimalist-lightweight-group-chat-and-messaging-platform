@@ -425,6 +425,21 @@ class ApiService {
     return false;
   }
 
+  Future<bool> addFriendDirectly(String targetUsername) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$_serverUrl/api/friends/add'),
+        headers: {
+          'Authorization': _token,
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({'username': targetUsername}),
+      );
+      return response.statusCode == 200;
+    } catch (_) {}
+    return false;
+  }
+
   Future<List<Map<String, dynamic>>> fetchFriendRequests() async {
     try {
       final response = await http.get(

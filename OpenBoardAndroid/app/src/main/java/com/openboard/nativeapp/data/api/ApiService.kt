@@ -107,6 +107,9 @@ interface ApiService {
     @POST("api/friends/request")
     fun sendFriendRequest(@Body request: Map<String, String>): Call<ApiResponse<Any>>
 
+    @POST("api/friends/add")
+    fun addFriendDirectly(@Body request: Map<String, String>): Call<ApiResponse<Any>>
+
     @POST("api/friends/respond")
     fun respondFriendRequest(@Body request: Map<String, String>): Call<ApiResponse<Any>>
 

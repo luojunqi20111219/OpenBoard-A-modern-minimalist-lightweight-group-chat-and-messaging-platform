@@ -50,7 +50,7 @@ class ChatAdapter(
     
     private val imgRegex = Regex("\\[img:(.*?)\\]")
     private val fileRegex = Regex("\\[file:(.*?)\\|(.*?)\\]")
-    private val cardRegex = Regex("\\[user_card:([^:]+):?(.*?)\\]")
+    private val cardRegex = Regex("\\[user_card:([^:\\]]+)(?::([^:\\]]*))?(?::([^\\]]*))?\\]")
 
     override fun getItemCount() = messages.size
 
@@ -103,12 +103,18 @@ class ChatAdapter(
         when {
             cardMatch != null -> {
                 val targetUsername = cardMatch.groupValues[1]
-                val encodedNickname = cardMatch.groupValues[2]
+                val encodedNickname = cardMatch.groupValues.getOrElse(2) { "" }
+                val encodedAvatar = cardMatch.groupValues.getOrElse(3) { "" }
                 val targetNickname = try {
                     java.net.URLDecoder.decode(encodedNickname, "UTF-8")
                 } catch (e: Exception) {
                     encodedNickname
                 }.ifEmpty { targetUsername }
+                val targetAvatar = try {
+                    java.net.URLDecoder.decode(encodedAvatar, "UTF-8")
+                } catch (e: Exception) {
+                    encodedAvatar
+                }
 
                 tvContent.visibility = View.VISIBLE
                 ivImageNormal.visibility = View.GONE
@@ -129,7 +135,7 @@ class ChatAdapter(
                         nickname = targetNickname,
                         content = "",
                         time = "",
-                        avatar = null
+                        avatar = targetAvatar.ifEmpty { null }
                     )
                     onAvatarClick?.invoke(dummyMessage)
                 }

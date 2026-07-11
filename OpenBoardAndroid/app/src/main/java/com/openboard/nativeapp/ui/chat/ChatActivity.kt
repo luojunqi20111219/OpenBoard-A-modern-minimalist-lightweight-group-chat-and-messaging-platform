@@ -365,22 +365,26 @@ class ChatActivity : AppCompatActivity() {
             binding.progressBar.visibility = View.GONE
             
             result.onSuccess { friends ->
-                val myUsername = SessionManager.username ?: ""
+                val myUser = SessionManager.getUser()
+                val myUsername = myUser.username
                 val filtered = friends.filter { it.username != "filehelper" && it.username != myUsername }
+                val finalList = listOf(myUser) + filtered
                 
-                if (filtered.isEmpty()) {
-                    Toast.makeText(this@ChatActivity, "暂无好友可推荐", Toast.LENGTH_SHORT).show()
-                    return@onSuccess
-                }
-                
-                val displayNames = filtered.map { it.nickname ?: it.username }.toTypedArray()
+                val displayNames = finalList.map {
+                    if (it.username == myUsername) {
+                        (it.nickname ?: it.username) + " (我)"
+                    } else {
+                        it.nickname ?: it.username
+                    }
+                }.toTypedArray()
                 
                 AlertDialog.Builder(this@ChatActivity)
                     .setTitle("选择要推荐的好友")
                     .setItems(displayNames) { _, which ->
-                        val target = filtered[which]
+                        val target = finalList[which]
                         val encodedNickname = java.net.URLEncoder.encode(target.nickname ?: target.username, "UTF-8")
-                        val cardContent = "[user_card:${target.username}:$encodedNickname]"
+                        val encodedAvatar = java.net.URLEncoder.encode(target.avatar ?: "", "UTF-8")
+                        val cardContent = "[user_card:${target.username}:$encodedNickname:$encodedAvatar]"
                         
                         lifecycleScope.launch {
                             val sendResult = repository.sendMessage(
@@ -1150,10 +1154,10 @@ class ChatActivity : AppCompatActivity() {
                                         setOnClickListener {
                                             dialog.dismiss()
                                             lifecycleScope.launch {
-                                                repository.sendFriendRequest(target).onSuccess {
-                                                    Toast.makeText(this@ChatActivity, "好友申请已发送", Toast.LENGTH_SHORT).show()
+                                                repository.addFriendDirectly(target).onSuccess {
+                                                    Toast.makeText(this@ChatActivity, "已成功添加该好友！", Toast.LENGTH_SHORT).show()
                                                 }.onFailure { e ->
-                                                    Toast.makeText(this@ChatActivity, "发送失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                                                    Toast.makeText(this@ChatActivity, "添加失败: ${e.message}", Toast.LENGTH_SHORT).show()
                                                 }
                                             }
                                         }

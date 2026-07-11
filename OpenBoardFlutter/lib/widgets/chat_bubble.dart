@@ -52,6 +52,7 @@ class ChatBubble extends StatelessWidget {
     final serverUrl = ApiService().serverUrl;
     final isImg = message.content.startsWith('[img:') && message.content.endsWith(']');
     final isFile = message.content.startsWith('[file:') && message.content.endsWith(']');
+    final isCard = message.content.startsWith('[user_card:') && message.content.endsWith(']');
 
     Widget contentWidget;
 
@@ -84,6 +85,112 @@ class ChatBubble extends StatelessWidget {
               ],
             );
           },
+        ),
+      );
+    } else if (isCard) {
+      final raw = message.content.substring(11, message.content.length - 1);
+      final parts = raw.split(':');
+      final cardUsername = parts.isNotEmpty ? parts[0] : '';
+      final cardNickname = parts.length > 1 ? Uri.decodeComponent(parts[1]) : '';
+      final cardAvatar = parts.length > 2 ? Uri.decodeComponent(parts[2]) : '';
+
+      final isMyOwnCard = cardUsername == ApiService().currentUsername;
+
+      contentWidget = Container(
+        width: 220,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12.0),
+          border: Border.all(color: Colors.grey.shade300, width: 1.0),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.all(12.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                AvatarWidget(
+                  name: cardUsername,
+                  nickname: cardNickname,
+                  avatarUrl: cardAvatar,
+                  size: 40.0,
+                ),
+                const SizedBox(width: 10.0),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        cardNickname.isNotEmpty ? cardNickname : cardUsername,
+                        style: const TextStyle(
+                          fontSize: 14.0,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 2.0),
+                      Text(
+                        '@$cardUsername',
+                        style: TextStyle(
+                          fontSize: 11.0,
+                          color: Colors.grey.shade600,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const Divider(height: 16.0, thickness: 0.5),
+            SizedBox(
+              width: double.infinity,
+              height: 32.0,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: isMyOwnCard ? Colors.grey.shade200 : Colors.blue.shade600,
+                  foregroundColor: isMyOwnCard ? Colors.grey.shade700 : Colors.white,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(6.0),
+                  ),
+                  padding: EdgeInsets.zero,
+                ),
+                onPressed: isMyOwnCard
+                    ? null
+                    : () async {
+                        final success = await ApiService().addFriendDirectly(cardUsername);
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(success ? '已成功添加该好友' : '添加好友失败'),
+                              duration: const Duration(seconds: 2),
+                            ),
+                          );
+                        }
+                      },
+                child: Text(
+                  isMyOwnCard ? '我的名片' : '添加好友',
+                  style: const TextStyle(
+                    fontSize: 12.0,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       );
     } else if (isFile) {
@@ -144,8 +251,8 @@ class ChatBubble extends StatelessWidget {
     }
 
     final bubbleBgColor = isSelf
-        ? Colors.blue.shade600
-        : (isFile || isImg ? Colors.transparent : Colors.grey.shade100);
+        ? (isCard ? Colors.transparent : Colors.blue.shade600)
+        : (isFile || isImg || isCard ? Colors.transparent : Colors.grey.shade100);
 
     return Padding(
       key: ValueKey(message.id ?? UniqueKey()),
@@ -179,12 +286,12 @@ class ChatBubble extends StatelessWidget {
                 GestureDetector(
                   onLongPress: onLongPress,
                   child: Container(
-                    padding: isImg
+                    padding: isImg || isCard
                         ? EdgeInsets.zero
                         : const EdgeInsets.symmetric(horizontal: 12.0, vertical: 10.0),
                     decoration: BoxDecoration(
                       color: bubbleBgColor,
-                      border: !isSelf && !isImg && !isFile
+                      border: !isSelf && !isImg && !isFile && !isCard
                           ? Border.all(color: Colors.grey.shade200, width: 1.0)
                           : null,
                       borderRadius: BorderRadius.only(

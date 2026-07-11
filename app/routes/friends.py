@@ -13,6 +13,9 @@ class FriendActionData(BaseModel):
     from_user: str
     action: str  # 'accept' or 'reject'
 
+class FriendAddData(BaseModel):
+    username: str
+
 def are_friends(db, user_a: str, user_b: str) -> bool:
     """Check if two users are friends (order-independent)"""
     row = db.execute("""
@@ -179,6 +182,26 @@ async def respond_friend_request(data: FriendActionData, current_user = Depends(
                    (data.from_user, current_user['username']))
         db.commit()
         return {"status": "success", "msg": "已拒绝好友申请"}
+
+@router.post("/friends/add")
+async def add_friend_directly(data: FriendAddData, current_user = Depends(get_current_user), db = Depends(get_db)):
+    """Directly add a friend (bypass approval for user card shortcut/adding)"""
+    if data.username == current_user['username']:
+        raise HTTPException(status_code=400, detail="不能添加自己为好友")
+    
+    target = db.execute("SELECT username, nickname FROM users WHERE username=?", (data.username,)).fetchone()
+    if not target:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    
+    _add_friends(db, current_user['username'], data.username)
+    # Also update any pending friend request to accepted
+    db.execute("""
+        UPDATE friend_requests 
+        SET status='accepted' 
+        WHERE (from_user=? AND to_user=?) OR (from_user=? AND to_user=?)
+    """, (current_user['username'], data.username, data.username, current_user['username']))
+    db.commit()
+    return {"status": "success", "msg": f"已成功添加 {target['nickname'] or data.username} 为好友！"}
 
 @router.delete("/friends/{username}")
 async def remove_friend(username: str, current_user = Depends(get_current_user), db = Depends(get_db)):

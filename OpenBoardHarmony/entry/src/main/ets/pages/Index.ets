@@ -211,6 +211,7 @@ struct Index {
   @State qrCodeInput: string = "";
 
   @State blacklistModalVisible: boolean = false;
+  @State cardModalVisible: boolean = false;
   @State blockedUsers: string[] = [];
   @State isTargetBlocked: boolean = false;
 
@@ -980,6 +981,55 @@ struct Index {
     );
   }
 
+  getCardField(content: string, fieldIndex: number): string {
+    if (!content || !content.startsWith("[user_card:") || !content.endsWith("]")) {
+      return "";
+    }
+    let raw = content.substring(11, content.length - 1);
+    let parts = raw.split(":");
+    if (fieldIndex < parts.length) {
+      if (fieldIndex === 0) {
+        return parts[0];
+      }
+      try {
+        return decodeURIComponent(parts[fieldIndex]);
+      } catch (e) {
+        return parts[fieldIndex];
+      }
+    }
+    return "";
+  }
+
+  // Directly add a friend (bypass approval for user card)
+  addFriendDirectly(targetUsername: string) {
+    if (targetUsername === this.currentUsername) {
+      promptAction.showToast({ message: "不能添加自己为好友" });
+      return;
+    }
+    let httpRequest = http.createHttp();
+    httpRequest.request(
+      `${this.serverUrl}/api/friends/add`,
+      {
+        method: http.RequestMethod.POST,
+        header: {
+          'Content-Type': 'application/json',
+          'Authorization': this.token
+        },
+        extraData: JSON.stringify({
+          username: targetUsername
+        })
+      },
+      (err: BusinessError, data: http.HttpResponse) => {
+        if (!err && (data.responseCode === 200 || data.responseCode === 201)) {
+          promptAction.showToast({ message: "已成功添加好友！" });
+          this.loadRelations();
+        } else {
+          promptAction.showToast({ message: "添加好友失败" });
+        }
+      }
+    );
+  }
+
   // Send friend request
   sendRequest(targetUsername: string) {
     let httpRequest = http.createHttp();
@@ -1326,6 +1376,44 @@ struct Index {
     );
   }
 
+  showSendCardDialog() {
+    this.cardModalVisible = true;
+  }
+
+  sendCardMessageDirectly(cardUser: string, cardNickname: string, cardAvatar: string) {
+    let encodedNickname = encodeURIComponent(cardNickname);
+    let encodedAvatar = encodeURIComponent(cardAvatar);
+    let content = `[user_card:${cardUser}:${encodedNickname}:${encodedAvatar}]`;
+    
+    let postData: SendMsgPayload = {
+      content: content,
+      room_id: this.activeRoomId
+    };
+    if (this.activeTargetUser) {
+      postData.receiver = this.activeTargetUser;
+    }
+    
+    let httpRequest = http.createHttp();
+    httpRequest.request(
+      `${this.serverUrl}/api/messages`,
+      {
+        method: http.RequestMethod.POST,
+        header: {
+          'Content-Type': 'application/json',
+          'Authorization': this.token
+        },
+        extraData: JSON.stringify(postData)
+      },
+      (err: BusinessError, data: http.HttpResponse) => {
+        if (!err && (data.responseCode === 200 || data.responseCode === 201)) {
+          this.loadHistory();
+        } else {
+          promptAction.showToast({ message: "名片发送失败" });
+        }
+      }
+    );
+  }
+
   // Show FAB Menu popups
   showFabMenu() {
     promptAction.showActionMenu({
@@ -1627,7 +1715,8 @@ struct Index {
       buttons: [
         { text: "🖼️ 发送图片 (相册)", color: this.themeColor },
         { text: "📷 现场拍照并发送", color: "#FF9500" },
-        { text: "📁 发送文档/文件", color: "#4CAF50" }
+        { text: "📁 发送文档/文件", color: "#4CAF50" },
+        { text: "📇 发送名片", color: "#9C27B0" }
       ]
     }, (err: BusinessError, data: promptAction.ActionMenuSuccessResponse) => {
       if (!err) {
@@ -1637,6 +1726,8 @@ struct Index {
           this.takePhotoForChat();
         } else if (data.index === 2) {
           this.selectFileForChat();
+        } else if (data.index === 3) {
+          this.showSendCardDialog();
         }
       }
     });
@@ -2601,17 +2692,72 @@ struct Index {
                               this.showFileDownloadOptions(filename, fullUrl);
                             })
                           } else if (msg.content && msg.content.startsWith("[user_card:") && msg.content.endsWith("]")) {
-                            Text("📇 [好友名片]")
-                              .fontSize(14)
-                              .fontColor(Color.Orange)
+                            Column() {
+                              Row() {
+                                if (this.getCardField(msg.content, 2) && this.getCardField(msg.content, 2).trim().length > 0) {
+                                  Image(this.getCardField(msg.content, 2).startsWith("data:image") ? this.getCardField(msg.content, 2) : (this.getCardField(msg.content, 2).startsWith("http") ? this.getCardField(msg.content, 2) : `${this.serverUrl}${this.getCardField(msg.content, 2).startsWith('/') ? '' : '/'}${this.getCardField(msg.content, 2)}`))
+                                    .width(36)
+                                    .height(36)
+                                    .borderRadius(18)
+                                    .objectFit(ImageFit.Cover)
+                                    .margin({ right: 8 })
+                                } else {
+                                  Text((this.getCardField(msg.content, 1) || this.getCardField(msg.content, 0) || '?').substring(0, 1).toUpperCase())
+                                    .width(36)
+                                    .height(36)
+                                    .borderRadius(18)
+                                    .textAlign(TextAlign.Center)
+                                    .fontSize(14)
+                                    .fontColor(Color.White)
+                                    .backgroundColor(this.getAvatarBgColor(this.getCardField(msg.content, 0)))
+                                    .margin({ right: 8 })
+                                }
+                                Column() {
+                                  Text(this.getCardField(msg.content, 1) || this.getCardField(msg.content, 0))
+                                    .fontSize(14)
+                                    .fontWeight(FontWeight.Bold)
+                                    .fontColor(Color.Black)
+                                  Text("@" + this.getCardField(msg.content, 0))
+                                    .fontSize(11)
+                                    .fontColor(Color.Gray)
+                                    .margin({ top: 2 })
+                                }
+                                .alignItems(HorizontalAlign.Start)
+                              }
+                              .width('100%')
+                              .alignItems(VerticalAlign.Center)
+
+                              Divider()
+                                .strokeWidth(0.5)
+                                .color("#CCCCCC")
+                                .margin({ top: 8, bottom: 8 })
+
+                              Button(this.getCardField(msg.content, 0) === this.currentUsername ? "我的名片" : "直接加好友")
+                                .fontSize(12)
+                                .fontColor(Color.White)
+                                .height(28)
+                                .width('100%')
+                                .backgroundColor(this.getCardField(msg.content, 0) === this.currentUsername ? Color.Gray : this.themeColor)
+                                .enabled(this.getCardField(msg.content, 0) !== this.currentUsername)
+                                .onClick(() => {
+                                  let cardUser = this.getCardField(msg.content, 0);
+                                  this.addFriendDirectly(cardUser);
+                                })
+                            }
+                            .width(200)
+                            .padding(8)
+                            .backgroundColor(Color.White)
+                            .borderRadius(8)
+                            .borderWidth(1)
+                            .borderColor("#E0E0E0")
                           } else {
                             Text(msg.content)
                               .fontSize(14)
                               .fontColor(msg.name === this.currentUsername ? Color.White : Color.Black)
                           }
                         }
-                        .padding(10)
-                        .backgroundColor(msg.content === "[system_recalled]" ? "#F0F0F0" : (msg.name === this.currentUsername ? this.themeColor : "#E0E0E0"))
+                        .padding((msg.content && (msg.content.startsWith("[img:") || msg.content.startsWith("[user_card:"))) ? 0 : 10)
+                        .backgroundColor(msg.content === "[system_recalled]" ? "#F0F0F0" : ((msg.content && (msg.content.startsWith("[img:") || msg.content.startsWith("[user_card:"))) ? Color.Transparent : (msg.name === this.currentUsername ? this.themeColor : "#E0E0E0")))
                         .borderRadius(8)
                         .gesture(
                           LongPressGesture({ repeat: false })
@@ -3579,6 +3725,136 @@ struct Index {
           .backgroundColor(Color.White)
           .borderRadius(10)
         }.width("100%").height("100%").backgroundColor("#80000000").justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
+      }
+
+      // --- OVERLAY MODAL: SEND CARD SELECTOR ---
+      if (this.cardModalVisible) {
+        Column() {
+          Column({ space: 15 }) {
+            Text("📇 选择要发送的名片")
+              .fontSize(16)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(Color.Black)
+              .margin({ bottom: 5 })
+
+            List() {
+              // Option 1: Own Card
+              ListItem() {
+                Row() {
+                  if (this.currentUserAvatar && this.currentUserAvatar.trim().length > 0) {
+                    Image(this.currentUserAvatar.startsWith("data:image") ? this.currentUserAvatar : (this.currentUserAvatar.startsWith("http") ? this.currentUserAvatar : `${this.serverUrl}${this.currentUserAvatar.startsWith('/') ? '' : '/'}${this.currentUserAvatar}`))
+                      .width(36)
+                      .height(36)
+                      .borderRadius(18)
+                      .objectFit(ImageFit.Cover)
+                      .margin({ right: 10 })
+                  } else {
+                    Text((this.currentUserNickname || this.currentUsername || '?').substring(0, 1).toUpperCase())
+                      .width(36)
+                      .height(36)
+                      .borderRadius(18)
+                      .textAlign(TextAlign.Center)
+                      .fontSize(14)
+                      .fontColor(Color.White)
+                      .backgroundColor(this.getAvatarBgColor(this.currentUsername))
+                      .margin({ right: 10 })
+                  }
+                  Column() {
+                    Text((this.currentUserNickname || this.currentUsername) + " (我)")
+                      .fontSize(14)
+                      .fontWeight(FontWeight.Bold)
+                      .fontColor(Color.Black)
+                    Text("@" + this.currentUsername)
+                      .fontSize(11)
+                      .fontColor(Color.Gray)
+                  }
+                  .alignItems(HorizontalAlign.Start)
+                  .layoutWeight(1)
+
+                  Button("选择")
+                    .fontSize(12)
+                    .height(28)
+                    .backgroundColor(this.themeColor)
+                    .onClick(() => {
+                      this.cardModalVisible = false;
+                      this.sendCardMessageDirectly(this.currentUsername, this.currentUserNickname || this.currentUsername, this.currentUserAvatar || "");
+                    })
+                }
+                .width("100%")
+                .padding({ top: 8, bottom: 8 })
+                .border({ width: { bottom: 1 }, color: "#F0F0F0" })
+              }
+
+              // Option 2: Friends list
+              ForEach(this.relations.filter(r => r.type === "friend" && r.targetUser !== "filehelper"), (item: Relation) => {
+                ListItem() {
+                  Row() {
+                    if (item.avatar && item.avatar.trim().length > 0) {
+                      Image(item.avatar.startsWith("data:image") ? item.avatar : (item.avatar.startsWith("http") ? item.avatar : `${this.serverUrl}${item.avatar.startsWith('/') ? '' : '/'}${item.avatar}`))
+                        .width(36)
+                        .height(36)
+                        .borderRadius(18)
+                        .objectFit(ImageFit.Cover)
+                        .margin({ right: 10 })
+                    } else {
+                      Text((item.name || '?').substring(0, 1).toUpperCase())
+                        .width(36)
+                        .height(36)
+                        .borderRadius(18)
+                        .textAlign(TextAlign.Center)
+                        .fontSize(14)
+                        .fontColor(Color.White)
+                        .backgroundColor(this.getAvatarBgColor(item.targetUser || ""))
+                        .margin({ right: 10 })
+                    }
+                    Column() {
+                      Text(item.name)
+                        .fontSize(14)
+                        .fontWeight(FontWeight.Bold)
+                        .fontColor(Color.Black)
+                      Text("@" + (item.targetUser || ""))
+                        .fontSize(11)
+                        .fontColor(Color.Gray)
+                    }
+                    .alignItems(HorizontalAlign.Start)
+                    .layoutWeight(1)
+
+                    Button("选择")
+                      .fontSize(12)
+                      .height(28)
+                      .backgroundColor(this.themeColor)
+                      .onClick(() => {
+                        this.cardModalVisible = false;
+                        this.sendCardMessageDirectly(item.targetUser || "", item.name, item.avatar || "");
+                      })
+                  }
+                  .width("100%")
+                  .padding({ top: 8, bottom: 8 })
+                  .border({ width: { bottom: 1 }, color: "#F0F0F0" })
+                }
+              })
+            }
+            .width("100%")
+            .height(250)
+
+            Button("取消")
+              .width("100%")
+              .height(40)
+              .backgroundColor(Color.Gray)
+              .onClick(() => {
+                this.cardModalVisible = false;
+              })
+          }
+          .width("80%")
+          .padding(20)
+          .backgroundColor(Color.White)
+          .borderRadius(10)
+        }
+        .width("100%")
+        .height("100%")
+        .backgroundColor("#80000000")
+        .justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Center)
       }
 
       if (this.screenState === "LOGIN" && !this.showServerSettings && !this.qrScanModalVisible) {

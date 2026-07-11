@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import '../models/message.dart';
 import '../services/api_service.dart';
 import '../widgets/chat_bubble.dart';
+import '../widgets/avatar_widget.dart';
 
 class ChatScreen extends StatefulWidget {
   final int relationId;
@@ -198,6 +199,89 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (e) {
       _showError('网络连接失败，消息未发送');
     }
+  }
+
+  Future<void> _sendCardDirect(String username, String nickname, String avatar) async {
+    final encodedNickname = Uri.encodeComponent(nickname);
+    final encodedAvatar = Uri.encodeComponent(avatar);
+    final content = '[user_card:$username:$encodedNickname:$encodedAvatar]';
+    
+    try {
+      final payload = {
+        'room_id': widget.relationId,
+        'receiver': widget.targetUser,
+        'content': content,
+      };
+
+      final serverUrl = ApiService().serverUrl;
+      final token = ApiService().token;
+      
+      final res = await http.post(
+        Uri.parse('$serverUrl/api/messages'),
+        headers: {
+          'Authorization': token,
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode(payload),
+      );
+
+      if (res.statusCode != 200) {
+        final body = jsonDecode(res.body);
+        _showError(body['detail'] ?? '名片发送失败');
+      }
+    } catch (e) {
+      _showError('网络连接失败，名片未发送');
+    }
+  }
+
+  void _showSendCardDialog() async {
+    final allRelations = await ApiService().fetchRelations();
+    final friends = allRelations.where((r) => r.type == 'friend' && r.targetUser != 'filehelper').toList();
+
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('选择要发送的名片'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: friends.length + 1,
+              itemBuilder: (context, index) {
+                final isOwn = index == 0;
+                final username = isOwn ? ApiService().currentUsername : friends[index - 1].targetUser ?? '';
+                final nickname = isOwn ? (ApiService().currentNickname.isNotEmpty ? ApiService().currentNickname : ApiService().currentUsername) : friends[index - 1].name;
+                final avatar = isOwn ? ApiService().currentAvatar : friends[index - 1].avatar ?? '';
+
+                return ListTile(
+                  leading: AvatarWidget(
+                    name: username,
+                    nickname: nickname,
+                    avatarUrl: avatar,
+                    size: 40.0,
+                  ),
+                  title: Text(isOwn ? '$nickname (我)' : nickname),
+                  subtitle: Text('@$username'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _sendCardDirect(username, nickname, avatar);
+                  },
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('取消'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void _showError(String msg) {
@@ -455,6 +539,14 @@ class _ChatScreenState extends State<ChatScreen> {
                                 onTap: () {
                                   Navigator.pop(context);
                                   _pickFile();
+                                },
+                              ),
+                              ListTile(
+                                leading: const Icon(Icons.contact_mail),
+                                title: const Text('发送名片'),
+                                onTap: () {
+                                  Navigator.pop(context);
+                                  _showSendCardDialog();
                                 },
                               ),
                             ],
