@@ -156,21 +156,21 @@ class LoginActivity : AppCompatActivity() {
         }
         SessionManager.serverUrl = serverUrl
 
-        val username = binding.etUsername.text.toString().trim()
-        val password = binding.etPassword.text.toString()
-        val nickname = binding.etNickname.text.toString().trim()
-        if (username.isEmpty() || password.isEmpty() || nickname.isEmpty()) {
-            Toast.makeText(this, "请填写所有字段", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        binding.progressBar.visibility = View.VISIBLE
-        binding.btnAction.isEnabled = false
-
-        lifecycleScope.launch {
-            val result = repository.register(username, password, nickname)
-            binding.progressBar.visibility = View.GONE
-            binding.btnAction.isEnabled = true
+         val username = binding.etUsername.text.toString().trim()
+         val password = binding.etPassword.text.toString()
+         val nickname = binding.etNickname.text.toString().trim()
+         if (username.isEmpty() || password.isEmpty()) {
+             Toast.makeText(this, "请填写用户名和密码", Toast.LENGTH_SHORT).show()
+             return
+         }
+ 
+         binding.progressBar.visibility = View.VISIBLE
+         binding.btnAction.isEnabled = false
+ 
+         lifecycleScope.launch {
+             val result = repository.register(username, password, nickname.takeIf { it.isNotEmpty() })
+             binding.progressBar.visibility = View.GONE
+             binding.btnAction.isEnabled = true
             result.onSuccess { resp ->
                 if (resp.code == 200 && resp.token != null) {
                     SessionManager.token = resp.token

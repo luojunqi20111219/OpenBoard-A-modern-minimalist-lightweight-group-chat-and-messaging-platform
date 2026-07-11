@@ -93,7 +93,7 @@ class ChatRepository {
     suspend fun login(username: String, password: String): Result<AuthResponse> =
         apiCallRaw { api.login(LoginRequest(username, password)) }
 
-    suspend fun register(username: String, password: String, nickname: String): Result<AuthResponse> =
+    suspend fun register(username: String, password: String, nickname: String?): Result<AuthResponse> =
         apiCallRaw { api.register(RegisterRequest(username, password, nickname)) }
 
     suspend fun getMessages(roomId: Int = 0, targetUser: String? = null): Result<List<Message>> =

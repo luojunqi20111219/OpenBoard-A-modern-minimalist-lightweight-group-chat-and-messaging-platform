@@ -31,6 +31,7 @@ interface Relation {
   name: string;
   type: string; // "group" or "friend"
   targetUser?: string;
+  avatar?: string;
 }
 
 interface GroupItem {
@@ -1998,8 +1999,8 @@ struct Index {
 
   // Handle Register click
   handleRegister() {
-    if (!this.usernameInput || !this.passwordInput || !this.nicknameInput) {
-      this.loginStatusMsg = "请填满所有注册字段";
+    if (!this.usernameInput || !this.passwordInput) {
+      this.loginStatusMsg = "请填满用户名和密码";
       return;
     }
     this.loginStatusMsg = "正在注册...";
@@ -2013,7 +2014,7 @@ struct Index {
         extraData: JSON.stringify({
           username: this.usernameInput,
           password: this.passwordInput,
-          nickname: this.nicknameInput
+          nickname: this.nicknameInput || null
         })
       },
       (err: BusinessError, data: http.HttpResponse) => {
@@ -2060,7 +2061,7 @@ struct Index {
               .onChange((val: string) => this.passwordInput = val)
 
             if (this.isRegisterMode) {
-              TextInput({ text: this.nicknameInput, placeholder: "昵称 (仅注册)" })
+              TextInput({ text: this.nicknameInput, placeholder: "昵称 (选填)" })
                 .width("85%")
                 .height(45)
                 .fontColor(Color.Black)

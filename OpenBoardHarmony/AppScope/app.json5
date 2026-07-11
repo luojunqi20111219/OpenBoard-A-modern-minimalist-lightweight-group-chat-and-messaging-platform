@@ -2,8 +2,8 @@
   "app": {
     "bundleName": "xyz.luojunqi.zhengjianzhaoshengchengqi",
     "vendor": "OpenBoard",
-    "versionCode": 7050000,
-    "versionName": "7.5",
+    "versionCode": 7000000,
+    "versionName": "7.0",
     "icon": "$media:app_icon",
     "label": "$string:app_name"
   }
