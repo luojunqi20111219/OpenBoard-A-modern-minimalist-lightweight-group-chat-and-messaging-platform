@@ -396,6 +396,7 @@
             }
         }
 
+        let pingInterval = null;
         function setupWebSocket() {
             if (!currentUser) return;
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -407,6 +408,14 @@
                 statusDot.className = "w-1.5 h-1.5 bg-green-500 rounded-full mr-1.5 animate-pulse";
                 statusText.innerText = "在线";
                 statusText.className = "text-green-500";
+
+                // 定时发送心跳（每30秒），防止 Cloudflare 等 CDN/代理在 100 秒空闲时自动断开连接
+                if (pingInterval) clearInterval(pingInterval);
+                pingInterval = setInterval(() => {
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ type: 'ping' }));
+                    }
+                }, 30000);
             };
 
             ws.onmessage = (event) => {
@@ -450,6 +459,10 @@
             };
 
             ws.onclose = () => {
+                if (pingInterval) {
+                    clearInterval(pingInterval);
+                    pingInterval = null;
+                }
                 const statusDot = document.getElementById('status-dot');
                 const statusText = document.getElementById('status-text');
                 statusDot.className = "w-1.5 h-1.5 bg-gray-400 rounded-full mr-1.5";

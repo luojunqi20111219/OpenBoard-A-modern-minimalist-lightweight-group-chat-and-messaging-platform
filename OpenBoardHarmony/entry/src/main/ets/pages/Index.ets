@@ -396,6 +396,26 @@ struct Index {
 
     this.ws.on('close', (err: BusinessError, value: Object) => {
       console.info("HarmonyOS WebSocket Closed");
+      if (this.token) {
+        setTimeout(() => {
+          if (this.token) {
+            console.info("Reconnecting HarmonyOS WebSocket...");
+            this.connectWebSocket();
+          }
+        }, 5000);
+      }
+    });
+
+    this.ws.on('error', (err: BusinessError) => {
+      console.error("HarmonyOS WebSocket Error: " + JSON.stringify(err));
+      if (this.token) {
+        setTimeout(() => {
+          if (this.token) {
+            console.info("Reconnecting HarmonyOS WebSocket after error...");
+            this.connectWebSocket();
+          }
+        }, 5000);
+      }
     });
   }
 

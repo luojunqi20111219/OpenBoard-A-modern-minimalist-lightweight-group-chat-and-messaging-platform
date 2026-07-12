@@ -22,6 +22,10 @@ class ApiService {
 
   WebSocketChannel? _wsChannel;
   bool _wsConnected = false;
+  bool _shouldReconnect = false;
+  Function(Message)? _onMessageReceived;
+  Function(String, bool)? _onTypingReceived;
+  Function(List<String>)? _onOnlineStatusReceived;
 
   String get serverUrl => _serverUrl;
   String get token => _token;
@@ -321,14 +325,26 @@ class ApiService {
     required Function(List<String>) onOnlineStatusReceived,
   }) {
     if (_token.isEmpty) return;
-    disconnectWebSocket();
+    _onMessageReceived = onMessageReceived;
+    _onTypingReceived = onTypingReceived;
+    _onOnlineStatusReceived = onOnlineStatusReceived;
+    _shouldReconnect = true;
+    _connect();
+  }
+
+  void _connect() {
+    if (!_shouldReconnect || _token.isEmpty) return;
+    disconnectWebSocketOnly();
 
     // Convert http/https to ws/wss
     String wsUrl = _serverUrl.replaceAll('http://', 'ws://').replaceAll('https://', 'wss://');
     wsUrl += '/ws/$_token';
 
     try {
-      _wsChannel = IOWebSocketChannel.connect(Uri.parse(wsUrl));
+      _wsChannel = IOWebSocketChannel.connect(
+        Uri.parse(wsUrl),
+        pingInterval: const Duration(seconds: 30),
+      );
       _wsConnected = true;
 
       _wsChannel!.stream.listen(
@@ -337,19 +353,19 @@ class ApiService {
             final Map<String, dynamic> event = jsonDecode(data);
             final type = event['type'];
 
-            if (type == 'message') {
+            if (type == 'message' && _onMessageReceived != null) {
               final msg = Message.fromJson(event['data']);
-              onMessageReceived(msg);
-            } else if (type == 'typing') {
+              _onMessageReceived!(msg);
+            } else if (type == 'typing' && _onTypingReceived != null) {
               final user = event['user'] ?? '';
               final isTyping = event['is_typing'] ?? false;
               if (user != _currentUsername) {
-                onTypingReceived(user, isTyping);
+                _onTypingReceived!(user, isTyping);
               }
-            } else if (type == 'online_status') {
+            } else if (type == 'online_status' && _onOnlineStatusReceived != null) {
               final List<dynamic> rawList = event['users'] ?? [];
               final List<String> users = rawList.map((e) => e.toString()).toList();
-              onOnlineStatusReceived(users);
+              _onOnlineStatusReceived!(users);
             }
           } catch (e) {
             print('WS event parse error: $e');
@@ -358,16 +374,28 @@ class ApiService {
         onDone: () {
           _wsConnected = false;
           print('WS closed.');
+          _triggerReconnect();
         },
         onError: (err) {
           _wsConnected = false;
           print('WS error: $err');
+          _triggerReconnect();
         },
       );
     } catch (e) {
       _wsConnected = false;
       print('WS connect error: $e');
+      _triggerReconnect();
     }
+  }
+
+  void _triggerReconnect() {
+    if (!_shouldReconnect) return;
+    Future.delayed(const Duration(seconds: 5), () {
+      if (_shouldReconnect && !_wsConnected) {
+        _connect();
+      }
+    });
   }
 
   void sendTypingStatus(bool isTyping, {int roomId = 0, String? targetUser}) {
@@ -384,12 +412,17 @@ class ApiService {
     } catch (_) {}
   }
 
-  void disconnectWebSocket() {
+  void disconnectWebSocketOnly() {
     if (_wsChannel != null) {
       _wsChannel!.sink.close();
       _wsChannel = null;
       _wsConnected = false;
     }
+  }
+
+  void disconnectWebSocket() {
+    _shouldReconnect = false;
+    disconnectWebSocketOnly();
   }
 
   Future<List<Map<String, dynamic>>> searchUsers(String query) async {
