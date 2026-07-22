@@ -369,7 +369,16 @@ class _ChatScreenState extends State<ChatScreen> {
                   );
                 },
               ),
-              if (isMyMsg && msg.id != null) ...[
+              if (msg.id != null)
+                ListTile(
+                  leading: const Icon(Icons.forward),
+                  title: const Text('转发消息'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _showForwardDialog(msg);
+                  },
+                ),
+              if (isMyMsg && msg.canRecall && msg.id != null) ...[
                 ListTile(
                   leading: const Icon(Icons.undo, color: Colors.red),
                   title: const Text('撤回消息'),
@@ -386,6 +395,41 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         );
       },
+    );
+  }
+
+  Future<void> _showForwardDialog(Message msg) async {
+    final relations = await ApiService().fetchRelations();
+    if (!mounted || msg.id == null) return;
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('转发到'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: relations.length,
+            itemBuilder: (context, index) {
+              final relation = relations[index];
+              return ListTile(
+                leading: Icon(relation.type == 'group' ? Icons.group : Icons.person),
+                title: Text(relation.name),
+                onTap: () async {
+                  Navigator.pop(dialogContext);
+                  final success = await ApiService().forwardMessage(
+                    msg.id!,
+                    roomId: relation.type == 'group' ? relation.id : 0,
+                    receiver: relation.type == 'friend' ? relation.targetUser : null,
+                  );
+                  if (!success && mounted) _showError('转发失败');
+                },
+              );
+            },
+          ),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('取消'))],
+      ),
     );
   }
 

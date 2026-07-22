@@ -4,8 +4,23 @@ from app.database import get_db
 from app.models import GroupCreate, GroupUpdate, GroupPermissionUpdate, GroupAvatarUpdate
 from app.auth import get_current_user, verify_token
 from app.media import normalize_avatar
+from app.security import sanitize_plain_text
 
 router = APIRouter(prefix="/api")
+
+
+def can_view_group(group, username=None, user_id=None, user_role=0):
+    if group['id'] == 0:
+        return True
+    if username and group['owner_id'] == user_id:
+        return True
+    if user_role == 1 or username in Config.ALLOWED_ADMINS:
+        return True
+    if group['view_mode'] == 1:
+        allowlist = [u.strip() for u in (group['white_view'] or '').split(',') if u.strip()]
+        return bool(username and username in allowlist)
+    blocklist = [u.strip() for u in (group['black_view'] or '').split(',') if u.strip()]
+    return not (username and username in blocklist)
 
 @router.get("/groups")
 async def get_groups(request: Request, db = Depends(get_db)):
@@ -31,30 +46,19 @@ async def get_groups(request: Request, db = Depends(get_db)):
             result.append(dict(g))
             continue
             
-        can_view = True
-        is_owner = username and g['owner_id'] == user_id
-        is_admin = user_role == 1 or (username in Config.ALLOWED_ADMINS)
-        
-        if not is_owner and not is_admin:
-            if g['view_mode'] == 1:
-                w_list = [u.strip() for u in (g['white_view'] or '').split(',') if u.strip()]
-                if not username or username not in w_list:
-                    can_view = False
-            else:
-                b_list = [u.strip() for u in (g['black_view'] or '').split(',') if u.strip()]
-                if username and username in b_list:
-                    can_view = False
-                    
-        if can_view:
+        if can_view_group(g, username, user_id, user_role):
             result.append(dict(g))
             
     return {"status": "success", "data": result}
 
 @router.post("/groups")
 async def create_group(data: GroupCreate, current_user = Depends(get_current_user), db = Depends(get_db)):
+    safe_name = sanitize_plain_text(data.name, 64)
+    if not safe_name:
+        raise HTTPException(status_code=400, detail="群聊名称不能为空")
     cursor = db.execute(
         "INSERT INTO groups (name, is_public, owner_id) VALUES (?, ?, ?)", 
-        (data.name, data.is_public, current_user['id'])
+        (safe_name, data.is_public, current_user['id'])
     )
     db.commit()
     return {"status": "success", "group_id": cursor.lastrowid}
@@ -70,7 +74,10 @@ async def update_group(group_id: int, data: GroupUpdate, current_user = Depends(
     if not group or (group['owner_id'] != current_user['id'] and not is_admin):
         raise HTTPException(status_code=403, detail="无权操作")
         
-    db.execute("UPDATE groups SET name=? WHERE id=?", (data.name, group_id))
+    safe_name = sanitize_plain_text(data.name, 64)
+    if not safe_name:
+        raise HTTPException(status_code=400, detail="群聊名称不能为空")
+    db.execute("UPDATE groups SET name=? WHERE id=?", (safe_name, group_id))
     db.commit()
     return {"status": "success"}
 

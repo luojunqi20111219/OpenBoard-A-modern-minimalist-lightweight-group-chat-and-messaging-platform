@@ -17,6 +17,8 @@ data class Message(
     val roomId: Int = 0,
     val receiver: String? = null,
     val type: Int = 0,
+    @SerializedName("can_recall")
+    val canRecall: Boolean = false,
     @SerializedName("is_recalled")
     val isRecalled: Int = 0
 )

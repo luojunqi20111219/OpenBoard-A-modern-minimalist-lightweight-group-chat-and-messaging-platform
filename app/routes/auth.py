@@ -11,12 +11,14 @@ from app.models import (
 )
 from app.auth import create_access_token, get_current_user, revoke_token, verify_token
 from app.media import normalize_avatar
+from app.security import client_ip, login_ip_rate_limiter, login_rate_limiter, sanitize_plain_text
 from app.websocket import manager
 
 router = APIRouter(prefix="/api")
 
 REMEMBER_SESSION_MINUTES = 60 * 24 * 30
 BROWSER_SESSION_MINUTES = 60 * 12
+DUMMY_PASSWORD_HASH = generate_password_hash("openboard-invalid-password")
 
 def create_session_token(user_id: int, username: str, role: int, remember_me: bool) -> str:
     expires_minutes = REMEMBER_SESSION_MINUTES if remember_me else BROWSER_SESSION_MINUTES
@@ -63,6 +65,12 @@ def delete_user_and_data(db, user_id: int, username: str):
     for g in groups:
         db.execute("DELETE FROM messages WHERE room_id=?", (g['id'],))
         db.execute("DELETE FROM groups WHERE id=?", (g['id'],))
+    db.execute("DELETE FROM user_devices WHERE user_id=?", (user_id,))
+    db.execute("DELETE FROM revoked_sessions WHERE user_id=?", (user_id,))
+    db.execute("DELETE FROM friends WHERE user_a=? OR user_b=?", (username, username))
+    db.execute("DELETE FROM friend_requests WHERE from_user=? OR to_user=?", (username, username))
+    db.execute("DELETE FROM favorite_emojis WHERE username=?", (username,))
+    db.execute("DELETE FROM notifications WHERE target_user=?", (username,))
     db.execute("DELETE FROM users WHERE id=?", (user_id,))
 
 @router.post("/register")
@@ -71,10 +79,11 @@ async def register(data: RegisterData, response: Response, request: Request, db 
         raise HTTPException(status_code=400, detail="用户名已被占用")
         
     hashed_pw = generate_password_hash(data.password)
+    safe_nickname = sanitize_plain_text(data.nickname or data.username, 64) or data.username
     try:
         cursor = db.execute(
             "INSERT INTO users (username, password_hash, nickname) VALUES (?, ?, ?)",
-            (data.username, hashed_pw, data.nickname or data.username)
+            (data.username, hashed_pw, safe_nickname)
         )
         user_id = cursor.lastrowid
         
@@ -97,9 +106,9 @@ async def register(data: RegisterData, response: Response, request: Request, db 
             ("欢迎使用信语，开发人员：罗大帅", "系统", data.username)
         )
         db.commit()
-    except Exception as e:
+    except Exception:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"注册失败: {str(e)}")
+        raise HTTPException(status_code=500, detail="注册失败，请稍后重试")
         
     # Write to HTTP-only Cookie for seamless secure access to /admin
     set_session_cookie(response, token, data.remember_me)
@@ -108,7 +117,7 @@ async def register(data: RegisterData, response: Response, request: Request, db 
         "code": 200,
         "token": token,
         "username": data.username,
-        "nickname": data.nickname or data.username,
+        "nickname": safe_nickname,
         "avatar": None,
         "id": user_id,
         "role": role
@@ -116,8 +125,26 @@ async def register(data: RegisterData, response: Response, request: Request, db 
 
 @router.post("/login")
 async def login(data: LoginData, response: Response, request: Request, db = Depends(get_db)):
+    account_key = data.username.strip().lower()
+    ip_key = client_ip(request)
+    retry_after = max(
+        login_rate_limiter.retry_after(account_key),
+        login_ip_rate_limiter.retry_after(ip_key),
+    )
+    if retry_after:
+        raise HTTPException(
+            status_code=429,
+            detail="登录尝试过多，请稍后再试",
+            headers={"Retry-After": str(retry_after)},
+        )
+
     user = db.execute("SELECT * FROM users WHERE username=?", (data.username,)).fetchone()
-    if user and check_password_hash(user['password_hash'], data.password):
+    password_hash = user['password_hash'] if user else DUMMY_PASSWORD_HASH
+    password_matches = await asyncio.get_running_loop().run_in_executor(
+        None, check_password_hash, password_hash, data.password
+    )
+    if user and password_matches:
+        login_rate_limiter.reset(account_key)
         if user['is_banned'] == 1:
             raise HTTPException(status_code=403, detail="您的账号已被管理员封禁")
             
@@ -143,6 +170,16 @@ async def login(data: LoginData, response: Response, request: Request, db = Depe
             "role": user['role']
         }
         
+    lock_seconds = max(
+        login_rate_limiter.record_failure(account_key),
+        login_ip_rate_limiter.record_failure(ip_key),
+    )
+    if lock_seconds:
+        raise HTTPException(
+            status_code=429,
+            detail="登录尝试过多，请稍后再试",
+            headers={"Retry-After": str(lock_seconds)},
+        )
     raise HTTPException(status_code=401, detail="账号或密码错误")
 
 @router.post("/logout")
@@ -163,8 +200,10 @@ async def logout(request: Request, response: Response, db = Depends(get_db)):
     return {"status": "success", "msg": "已登出"}
 
 @router.get("/session")
-async def get_session(request: Request, current_user = Depends(get_current_user)):
+async def get_session(request: Request, response: Response, current_user = Depends(get_current_user)):
     token = request.headers.get("Authorization") or request.cookies.get("token")
+    if token and not request.cookies.get("token"):
+        set_session_cookie(response, token, remember_me=True)
     return {
         "code": 200,
         "token": token,
@@ -176,15 +215,34 @@ async def get_session(request: Request, current_user = Depends(get_current_user)
     }
 
 @router.put("/user/password")
-async def change_password(data: PasswordChangeData, current_user = Depends(get_current_user), db = Depends(get_db)):
-    if not check_password_hash(current_user['password_hash'], data.old_password):
+async def change_password(data: PasswordChangeData, request: Request, current_user = Depends(get_current_user), db = Depends(get_db)):
+    password_matches = await asyncio.get_running_loop().run_in_executor(
+        None, check_password_hash, current_user['password_hash'], data.old_password
+    )
+    if not password_matches:
         raise HTTPException(status_code=400, detail="原密码错误")
         
+    current_token = request.headers.get("Authorization") or request.cookies.get("token") or ""
+    other_sessions = db.execute(
+        "SELECT device_id, token FROM user_devices WHERE user_id=? AND token IS NOT NULL AND token!=?",
+        (current_user['id'], current_token),
+    ).fetchall()
+    for session in other_sessions:
+        revoke_token(db, session['token'], current_user['id'], session['device_id'])
+
+    new_password_hash = await asyncio.get_running_loop().run_in_executor(
+        None, generate_password_hash, data.new_password
+    )
     db.execute(
         "UPDATE users SET password_hash=? WHERE id=?", 
-        (generate_password_hash(data.new_password), current_user['id'])
+        (new_password_hash, current_user['id'])
+    )
+    db.execute(
+        "DELETE FROM user_devices WHERE user_id=? AND (token IS NULL OR token!=?)",
+        (current_user['id'], current_token),
     )
     db.commit()
+    await manager.close_user_connections(current_user['username'])
     return {"status": "success", "msg": "密码修改成功"}
 
 @router.post("/user/block")
@@ -221,9 +279,10 @@ async def update_profile(data: UserProfileData, current_user = Depends(get_curre
         avatar = normalize_avatar(data.avatar)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    safe_nickname = sanitize_plain_text(data.nickname or current_user['username'], 64) or current_user['username']
     db.execute(
         "UPDATE users SET nickname=?, avatar=? WHERE id=?", 
-        (data.nickname, avatar, current_user['id'])
+        (safe_nickname, avatar, current_user['id'])
     )
     db.commit()
     return {"status": "success"}
@@ -276,9 +335,20 @@ async def register_web_device(
 async def logout_device(
     device_id: str,
     data: DeviceLogoutData,
+    request: Request,
     current_user = Depends(get_current_user),
     db = Depends(get_db),
 ):
+    if len(device_id) > 128:
+        raise HTTPException(status_code=400, detail="设备标识无效")
+    rate_key = f"device-logout:{current_user['id']}:{client_ip(request)}"
+    retry_after = login_rate_limiter.retry_after(rate_key)
+    if retry_after:
+        raise HTTPException(
+            status_code=429,
+            detail="密码尝试过多，请稍后再试",
+            headers={"Retry-After": str(retry_after)},
+        )
     password_matches = await asyncio.get_running_loop().run_in_executor(
         None,
         check_password_hash,
@@ -286,8 +356,10 @@ async def logout_device(
         data.password,
     )
     if not password_matches:
+        login_rate_limiter.record_failure(rate_key)
         raise HTTPException(status_code=400, detail="密码错误")
 
+    login_rate_limiter.reset(rate_key)
     device = db.execute(
         """
         SELECT device_id, token, push_token

@@ -411,7 +411,7 @@ class ChatAdapter(
                 menu.add(0, 101, 10, "回复")
                 menu.add(0, 102, 11, "转发")
                 menu.add(0, 103, 12, "翻译")
-                if (isSelf) {
+                if (isSelf && msg.canRecall) {
                     menu.add(0, 104, 13, "撤回")
                 }
                 return true

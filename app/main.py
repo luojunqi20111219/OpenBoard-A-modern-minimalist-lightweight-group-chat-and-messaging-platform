@@ -16,6 +16,30 @@ patch_db()
 app = FastAPI(title="信语 (OpenBoard)", version=Config.CURRENT_VERSION)
 templates = Jinja2Templates(directory="templates")
 
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "camera=(self), microphone=(), geolocation=()"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob:; font-src 'self' data:; "
+        "connect-src 'self' ws: wss:; object-src 'none'; "
+        "base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+    )
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    peer = request.client.host if request.client else ""
+    forwarded_https = peer in {"127.0.0.1", "::1"} and request.headers.get("X-Forwarded-Proto") == "https"
+    if request.url.scheme == "https" or forwarded_https:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+
 # Serve bundled frontend dependencies without relying on slow external CDNs.
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -67,8 +91,7 @@ async def admin_dashboard(request: Request, db = Depends(get_db)):
         }
     )
 
-@app.websocket("/ws/{token}")
-async def websocket_endpoint(websocket: WebSocket, token: str):
+async def handle_websocket(websocket: WebSocket, token: str):
     # Decode token inside context manager to instantly release DB connection
     with get_db_ctx() as db:
         user = verify_token(token, db)
@@ -96,6 +119,18 @@ async def websocket_endpoint(websocket: WebSocket, token: str):
         await manager.broadcast_online_status()
     except Exception:
         manager.disconnect(websocket, username)
+
+
+@app.websocket("/ws")
+async def websocket_cookie_endpoint(websocket: WebSocket):
+    await handle_websocket(websocket, websocket.cookies.get("token"))
+
+
+@app.websocket("/ws/{token}")
+async def websocket_endpoint(websocket: WebSocket, token: str):
+    # Legacy route for released native clients. New web clients use the cookie
+    # endpoint so credentials are not exposed in access-log URLs.
+    await handle_websocket(websocket, token)
 
 if __name__ == "__main__":
     import uvicorn

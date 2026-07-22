@@ -3,6 +3,7 @@ import hashlib
 import uuid
 import jwt
 from typing import Optional
+from urllib.parse import urlparse
 from fastapi import Request, HTTPException, Depends
 from app.config import Config
 from app.database import get_db
@@ -18,6 +19,10 @@ def create_access_token(data: dict, expires_minutes: Optional[int] = None):
 
 def verify_token(token: str, db) -> dict:
     if not token:
+        return None
+    if token.startswith("Bearer "):
+        token = token[7:].strip()
+    if not token or len(token) > 8192:
         return None
     token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
     if db.execute("SELECT 1 FROM revoked_sessions WHERE token_hash=?", (token_hash,)).fetchone():
@@ -35,10 +40,12 @@ def verify_token(token: str, db) -> dict:
     except jwt.PyJWTError:
         pass
 
-    # 2. Backwards compatibility fallback: check legacy database token lookup
-    user = db.execute("SELECT * FROM users WHERE token=?", (token,)).fetchone()
-    if user:
-        return dict(user)
+    # 2. Only opaque legacy tokens use the database fallback. Falling back for a
+    # JWT would accidentally make an expired JWT valid again.
+    if token.count(".") != 2:
+        user = db.execute("SELECT * FROM users WHERE token=?", (token,)).fetchone()
+        if user:
+            return dict(user)
         
     return None
 
@@ -58,6 +65,10 @@ async def get_current_user(request: Request, db = Depends(get_db)) -> dict:
     # Check Cookie Fallback (useful for normal page rendering / GET endpoints)
     if not token:
         token = request.cookies.get("token")
+        if token and request.method not in {"GET", "HEAD", "OPTIONS"}:
+            origin = request.headers.get("Origin", "")
+            if not origin or urlparse(origin).netloc != request.headers.get("Host", ""):
+                raise HTTPException(status_code=403, detail="跨站请求已被拒绝")
         
     if not token:
         raise HTTPException(status_code=403, detail="未登录")

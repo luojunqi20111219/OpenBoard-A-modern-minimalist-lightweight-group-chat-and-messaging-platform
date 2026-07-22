@@ -24,6 +24,7 @@ interface Message {
   room_id: number;
   isRecalled?: number;
   avatar?: string;
+  can_recall?: boolean;
 }
 
 interface Relation {
@@ -68,6 +69,7 @@ interface WsMsgData {
   room_id: number;
   avatar?: string;
   receiver?: string;
+  can_recall?: boolean;
 }
 
 interface WsMsg {
@@ -88,6 +90,11 @@ interface WsMsg {
 
 interface SendMsgPayload {
   content: string;
+  room_id: number;
+  receiver?: string;
+}
+
+interface ForwardMsgPayload {
   room_id: number;
   receiver?: string;
 }
@@ -213,6 +220,8 @@ struct Index {
 
   @State blacklistModalVisible: boolean = false;
   @State cardModalVisible: boolean = false;
+  @State forwardModalVisible: boolean = false;
+  @State forwardMessageId: number = 0;
   @State blockedUsers: string[] = [];
   @State isTargetBlocked: boolean = false;
 
@@ -320,7 +329,8 @@ struct Index {
                 content: msgData.content || "",
                 time: msgData.time || new Date().toISOString(),
                 room_id: msgData.room_id || 0,
-                avatar: msgData.avatar || ""
+                avatar: msgData.avatar || "",
+                can_recall: msgData.can_recall === true && msgData.name === this.currentUsername
               };
               
               let key = msg.room_id > 0 ? `group:${msg.room_id}` : `friend:${msg.name === this.currentUsername ? msgData.receiver : msg.name}`;
@@ -896,14 +906,15 @@ struct Index {
   showMsgActions(msg: Message) {
     if (!msg.id) return;
     let buttonsList: promptAction.Button[] = [
-      { text: "📋 复制文本内容", color: "#4CAF50" }
+      { text: "📋 复制文本内容", color: "#4CAF50" },
+      { text: "↗️ 转发消息", color: "#1677FF" }
     ];
     let isSticker = msg.content.startsWith("[img:") && msg.content.endsWith("]");
     let isEmoji = msg.content.trim().length <= 4;
     if (isSticker || isEmoji) {
       buttonsList.push({ text: "❤️ 收藏此表情", color: "#FF2D55" });
     }
-    if (msg.name === this.currentUsername) {
+    if (msg.name === this.currentUsername && msg.can_recall === true) {
       buttonsList.push({ text: "↩️ 撤回消息", color: "#FF3B30" });
     }
     
@@ -915,6 +926,9 @@ struct Index {
         let btnText = buttonsList[data.index].text;
         if (btnText === "📋 复制文本内容") {
           this.copyToClipboard(msg.content);
+        } else if (btnText === "↗️ 转发消息" && msg.id) {
+          this.forwardMessageId = msg.id;
+          this.forwardModalVisible = true;
         } else if (btnText === "❤️ 收藏此表情") {
           this.addFavoriteEmoji(msg.content);
         } else if (btnText === "↩️ 撤回消息" && msg.id) {
@@ -922,6 +936,29 @@ struct Index {
         }
       }
     });
+  }
+
+  forwardMessageApi(msgId: number, target: Relation) {
+    let payload: ForwardMsgPayload = { room_id: target.type === "group" ? target.id : 0 };
+    if (target.type === "friend" && target.targetUser) {
+      payload.receiver = target.targetUser;
+    }
+    let httpRequest = http.createHttp();
+    httpRequest.request(
+      `${this.serverUrl}/api/messages/${msgId}/forward`,
+      {
+        method: http.RequestMethod.POST,
+        header: { 'Authorization': this.token, 'Content-Type': 'application/json' },
+        extraData: JSON.stringify(payload)
+      },
+      (err: BusinessError, data: http.HttpResponse) => {
+        if (!err && data.responseCode === 200) {
+          promptAction.showToast({ message: "消息已转发" });
+        } else {
+          promptAction.showToast({ message: "消息转发失败" });
+        }
+      }
+    );
   }
 
   // Recall Message API Call
@@ -3746,6 +3783,68 @@ struct Index {
           .backgroundColor(Color.White)
           .borderRadius(10)
         }.width("100%").height("100%").backgroundColor("#80000000").justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
+      }
+
+      if (this.forwardModalVisible) {
+        Column() {
+          Column({ space: 12 }) {
+            Text("↗️ 转发到")
+              .fontSize(16)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(Color.Black)
+            List() {
+              ForEach(this.relations, (item: Relation) => {
+                ListItem() {
+                  Row() {
+                    Text(item.type === "group" ? "👥" : "👤")
+                      .fontSize(22)
+                      .margin({ right: 10 })
+                    Column() {
+                      Text(item.name)
+                        .fontSize(14)
+                        .fontWeight(FontWeight.Bold)
+                        .fontColor(Color.Black)
+                      Text(item.type === "group" ? "群聊" : `@${item.targetUser || ''}`)
+                        .fontSize(11)
+                        .fontColor(Color.Gray)
+                    }
+                    .alignItems(HorizontalAlign.Start)
+                    .layoutWeight(1)
+                    Button("转发")
+                      .fontSize(12)
+                      .height(28)
+                      .backgroundColor(this.themeColor)
+                      .onClick(() => {
+                        this.forwardModalVisible = false;
+                        this.forwardMessageApi(this.forwardMessageId, item);
+                      })
+                  }
+                  .width("100%")
+                  .padding({ top: 8, bottom: 8 })
+                  .border({ width: { bottom: 1 }, color: "#F0F0F0" })
+                }
+              })
+            }
+            .width("100%")
+            .height(300)
+            Button("取消")
+              .width("100%")
+              .height(40)
+              .backgroundColor(Color.Gray)
+              .onClick(() => {
+                this.forwardModalVisible = false;
+              })
+          }
+          .width("80%")
+          .padding(20)
+          .backgroundColor(Color.White)
+          .borderRadius(10)
+        }
+        .width("100%")
+        .height("100%")
+        .backgroundColor("#80000000")
+        .justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Center)
       }
 
       // --- OVERLAY MODAL: SEND CARD SELECTOR ---

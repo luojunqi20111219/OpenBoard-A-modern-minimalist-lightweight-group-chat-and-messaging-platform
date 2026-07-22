@@ -7,6 +7,7 @@ class Message {
   final int roomId;
   final String? avatar;
   final bool isRecalled;
+  final bool canRecall;
 
   Message({
     this.id,
@@ -17,6 +18,7 @@ class Message {
     required this.roomId,
     this.avatar,
     this.isRecalled = false,
+    this.canRecall = false,
   });
 
   factory Message.fromJson(Map<String, dynamic> json) {
@@ -29,6 +31,7 @@ class Message {
       roomId: json['room_id'] ?? 0,
       avatar: json['avatar'],
       isRecalled: json['content'] == '[system_recalled]',
+      canRecall: json['can_recall'] == true || json['can_recall'] == 1,
     );
   }
 
@@ -41,6 +44,7 @@ class Message {
       'time': time,
       'room_id': roomId,
       'avatar': avatar,
+      'can_recall': canRecall,
     };
   }
 }

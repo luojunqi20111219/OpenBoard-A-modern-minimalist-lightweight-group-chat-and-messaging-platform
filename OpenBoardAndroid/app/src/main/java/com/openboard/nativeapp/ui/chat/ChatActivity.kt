@@ -460,7 +460,8 @@ class ChatActivity : AppCompatActivity() {
                                 avatar = data.avatar,
                                 reply = data.replyTo?.toString(),
                                 roomId = data.roomId ?: 0,
-                                receiver = data.receiver
+                                receiver = data.receiver,
+                                canRecall = data.canRecall && data.name == me
                             )
                             messagesList.add(newMessage)
                             adapter.notifyItemInserted(messagesList.size - 1)
@@ -515,7 +516,7 @@ class ChatActivity : AppCompatActivity() {
             options.add("收藏表情")
         }
         
-        if (message.name == myUsername || isAdmin) {
+        if (isAdmin || (message.name == myUsername && message.canRecall)) {
             options.add("撤回消息")
         }
 

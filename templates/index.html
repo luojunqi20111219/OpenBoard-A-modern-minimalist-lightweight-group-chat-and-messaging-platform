@@ -313,6 +313,14 @@
         </div>
     </div>
 
+    <div id="forward-message-modal" class="fixed inset-0 bg-black/60 hidden flex items-center justify-center z-50 backdrop-blur-sm p-4">
+        <div class="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl relative overflow-hidden">
+            <h2 class="text-xl font-bold text-center mb-4"><i class="fa-solid fa-share text-blue-500 mr-2"></i>转发消息</h2>
+            <div id="forward-target-list" class="max-h-72 overflow-y-auto space-y-2 pr-1 no-scrollbar"></div>
+            <button onclick="hideModal('forward-message-modal')" class="w-full mt-4 text-sm text-gray-400 hover:text-gray-600">取消</button>
+        </div>
+    </div>
+
     <!-- 拖拽上传覆盖层 -->
     <div id="drag-drop-overlay" class="fixed inset-0 bg-blue-600/25 border-4 border-dashed border-blue-500 hidden flex flex-col items-center justify-center z-50 backdrop-blur-[2px] pointer-events-none transition-all">
         <div class="bg-white/95 px-8 py-6 rounded-3xl shadow-2xl flex flex-col items-center gap-3">
@@ -393,7 +401,8 @@
         let currentUser = JSON.parse(localStorage.getItem('user') || sessionStorage.getItem('user') || 'null');
         let currentRoomId = 0; let currentTargetUser = null; 
         let pendingAvatarBase64 = null; let pendingGroupAvatarBase64 = null; 
-        let globalGroups = []; let authMode = 'login'; let globalBlockedUsers = [];
+        let globalGroups = []; let globalFriends = []; let globalFriendsLoadedAt = 0;
+        let authMode = 'login'; let globalBlockedUsers = [];
         let ws = null; let wsReconnectTimer = null; let onlineUsers = []; let typingTimer = null;
         let noticesInterval = null;
         let selectedLogoutDevice = null;
@@ -428,10 +437,10 @@
             if (avatarStr === 'system_filehelper') {
                 return `<div class="${sizeClass} rounded-full bg-blue-100 flex items-center justify-center text-blue-600 shadow-sm"><i class="fa-solid fa-folder-open"></i></div>`;
             }
-            if (avatarStr && avatarStr.startsWith('data:image')) {
+            if (avatarStr && /^data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=]+$/i.test(avatarStr)) {
                 return `<img src="${avatarStr}" class="${sizeClass} rounded-full object-cover shadow-sm">`;
             } else {
-                return `<div class="${sizeClass} rounded-full flex items-center justify-center text-white font-bold shadow-sm avatar-gradient">${displayName.charAt(0).toUpperCase()}</div>`;
+                return `<div class="${sizeClass} rounded-full flex items-center justify-center text-white font-bold shadow-sm avatar-gradient">${escapeHtml(displayName.charAt(0).toUpperCase())}</div>`;
             }
         }
 
@@ -443,7 +452,7 @@
                     <div class="flex items-center overflow-hidden">
                         ${getAvatarHtml(currentUser.avatar, name, "w-9 h-9 text-sm mr-3")}
                         <div class="truncate">
-                            <div class="text-sm font-bold truncate">${name}</div>
+                            <div class="text-sm font-bold truncate">${escapeHtml(name)}</div>
                             <button onclick="logout()" class="text-[10px] text-red-400 hover:underline">退出登录</button>
                         </div>
                     </div>
@@ -475,7 +484,7 @@
                 wsReconnectTimer = null;
             }
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            ws = new WebSocket(`${protocol}//${window.location.host}/ws/${currentUser.token}`);
+            ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
             
             ws.onopen = () => {
                 const statusDot = document.getElementById('status-dot');
@@ -761,7 +770,7 @@
                     ? `<img src="/favicon.ico" class="w-6 h-6 rounded-full object-cover shadow-sm shrink-0 mr-3">` 
                     : getAvatarHtml(g.avatar, g.name, "w-6 h-6 text-[10px] shrink-0 mr-3");
                     
-                btn.innerHTML = `${groupAvatarHtml}<span class="flex-1 truncate">${g.name}</span>${isMine ? '<i class="fa-solid fa-crown text-[10px] text-yellow-500"></i>' : ''}`;
+                btn.innerHTML = `${groupAvatarHtml}<span class="flex-1 truncate">${escapeHtml(g.name)}</span>${isMine ? '<i class="fa-solid fa-crown text-[10px] text-yellow-500"></i>' : ''}`;
                 btn.onclick = () => switchRoom(g.id, g.name);
                 list.appendChild(btn);
             });
@@ -864,6 +873,8 @@
                 }
                 const result = await res.json(); 
                 if (result.status !== 'success') return;
+                globalFriends = result.data || [];
+                globalFriendsLoadedAt = Date.now();
                 
                 const list = document.getElementById('user-list'); list.innerHTML = '';
                 if (result.data.length === 0) {
@@ -881,7 +892,7 @@
                             ${getAvatarHtml(u.avatar, name, "w-6 h-6 text-[10px] shrink-0")}
                             ${onlineUsers.includes(u.username) ? '<div class="online-dot w-2 h-2 bg-green-500 rounded-full absolute -bottom-0.5 -right-0.5 border border-gray-900"></div>' : ''}
                         </div>
-                        <span class="truncate text-sm flex-1">${name}</span>${blockIcon}
+                        <span class="truncate text-sm flex-1">${escapeHtml(name)}</span>${blockIcon}
                     `;
                     btn.onclick = () => switchPrivateChat(u.username, name, u.avatar);
                     list.appendChild(btn);
@@ -947,44 +958,85 @@
             div.innerHTML = `
                 ${!isMe ? `<div class="mr-2 mt-1 shrink-0">${getAvatarHtml(msg.avatar, name, "w-8 h-8 text-xs")}</div>` : ''}
                 <div class="max-w-[80%] sm:max-w-[70%] flex flex-col ${isMe ? 'items-end' : 'items-start'} group">
-                    ${!isMe ? `<div class="text-[10px] text-gray-400 mb-1 ml-1">${name}</div>` : ''}
+                    ${!isMe ? `<div class="text-[10px] text-gray-400 mb-1 ml-1">${escapeHtml(name)}</div>` : ''}
                     <div class="${isMe ? 'bg-blue-600 text-white rounded-2xl rounded-tr-none' : 'bg-white text-gray-800 rounded-2xl rounded-tl-none border border-gray-100 shadow-sm'} p-3 px-4 text-sm break-words leading-relaxed">${renderContent(msg.content)}</div>
                     <div class="text-[10px] text-gray-300 mt-1 ${isMe ? 'mr-1' : 'ml-1'} flex items-center gap-2">
                         刚刚
-                        ${isMe ? `<button onclick="recallMsg(${msg.id})" class="text-red-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity focus:opacity-100">撤回</button>` : ''}
+                        <button onclick="showForwardMessageModal(${msg.id})" class="text-blue-400 hover:text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity focus:opacity-100">转发</button>
+                        ${(isMe && msg.can_recall !== false) ? `<button onclick="recallMsg(${msg.id})" data-recall-expires="${msg.recall_expires_in || 120}" class="text-red-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity focus:opacity-100">撤回</button>` : ''}
                     </div>
                 </div>
                 ${isMe ? `<div class="ml-2 mt-1 shrink-0">${getAvatarHtml(msg.avatar, name, "w-8 h-8 text-xs")}</div>` : ''}
             `;
             list.appendChild(div);
+            scheduleRecallButtons(div);
             list.scrollTop = list.scrollHeight;
         }
 
+        function scheduleRecallButtons(root = document) {
+            root.querySelectorAll('[data-recall-expires]').forEach(button => {
+                const seconds = Number(button.dataset.recallExpires);
+                if (!Number.isFinite(seconds) || seconds <= 0) {
+                    button.remove();
+                    return;
+                }
+                setTimeout(() => button.remove(), seconds * 1000);
+                button.removeAttribute('data-recall-expires');
+            });
+        }
+
         function renderContent(content) {
-            let safe = content.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            safe = safe.replace(/\[img:([^\]]+)\]/g, '<img src="$1" class="max-w-[200px] sm:max-w-xs mt-1 rounded-lg cursor-pointer hover:opacity-90 transition" onclick="window.open(\'$1\')">');
-            safe = safe.replace(/\[file:([^|]+)\|([^\]]+)\]/g, '<a href="$1" target="_blank" class="flex items-center mt-1 p-2 bg-black/10 rounded-lg hover:bg-black/20 transition underline break-all"><i class="fa-solid fa-file-arrow-down mr-2 shrink-0"></i>$2</a>');
-            safe = safe.replace(/\[user_card:([^:]+):?([^\]]*)\]/g, (match, username, nickname) => {
-                const decodedNickname = decodeURIComponent(nickname || username);
-                return `
+            const fragments = [];
+            const stash = html => {
+                const token = `\uE000${fragments.length}\uE001`;
+                fragments.push(html);
+                return token;
+            };
+            const safeLocalUrl = value => {
+                try {
+                    const parsed = new URL(value, window.location.origin);
+                    if (parsed.origin !== window.location.origin) return null;
+                    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+                } catch (_) {
+                    return null;
+                }
+            };
+
+            let text = String(content || '');
+            text = text.replace(/\[img:([^\]]+)\]/g, (match, value) => {
+                const url = safeLocalUrl(value);
+                if (!url) return '[无效图片]';
+                return stash(`<img src="${escapeHtml(url)}" class="max-w-[200px] sm:max-w-xs mt-1 rounded-lg cursor-pointer hover:opacity-90 transition" onclick="window.open(this.src)">`);
+            });
+            text = text.replace(/\[file:([^|]+)\|([^\]]+)\]/g, (match, value, filename) => {
+                const url = safeLocalUrl(value);
+                if (!url) return '[无效文件]';
+                return stash(`<a href="${escapeHtml(url)}" target="_blank" rel="noopener" class="flex items-center mt-1 p-2 bg-black/10 rounded-lg hover:bg-black/20 transition underline break-all"><i class="fa-solid fa-file-arrow-down mr-2 shrink-0"></i>${escapeHtml(filename)}</a>`);
+            });
+            text = text.replace(/\[user_card:([^:\]]+):?([^:\]]*)?:?([^\]]*)\]/g, (match, username, nickname) => {
+                let decodedNickname = nickname || username;
+                try { decodedNickname = decodeURIComponent(decodedNickname); } catch (_) {}
+                const safeUsername = escapeHtml(username);
+                return stash(`
                     <div class="user-card-message bg-white border border-gray-200 rounded-xl p-3.5 mt-1.5 shadow-sm max-w-xs select-none text-left">
                         <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 shadow-sm shrink-0">
-                                <i class="fa-solid fa-address-card text-lg"></i>
-                            </div>
+                            <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 shadow-sm shrink-0"><i class="fa-solid fa-address-card text-lg"></i></div>
                             <div class="min-w-0 flex-1">
                                 <div class="text-[9px] font-bold text-gray-400 uppercase tracking-wider">个人名片</div>
-                                <div class="font-bold text-sm text-gray-800 truncate">${decodedNickname}</div>
-                                <div class="text-xs text-gray-500 truncate">@${username}</div>
+                                <div class="font-bold text-sm text-gray-800 truncate">${escapeHtml(decodedNickname)}</div>
+                                <div class="text-xs text-gray-500 truncate">@${safeUsername}</div>
                             </div>
                         </div>
-                        <button onclick="handleNameCardClick('${username}')" class="w-full mt-3 bg-blue-600 text-white text-xs font-bold py-1.5 rounded-lg hover:bg-blue-700 active:scale-[0.98] transition">
-                            查看个人资料
-                        </button>
+                        <button data-card-username="${safeUsername}" onclick="handleNameCardClick(this.dataset.cardUsername)" class="w-full mt-3 bg-blue-600 text-white text-xs font-bold py-1.5 rounded-lg hover:bg-blue-700 active:scale-[0.98] transition">查看个人资料</button>
                     </div>
-                `;
+                `);
             });
-            return safe.replace(/\n/g, '<br>');
+
+            let safe = escapeHtml(text).replace(/\n/g, '<br>');
+            fragments.forEach((fragment, index) => {
+                safe = safe.replace(`\uE000${index}\uE001`, fragment);
+            });
+            return safe;
         }
 
         function handleNameCardClick(username) {
@@ -994,23 +1046,42 @@
         }
 
         async function loadMsgs() {
+            const list = document.getElementById('msg-list');
+            if (!currentUser) {
+                list.innerHTML = '<div class="text-center py-20 text-gray-400">登录后查看历史消息</div>';
+                return;
+            }
+
             let url = `/api/messages?room_id=${currentRoomId}`;
             if (currentTargetUser) url = `/api/messages?target_user=${currentTargetUser}`;
-            const headers = currentUser ? { 'Authorization': currentUser.token } : {};
-            const res = await fetch(url, { headers }); const result = await res.json();
-            const list = document.getElementById('msg-list'); let html = '';
+            const headers = { 'Authorization': currentUser.token };
+            let result;
+            try {
+                const res = await fetch(url, { headers });
+                result = await res.json();
+                if (!res.ok) {
+                    list.innerHTML = `<div class="text-center py-20 text-red-400">${escapeHtml(result.detail || '历史消息加载失败')}</div>`;
+                    return;
+                }
+            } catch (error) {
+                list.innerHTML = '<div class="text-center py-20 text-red-400">网络异常，请稍后重试</div>';
+                return;
+            }
+
+            const messages = Array.isArray(result.data) ? result.data : [];
+            let html = '';
             
-            if (result.data.length === 0) {
+            if (messages.length === 0) {
                 html = '<div class="text-center py-20 text-gray-400">这里还是一片荒芜...</div>';
             } else {
-                result.data.forEach(msg => {
+                messages.forEach(msg => {
                     const isMe = currentUser && (msg.name === currentUser.username); const name = msg.nickname || msg.name;
                     
                     if (msg.content === '[system_recalled]') {
                         html += `
                             <div class="flex justify-center msg-appear mb-4">
                                 <div class="bg-black/5 text-gray-400 px-4 py-1.5 rounded-full text-[11px]">
-                                    "${name}" 撤回了一条信息
+                                    "${escapeHtml(name)}" 撤回了一条信息
                                 </div>
                             </div>
                         `;
@@ -1021,11 +1092,12 @@
                         <div class="flex ${isMe ? 'justify-end' : 'justify-start'} msg-appear mb-4">
                             ${!isMe ? `<div class="mr-2 mt-1 shrink-0">${getAvatarHtml(msg.avatar, name, "w-8 h-8 text-xs")}</div>` : ''}
                             <div class="max-w-[80%] sm:max-w-[70%] flex flex-col ${isMe ? 'items-end' : 'items-start'} group">
-                                ${!isMe ? `<div class="text-[10px] text-gray-400 mb-1 ml-1">${name}</div>` : ''}
+                                ${!isMe ? `<div class="text-[10px] text-gray-400 mb-1 ml-1">${escapeHtml(name)}</div>` : ''}
                                 <div class="${isMe ? 'bg-blue-600 text-white rounded-2xl rounded-tr-none' : 'bg-white text-gray-800 rounded-2xl rounded-tl-none border border-gray-100 shadow-sm'} p-3 px-4 text-sm break-words leading-relaxed">${renderContent(msg.content)}</div>
                                 <div class="text-[10px] text-gray-300 mt-1 ${isMe ? 'mr-1' : 'ml-1'} flex items-center gap-2">
                                     ${msg.time}
-                                    ${isMe ? `<button onclick="recallMsg(${msg.id})" class="text-red-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity focus:opacity-100">撤回</button>` : ''}
+                                    <button onclick="showForwardMessageModal(${msg.id})" class="text-blue-400 hover:text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity focus:opacity-100">转发</button>
+                                    ${(isMe && msg.can_recall) ? `<button onclick="recallMsg(${msg.id})" data-recall-expires="${msg.recall_expires_in}" class="text-red-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity focus:opacity-100">撤回</button>` : ''}
                                 </div>
                             </div>
                             ${isMe ? `<div class="ml-2 mt-1 shrink-0">${getAvatarHtml(msg.avatar, name, "w-8 h-8 text-xs")}</div>` : ''}
@@ -1035,6 +1107,7 @@
             }
             if (list.innerHTML !== html) { 
                 list.innerHTML = html; 
+                scheduleRecallButtons(list);
                 setTimeout(() => list.scrollTop = list.scrollHeight, 100);
             }
         }
@@ -1067,9 +1140,9 @@
                     if (n.id > result.last_read_id) hasUnread = true;
                     html += `
                         <div class="p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition group relative">
-                            <div class="text-xs text-gray-700 leading-relaxed">${n.content}</div>
+                            <div class="text-xs text-gray-700 leading-relaxed">${escapeHtml(n.content)}</div>
                             <div class="text-[9px] text-gray-400 mt-1 flex justify-between items-center">
-                                <span>${n.sender}</span>
+                                <span>${escapeHtml(n.sender)}</span>
                                 <span>${n.created_at.split(' ')[0]}</span>
                             </div>
                             ${n.id > result.last_read_id ? '<div class="absolute top-2 right-2 w-1.5 h-1.5 bg-blue-500 rounded-full"></div>' : ''}
@@ -1136,6 +1209,10 @@
             }
             showModal('share-card-modal');
             const listDiv = document.getElementById('share-card-friends-list');
+            if (globalFriendsLoadedAt && Date.now() - globalFriendsLoadedAt < 60000) {
+                renderShareCardFriends(globalFriends);
+                return;
+            }
             listDiv.innerHTML = '<div class="text-center py-6 text-gray-400 text-xs">正在加载好友列表...</div>';
             
             try {
@@ -1146,7 +1223,9 @@
                     return;
                 }
                 
-                const filtered = result.data.filter(u => u.username !== 'filehelper' && u.username !== currentUser.username);
+                globalFriends = result.data || [];
+                globalFriendsLoadedAt = Date.now();
+                const filtered = globalFriends.filter(u => u.username !== 'filehelper' && u.username !== currentUser.username);
                 if(filtered.length === 0) {
                     listDiv.innerHTML = '<div class="text-center py-6 text-gray-400 text-xs">暂无好友可推荐</div>';
                     return;
@@ -1161,8 +1240,8 @@
                         <div class="flex items-center gap-3">
                             ${getAvatarHtml(u.avatar, name, "w-8 h-8 text-[10px] shrink-0")}
                             <div class="text-left">
-                                <div class="font-bold text-sm text-gray-800">${name}</div>
-                                <div class="text-xs text-gray-500">@${u.username}</div>
+                                <div class="font-bold text-sm text-gray-800">${escapeHtml(name)}</div>
+                                <div class="text-xs text-gray-500">@${escapeHtml(u.username)}</div>
                             </div>
                         </div>
                         <button class="bg-green-600 text-white text-xs px-3 py-1.5 rounded-lg font-bold hover:bg-green-700 active:scale-95 transition">推送</button>
@@ -1176,11 +1255,101 @@
             }
         }
 
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>"']/g, char => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            })[char]);
+        }
+
+        function renderShareCardFriends(friends) {
+            const listDiv = document.getElementById('share-card-friends-list');
+            const filtered = (friends || []).filter(u => u.username !== 'filehelper' && u.username !== currentUser.username);
+            if (filtered.length === 0) {
+                listDiv.innerHTML = '<div class="text-center py-6 text-gray-400 text-xs">暂无好友可推荐</div>';
+                return;
+            }
+            listDiv.innerHTML = '';
+            filtered.forEach(u => {
+                const name = u.nickname || u.username;
+                const item = document.createElement('div');
+                item.className = "flex items-center justify-between p-3 hover:bg-gray-50 rounded-2xl cursor-pointer transition border border-gray-100";
+                item.innerHTML = `
+                    <div class="flex items-center gap-3">
+                        ${getAvatarHtml(u.avatar, name, "w-8 h-8 text-[10px] shrink-0")}
+                        <div class="text-left">
+                            <div class="font-bold text-sm text-gray-800">${escapeHtml(name)}</div>
+                            <div class="text-xs text-gray-500">@${escapeHtml(u.username)}</div>
+                        </div>
+                    </div>
+                    <button class="bg-green-600 text-white text-xs px-3 py-1.5 rounded-lg font-bold hover:bg-green-700 active:scale-95 transition">推送</button>
+                `;
+                item.onclick = () => sendCardMessage(u.username, name);
+                listDiv.appendChild(item);
+            });
+        }
+
         async function sendCardMessage(targetUsername, targetNickname) {
             hideModal('share-card-modal');
             const encodedNickname = encodeURIComponent(targetNickname);
             const cardContent = `[user_card:${targetUsername}:${encodedNickname}]`;
             await sendMsgDirect(cardContent);
+        }
+
+        async function showForwardMessageModal(messageId) {
+            if (!currentUser) return showLogin();
+            showModal('forward-message-modal');
+            const list = document.getElementById('forward-target-list');
+            list.innerHTML = '<div class="text-center py-6 text-gray-400 text-xs">正在加载会话...</div>';
+            if (!globalFriendsLoadedAt) {
+                await loadUsers();
+            }
+            renderForwardTargets(messageId);
+        }
+
+        function renderForwardTargets(messageId) {
+            const list = document.getElementById('forward-target-list');
+            list.innerHTML = '';
+            const addTarget = (name, avatar, icon, payload) => {
+                const item = document.createElement('button');
+                item.className = 'w-full flex items-center gap-3 p-3 hover:bg-gray-50 rounded-2xl transition border border-gray-100 text-left';
+                item.innerHTML = `${icon || getAvatarHtml(avatar, name, 'w-8 h-8 text-[10px] shrink-0')}<span class="font-bold text-sm text-gray-800 truncate flex-1">${escapeHtml(name)}</span><i class="fa-solid fa-chevron-right text-gray-300 text-xs"></i>`;
+                item.onclick = () => forwardMessageTo(messageId, payload);
+                list.appendChild(item);
+            };
+
+            (globalGroups || []).forEach(group => {
+                const icon = group.id === 0
+                    ? '<img src="/favicon.ico" class="w-8 h-8 rounded-full object-cover shrink-0">'
+                    : '';
+                addTarget(group.name, group.avatar, icon, { room_id: group.id });
+            });
+            (globalFriends || []).filter(friend => friend.username !== currentUser.username).forEach(friend => {
+                addTarget(friend.nickname || friend.username, friend.avatar, '', { room_id: 0, receiver: friend.username });
+            });
+
+            if (!list.children.length) {
+                list.innerHTML = '<div class="text-center py-6 text-gray-400 text-xs">暂无可转发的会话</div>';
+            }
+        }
+
+        async function forwardMessageTo(messageId, target) {
+            const list = document.getElementById('forward-target-list');
+            list.classList.add('pointer-events-none', 'opacity-60');
+            try {
+                const response = await fetch(`/api/messages/${messageId}/forward`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token },
+                    body: JSON.stringify(target)
+                });
+                const result = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(result.detail || '转发失败');
+                hideModal('forward-message-modal');
+                showToast('消息已转发');
+            } catch (error) {
+                showToast(error.message || '转发失败');
+            } finally {
+                list.classList.remove('pointer-events-none', 'opacity-60');
+            }
         }
 
         async function uploadFile(input) {

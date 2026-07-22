@@ -40,5 +40,7 @@ data class WsData(
     val roomId: Int? = null,
     val receiver: String? = null,
     @SerializedName("reply_to")
-    val replyTo: Int? = null
+    val replyTo: Int? = null,
+    @SerializedName("can_recall")
+    val canRecall: Boolean = false
 )

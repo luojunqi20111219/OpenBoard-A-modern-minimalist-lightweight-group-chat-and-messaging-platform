@@ -7,14 +7,33 @@ from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from fastapi.responses import FileResponse
 from app.config import Config
 from app.database import get_db
-from app.models import MessageData, FavoriteEmojiData
+from app.models import MessageData, ForwardMessageData, FavoriteEmojiData
 from app.auth import get_current_user
+from app.routes.groups import can_view_group
 from app.websocket import manager
 
 router = APIRouter(prefix="/api")
 
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 ALLOWED_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif', 'pdf', 'docx', 'txt', 'zip', 'apk'}
+MESSAGE_RECALL_WINDOW_SECONDS = 2 * 60
+
+
+def serialize_message(row, current_user):
+    message = dict(row)
+    age_seconds = message.pop('age_seconds', None)
+    is_admin = current_user['role'] == 1
+    is_owner = message['name'] == current_user['username']
+    is_recalled = message['content'] == '[system_recalled]'
+    within_window = age_seconds is not None and age_seconds < MESSAGE_RECALL_WINDOW_SECONDS
+
+    message['can_recall'] = not is_recalled and (is_admin or (is_owner and within_window))
+    message['recall_expires_in'] = (
+        max(0, MESSAGE_RECALL_WINDOW_SECONDS - int(age_seconds))
+        if is_owner and within_window and not is_recalled
+        else 0
+    )
+    return message
 
 # XSS protection using bleach (safe fallback to standard html.escape)
 try:
@@ -41,24 +60,42 @@ async def get_messages(
     db = Depends(get_db)
 ):
     blocked_list = [u.strip() for u in (current_user['blocked_users'] or '').split(',') if u.strip()]
-    
+
+    if target_user and len(target_user) > 64:
+        raise HTTPException(status_code=400, detail="用户标识无效")
+    if room_id < 0:
+        raise HTTPException(status_code=400, detail="群聊标识无效")
+    if not target_user and room_id > 0:
+        group = db.execute("SELECT * FROM groups WHERE id=?", (room_id,)).fetchone()
+        if not group:
+            raise HTTPException(status_code=404, detail="群聊不存在")
+        if not can_view_group(
+            group, current_user['username'], current_user['id'], current_user['role']
+        ):
+            raise HTTPException(status_code=403, detail="无权查看该群聊")
+
     if target_user:
         my_name = current_user['username']
         rows = db.execute("""
-            SELECT m.id, m.content, m.created_at as time, u.nickname, u.username as name, u.avatar
+            SELECT m.id, m.content, m.created_at as time, u.nickname, u.username as name, u.avatar,
+                   (strftime('%s', 'now') - strftime('%s', m.created_at)) as age_seconds
             FROM messages m LEFT JOIN users u ON m.name = u.username 
             WHERE (m.name = ? AND m.receiver = ?) OR (m.name = ? AND m.receiver = ?) 
             ORDER BY m.id ASC LIMIT 100
         """, (my_name, target_user, target_user, my_name)).fetchall()
     else:
         rows = db.execute("""
-            SELECT m.id, m.content, m.created_at as time, u.nickname, u.username as name, u.avatar
+            SELECT m.id, m.content, m.created_at as time, u.nickname, u.username as name, u.avatar,
+                   (strftime('%s', 'now') - strftime('%s', m.created_at)) as age_seconds
             FROM messages m LEFT JOIN users u ON m.name = u.username 
             WHERE m.room_id = ? AND m.receiver IS NULL 
             ORDER BY m.id ASC LIMIT 100
         """, (room_id,)).fetchall()
         
-    return {"status": "success", "data": [dict(r) for r in rows if r['name'] not in blocked_list]}
+    return {
+        "status": "success",
+        "data": [serialize_message(r, current_user) for r in rows if r['name'] not in blocked_list]
+    }
 
 @router.post("/messages")
 async def post_message(
@@ -75,6 +112,8 @@ async def post_message(
     # 2. Handle private messages block checks
     if data.receiver:
         receiver_user = db.execute("SELECT blocked_users FROM users WHERE username=?", (data.receiver,)).fetchone()
+        if not receiver_user:
+            raise HTTPException(status_code=404, detail="接收用户不存在")
         if receiver_user:
             receiver_blocked_list = [u.strip() for u in (receiver_user['blocked_users'] or '').split(',') if u.strip()]
             if current_user['username'] in receiver_blocked_list:
@@ -89,6 +128,12 @@ async def post_message(
     # 3. Handle channel speak permission checks
     if data.room_id > 0 and not data.receiver:
         group = db.execute("SELECT * FROM groups WHERE id=?", (data.room_id,)).fetchone()
+        if not group:
+            raise HTTPException(status_code=404, detail="群聊不存在")
+        if not can_view_group(
+            group, current_user['username'], current_user['id'], current_user['role']
+        ):
+            raise HTTPException(status_code=403, detail="无权在该群聊发送消息")
         if group:
             if group['is_frozen']:
                 raise HTTPException(status_code=403, detail="此群聊已被管理员冻结，全员禁言")
@@ -131,7 +176,9 @@ async def post_message(
             "name": current_user['username'],
             "avatar": sender_info['avatar'] if sender_info else current_user['avatar'],
             "room_id": data.room_id,
-            "receiver": data.receiver
+            "receiver": data.receiver,
+            "can_recall": True,
+            "recall_expires_in": MESSAGE_RECALL_WINDOW_SECONDS
         }
     }, room_id=data.room_id, receiver=data.receiver, sender=current_user['username'])
     
@@ -211,6 +258,44 @@ async def post_message(
     
     return {"status": "success"}
 
+@router.post("/messages/{msg_id}/forward")
+async def forward_message(
+    msg_id: int,
+    data: ForwardMessageData,
+    background_tasks: BackgroundTasks,
+    current_user = Depends(get_current_user),
+    db = Depends(get_db),
+):
+    if data.receiver and data.room_id != 0:
+        raise HTTPException(status_code=400, detail="私聊转发不能同时指定群聊")
+
+    source = db.execute("SELECT * FROM messages WHERE id=?", (msg_id,)).fetchone()
+    if not source:
+        raise HTTPException(status_code=404, detail="消息不存在")
+    if source['content'] == '[system_recalled]':
+        raise HTTPException(status_code=409, detail="已撤回的消息不能转发")
+
+    is_admin = current_user['role'] == 1
+    if source['receiver']:
+        participants = {source['name'], source['receiver']}
+        if current_user['username'] not in participants and not is_admin:
+            raise HTTPException(status_code=403, detail="无权转发该私聊消息")
+    elif source['room_id'] > 0:
+        source_group = db.execute("SELECT * FROM groups WHERE id=?", (source['room_id'],)).fetchone()
+        if not source_group or not can_view_group(
+            source_group, current_user['username'], current_user['id'], current_user['role']
+        ):
+            raise HTTPException(status_code=403, detail="无权转发该群聊消息")
+
+    await post_message(
+        MessageData(content=source['content'], room_id=data.room_id, receiver=data.receiver),
+        background_tasks,
+        current_user,
+        db,
+    )
+    return {"status": "success"}
+
+
 @router.delete("/messages/{msg_id}")
 async def recall_message(msg_id: int, current_user = Depends(get_current_user), db = Depends(get_db)):
     msg = db.execute(
@@ -224,7 +309,12 @@ async def recall_message(msg_id: int, current_user = Depends(get_current_user), 
     if msg['name'] != current_user['username'] and current_user['role'] != 1:
         raise HTTPException(status_code=403, detail="无权撤回")
         
-    if msg['age_seconds'] is not None and msg['age_seconds'] > 120 and current_user['role'] != 1:
+    if msg['content'] == '[system_recalled]':
+        raise HTTPException(status_code=409, detail="Message has already been recalled")
+
+    if current_user['role'] != 1 and (
+        msg['age_seconds'] is None or msg['age_seconds'] >= MESSAGE_RECALL_WINDOW_SECONDS
+    ):
         raise HTTPException(status_code=403, detail="只能撤回2分钟内的消息")
         
     db.execute("UPDATE messages SET content='[system_recalled]' WHERE id=?", (msg_id,))
@@ -243,11 +333,7 @@ async def recall_message(msg_id: int, current_user = Depends(get_current_user), 
 
 @router.post("/upload")
 async def upload_file(file: UploadFile = File(...), current_user = Depends(get_current_user)):
-    contents = await file.read()
-    if len(contents) > MAX_FILE_SIZE:
-        raise HTTPException(status_code=400, detail="文件大小超出50MB限制")
-        
-    original_filename = file.filename
+    original_filename = os.path.basename(file.filename or "file")[:255]
     if allowed_file(original_filename):
         ext = original_filename.rsplit('.', 1)[1].lower() if '.' in original_filename else ""
         display_filename = original_filename
@@ -258,8 +344,20 @@ async def upload_file(file: UploadFile = File(...), current_user = Depends(get_c
     secure_filename = f"{uuid.uuid4().hex}.{ext}" if ext else f"{uuid.uuid4().hex}"
     filepath = os.path.join(Config.UPLOAD_DIR, secure_filename)
     
-    with open(filepath, "wb") as f:
-        f.write(contents)
+    total_size = 0
+    try:
+        with open(filepath, "wb") as output:
+            while chunk := await file.read(1024 * 1024):
+                total_size += len(chunk)
+                if total_size > MAX_FILE_SIZE:
+                    raise HTTPException(status_code=413, detail="文件大小超过50MB限制")
+                output.write(chunk)
+    except Exception:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+        raise
+    finally:
+        await file.close()
         
     return {
         "status": "success", 
@@ -274,7 +372,8 @@ async def download_file(filename: str, name: Optional[str] = None):
     safe_filename = os.path.basename(filename)
     filepath = os.path.join(Config.UPLOAD_DIR, safe_filename)
     if os.path.exists(filepath):
-        return FileResponse(filepath, filename=name or safe_filename)
+        download_name = os.path.basename(name or safe_filename)[:255]
+        return FileResponse(filepath, filename=download_name)
     raise HTTPException(status_code=404, detail="文件不存在")
 
 @router.get("/notifications")

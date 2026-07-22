@@ -306,13 +306,29 @@ class ApiService {
 
   Future<bool> recallMessage(int messageId) async {
     try {
+      final response = await http.delete(
+        Uri.parse('$_serverUrl/api/messages/$messageId'),
+        headers: {
+          'Authorization': _token,
+        },
+      );
+      return response.statusCode == 200;
+    } catch (_) {}
+    return false;
+  }
+
+  Future<bool> forwardMessage(int messageId, {int roomId = 0, String? receiver}) async {
+    try {
       final response = await http.post(
-        Uri.parse('$_serverUrl/api/messages/recall'),
+        Uri.parse('$_serverUrl/api/messages/$messageId/forward'),
         headers: {
           'Authorization': _token,
           'Content-Type': 'application/json',
         },
-        body: jsonEncode({'id': messageId}),
+        body: jsonEncode({
+          'room_id': roomId,
+          if (receiver != null) 'receiver': receiver,
+        }),
       );
       return response.statusCode == 200;
     } catch (_) {}
