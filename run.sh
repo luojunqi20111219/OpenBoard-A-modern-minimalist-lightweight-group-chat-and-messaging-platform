@@ -25,15 +25,8 @@ else
 fi
 $PYTHON_CMD --version
 
-# 2. Install dependencies
-echo -e "[*] Checking and installing dependencies (pip install -r requirements.txt)..."
-echo -e "[*] This may take a minute, please wait..."
-$PYTHON_CMD -m pip install -r requirements.txt
-if [ $? -ne 0 ]; then
-    echo -e "${YELLOW}[WARNING] Some warnings occurred during installation. Trying to boot anyway...${NC}"
-else
-    echo -e "${GREEN}[SUCCESS] Dependencies checked and installed successfully!${NC}"
-fi
+# 2. Start service instantly
+echo -e "${GREEN}[SUCCESS] Python environment verified.${NC}"
 
 echo
 echo -e "${BLUE}===================================================${NC}"
