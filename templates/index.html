@@ -372,7 +372,7 @@
             }
         }
 
-        function init() {
+        async function init() {
             if (currentUser) {
                 document.getElementById('btn-settings').style.display = 'block';
                 const name = currentUser.nickname || currentUser.username;
@@ -385,14 +385,22 @@
                         </div>
                     </div>
                 `;
-                loadUsers(); 
                 setupWebSocket();
-                loadFavoriteEmojis();
-                checkPendingFriendRequests();
-            }
-            loadGroups().then(() => switchRoom(0, '公共大厅'));
-            if (currentUser) {
-                loadNotices(); setInterval(loadNotices, 30000); // 降低系统公告请求频率
+                
+                // 并行发起所有初始化 API 请求，消除 Cloudflare 代理带来的高延迟阻塞
+                Promise.all([
+                    loadUsers(),
+                    loadGroups(),
+                    loadFavoriteEmojis(),
+                    checkPendingFriendRequests(),
+                    loadNotices()
+                ]).then(() => {
+                    switchRoom(0, '公共大厅');
+                });
+                
+                setInterval(loadNotices, 30000);
+            } else {
+                loadGroups().then(() => switchRoom(0, '公共大厅'));
             }
         }
 
@@ -709,39 +717,40 @@
         }
 
         async function loadUsers() {
-            // First fetch users blocklist
             try {
-                const blockRes = await fetch('/api/users', { headers: { 'Authorization': currentUser.token } });
+                const [blockRes, res] = await Promise.all([
+                    fetch('/api/users', { headers: { 'Authorization': currentUser.token } }),
+                    fetch('/api/friends', { headers: { 'Authorization': currentUser.token } })
+                ]);
                 const blockResult = await blockRes.json();
-                if(blockResult.status === 'success') {
+                if (blockResult.status === 'success') {
                     globalBlockedUsers = blockResult.blocked_users || [];
                 }
-            } catch(e) { console.error(e); }
-            
-            // Then fetch only friends
-            const res = await fetch('/api/friends', { headers: { 'Authorization': currentUser.token } });
-            const result = await res.json(); if(result.status !== 'success') return;
-            const list = document.getElementById('user-list'); list.innerHTML = '';
-            if(result.data.length === 0) {
-                list.innerHTML = '<div class="text-gray-500 text-xs px-2 italic py-2 text-center">暂无好友，点击右上角搜索添加</div>';
-                return;
-            }
-            result.data.forEach(u => {
-                if(u.username === currentUser.username) return;
-                const name = u.nickname || u.username;
-                const btn = document.createElement('button'); btn.id = `user-btn-${u.username}`;
-                const blockIcon = globalBlockedUsers.includes(u.username) ? '<i class="fa-solid fa-ban text-red-500 ml-auto text-xs"></i>' : '';
-                btn.className = "room-btn w-full text-left p-2 rounded-lg text-gray-300 hover:bg-gray-800 transition flex items-center gap-3";
-                btn.innerHTML = `
-                    <div class="relative relative-container">
-                        ${getAvatarHtml(u.avatar, name, "w-6 h-6 text-[10px] shrink-0")}
-                        ${onlineUsers.includes(u.username) ? '<div class="online-dot w-2 h-2 bg-green-500 rounded-full absolute -bottom-0.5 -right-0.5 border border-gray-900"></div>' : ''}
-                    </div>
-                    <span class="truncate text-sm flex-1">${name}</span>${blockIcon}
-                `;
-                btn.onclick = () => switchPrivateChat(u.username, name, u.avatar);
-                list.appendChild(btn);
-            });
+                const result = await res.json(); 
+                if (result.status !== 'success') return;
+                
+                const list = document.getElementById('user-list'); list.innerHTML = '';
+                if (result.data.length === 0) {
+                    list.innerHTML = '<div class="text-gray-500 text-xs px-2 italic py-2 text-center">暂无好友，点击右上角搜索添加</div>';
+                    return;
+                }
+                result.data.forEach(u => {
+                    if(u.username === currentUser.username) return;
+                    const name = u.nickname || u.username;
+                    const btn = document.createElement('button'); btn.id = `user-btn-${u.username}`;
+                    const blockIcon = globalBlockedUsers.includes(u.username) ? '<i class="fa-solid fa-ban text-red-500 ml-auto text-xs"></i>' : '';
+                    btn.className = "room-btn w-full text-left p-2 rounded-lg text-gray-300 hover:bg-gray-800 transition flex items-center gap-3";
+                    btn.innerHTML = `
+                        <div class="relative relative-container">
+                            ${getAvatarHtml(u.avatar, name, "w-6 h-6 text-[10px] shrink-0")}
+                            ${onlineUsers.includes(u.username) ? '<div class="online-dot w-2 h-2 bg-green-500 rounded-full absolute -bottom-0.5 -right-0.5 border border-gray-900"></div>' : ''}
+                        </div>
+                        <span class="truncate text-sm flex-1">${name}</span>${blockIcon}
+                    `;
+                    btn.onclick = () => switchPrivateChat(u.username, name, u.avatar);
+                    list.appendChild(btn);
+                });
+            } catch(e) { console.error("Error loading users:", e); }
         }
 
         async function confirmDeleteFriend() {

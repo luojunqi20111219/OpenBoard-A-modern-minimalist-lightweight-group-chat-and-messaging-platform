@@ -216,7 +216,7 @@ async def qr_status(qr_id: str, db = Depends(get_db)):
     }
     
     if session["status"] == "authorized" and session["token"]:
-        user = db.execute("SELECT id, username, nickname, avatar, role FROM users WHERE token = ?", (session["token"],)).fetchone()
+        user = verify_token(session["token"], db)
         if user:
             response["user"] = {
                 "id": user["id"],
@@ -239,13 +239,13 @@ async def qr_scan(data: dict, db = Depends(get_db)):
     return {"code": 200, "msg": "Scanned successfully"}
 
 @router.post("/qr/authorize")
-async def qr_authorize(data: dict, current_user = Depends(get_current_user), db = Depends(get_db)):
+async def qr_authorize(request: Request, data: dict, current_user = Depends(get_current_user), db = Depends(get_db)):
     qr_id = data.get("qr_id")
     session = db.execute("SELECT * FROM qr_sessions WHERE qr_id = ?", (qr_id,)).fetchone()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
         
-    token = current_user.get("token")
+    token = request.headers.get("Authorization") or request.cookies.get("token") or current_user.get("token")
     db.execute("UPDATE qr_sessions SET status = 'authorized', token = ? WHERE qr_id = ?", (token, qr_id))
     db.commit()
     return {"code": 200, "msg": "Authorized successfully"}
