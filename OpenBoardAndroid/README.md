@@ -64,7 +64,7 @@ cd OpenBoard-A-modern-minimalist-lightweight-group-chat-and-messaging-platform/O
 
 ### 配置后端服务器
 
-默认情况下，安卓客户端连接到云端演示服务器 `http://liuyan.luojunqi.xyz`。如果您部署了自己的信语服务器，请修改：
+默认情况下，安卓客户端连接到云端演示服务器 `https://liuyan.luojunqi.xyz`。如果您部署了自己的信语服务器，请修改：
 
 在 [RetrofitClient.kt](./app/src/main/java/com/openboard/nativeapp/data/api/RetrofitClient.kt) 中更新 `BASE_URL`：
 ```kotlin

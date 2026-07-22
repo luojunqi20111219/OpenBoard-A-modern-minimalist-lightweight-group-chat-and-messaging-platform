@@ -2,8 +2,11 @@ name: Build iOS Client
 
 on:
   push:
-    branches: [ main, master ]
+    tags: [ "v*" ]
   workflow_dispatch: # Allows manual trigger from GitHub UI
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -153,20 +156,30 @@ jobs:
           cd OpenBoardFlutter/build/ios/iphoneos
           mkdir Payload
           mv Runner.app Payload/
-          zip -r ../../../../build-output/OpenBoard-iOS-Unsigned.ipa Payload
+          zip -r ../../../../build-output/OpenBoard-iOS-v7.6.0-Unsigned.ipa Payload
           cd ../../../..
           # Pack Simulator App for online simulators (e.g., Appetize.io)
           cd OpenBoardFlutter/build/ios/iphonesimulator
-          zip -r ../../../../build-output/Runner.app.zip Runner.app
+          zip -r ../../../../build-output/OpenBoard-iOS-v7.6.0-Simulator.app.zip Runner.app
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
           name: OpenBoard-iOS-Unsigned
-          path: build-output/OpenBoard-iOS-Unsigned.ipa
+          path: build-output/OpenBoard-iOS-v7.6.0-Unsigned.ipa
 
       - name: Upload Simulator Artifact
         uses: actions/upload-artifact@v4
         with:
           name: OpenBoard-iOS-Simulator
-          path: build-output/Runner.app.zip
+          path: build-output/OpenBoard-iOS-v7.6.0-Simulator.app.zip
+
+      - name: Upload iOS Builds to Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" \
+            build-output/OpenBoard-iOS-v7.6.0-Unsigned.ipa \
+            build-output/OpenBoard-iOS-v7.6.0-Simulator.app.zip \
+            --clobber

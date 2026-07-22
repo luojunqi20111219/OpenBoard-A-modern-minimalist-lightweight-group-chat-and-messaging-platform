@@ -1,24 +1,9 @@
 {
   "app": {
-    "signingConfigs": [
-      {
-        "name": "default",
-        "type": "HarmonyOS",
-        "material": {
-          "storeFile": "C:/Users/32709/DevEcoStudioProjects/证书/证书.p12",
-          "storePassword": "000000196D14FEE8D128B553B6AAB04A14144425661A9EA822C0C8FFA540F0A05E268B272559147D70",
-          "keyAlias": "zhengjianzhao",
-          "keyPassword": "000000199A080AF120B41173125FD96EB95DE38E00288E4CBB7FB685FE08210575CD3651777D2AA30A",
-          "signAlg": "SHA256withECDSA",
-          "profile": "C:/Users/32709/DevEcoStudioProjects/证书/p7b文件Release.p7b",
-          "certpath": "C:/Users/32709/DevEcoStudioProjects/证书/zhengjianzhao.cer"
-        }
-      }
-    ],
+    "signingConfigs": [],
     "products": [
       {
         "name": "default",
-        "signingConfig": "default",
         "compileSdkVersion": "6.1.1(24)",
         "compatibleSdkVersion": "5.0.0(12)",
         "targetSdkVersion": "6.1.1(24)",

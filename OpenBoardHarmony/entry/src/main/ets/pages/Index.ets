@@ -144,8 +144,8 @@ struct Index {
   @State themeColor: string = "#1565C0"; // Dynamic Theme Accent color
 
   // Server config
-  @State serverUrl: string = "http://47.93.6.111:5000";
-  @State wsUrl: string = "ws://47.93.6.111:5000";
+  @State serverUrl: string = "https://liuyan.luojunqi.xyz";
+  @State wsUrl: string = "wss://liuyan.luojunqi.xyz";
   
   // Auth inputs
   @State usernameInput: string = "";
@@ -254,8 +254,8 @@ struct Index {
   loadLocalSettings() {
     try {
       let pref = dataPreferences.getPreferencesSync(getContext(this), { name: "OpenBoardPref" });
-      this.serverUrl = pref.getSync("serverUrl", "http://47.93.6.111:5000") as string;
-      this.wsUrl = pref.getSync("wsUrl", "ws://47.93.6.111:5000") as string;
+      this.serverUrl = pref.getSync("serverUrl", "https://liuyan.luojunqi.xyz") as string;
+      this.wsUrl = pref.getSync("wsUrl", "wss://liuyan.luojunqi.xyz") as string;
       this.themeColor = pref.getSync("themeColor", "#1565C0") as string;
       let pins = pref.getSync("pinnedChats", "[]") as string;
       this.pinnedChats = JSON.parse(pins) as string[];
@@ -3916,7 +3916,7 @@ struct Index {
               .fontColor(Color.Gray)
               .width("100%")
             
-            TextInput({ text: this.serverUrl, placeholder: "http://47.93.6.111:5000" })
+            TextInput({ text: this.serverUrl, placeholder: "https://liuyan.luojunqi.xyz" })
               .width("100%")
               .height(45)
               .fontColor(Color.Black)

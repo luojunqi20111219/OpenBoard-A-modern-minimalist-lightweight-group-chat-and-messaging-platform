@@ -26,6 +26,12 @@ chmod +x run.sh
 
 生产环境请设置 `JWT_SECRET`。使用华为推送时还需设置 `HMS_APP_ID` 和 `HMS_CLIENT_SECRET`。
 
-### 附件
+### 客户端附件
 
-- `OpenBoard.exe`：Windows WebView2 桌面客户端。
+- `OpenBoard-Windows-v7.6.0.exe`：Windows WebView2 桌面客户端。
+- `OpenBoard-Android-v7.6.0.apk`：Android 客户端。
+- `OpenBoard-HarmonyOS-v7.6.0.hap`：HarmonyOS 客户端。
+- `OpenBoard-Linux.tar.gz`：Linux 桌面客户端。
+- `OpenBoard-macOS.zip`：macOS 桌面客户端（未进行 Apple 公证）。
+- `OpenBoard-iOS-v7.6.0-Unsigned.ipa`：iOS 真机未签名包，需使用自己的 Apple 证书重签名。
+- `OpenBoard-iOS-v7.6.0-Simulator.app.zip`：iOS 模拟器包。

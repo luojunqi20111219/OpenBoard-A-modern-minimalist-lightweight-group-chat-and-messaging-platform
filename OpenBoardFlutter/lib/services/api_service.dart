@@ -12,7 +12,7 @@ class ApiService {
   factory ApiService() => _instance;
   ApiService._internal();
 
-  String _serverUrl = 'http://47.93.6.111:5000';
+  String _serverUrl = 'https://liuyan.luojunqi.xyz';
   String _token = '';
   String _currentUsername = '';
   String _currentNickname = '';
@@ -38,7 +38,7 @@ class ApiService {
 
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
-    _serverUrl = prefs.getString('server_url') ?? 'http://47.93.6.111:5000';
+    _serverUrl = prefs.getString('server_url') ?? 'https://liuyan.luojunqi.xyz';
     _token = prefs.getString('token') ?? '';
     _currentUsername = prefs.getString('username') ?? '';
     _currentNickname = prefs.getString('nickname') ?? '';

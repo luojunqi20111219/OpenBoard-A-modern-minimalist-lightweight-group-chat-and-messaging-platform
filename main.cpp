@@ -469,7 +469,7 @@ int main() {
         })();
     )");
 
-    w.navigate("http://liuyan.luojunqi.xyz");
+    w.navigate("https://liuyan.luojunqi.xyz");
     w.run();
 #ifdef _WIN32
     if (hMutex) CloseHandle(hMutex);

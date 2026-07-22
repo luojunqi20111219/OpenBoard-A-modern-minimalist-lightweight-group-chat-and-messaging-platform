@@ -880,7 +880,7 @@ class _MainScreenState extends State<MainScreen> {
 
           // App version info
           Text(
-            '信语 OpenBoard Mobile v7.0',
+            '信语 OpenBoard Mobile v7.6.0',
             style: TextStyle(color: Colors.grey.shade400, fontSize: 12),
           ),
         ],

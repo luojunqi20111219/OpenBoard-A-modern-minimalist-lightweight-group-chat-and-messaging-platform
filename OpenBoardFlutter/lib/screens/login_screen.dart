@@ -146,7 +146,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           controller: tempController,
                           decoration: const InputDecoration(
                             labelText: '服务器地址',
-                            hintText: 'http://47.93.6.111:5000',
+                            hintText: 'https://liuyan.luojunqi.xyz',
                             border: OutlineInputBorder(),
                           ),
                         ),

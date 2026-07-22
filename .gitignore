@@ -17,6 +17,7 @@ OpenBoardAndroid/.idea/
 *.iml
 *.exe
 build/
+build-client-*/
 dist/
 *.spec
 venv/

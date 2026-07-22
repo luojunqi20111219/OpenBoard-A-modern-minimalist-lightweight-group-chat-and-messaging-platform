@@ -2,10 +2,11 @@ name: Build Linux Web Client
 
 on:
   push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+    tags: [ "v*" ]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -36,7 +37,7 @@ jobs:
         # Create desktop launcher entry
         cat <<EOF > OpenBoard-Linux/share/applications/openboard.desktop
         [Desktop Entry]
-        Version=7.0
+        Version=7.6.0
         Name=信语 OpenBoard
         Comment=OpenBoard Desktop client
         Exec=openboard
@@ -55,3 +56,9 @@ jobs:
       with:
         name: OpenBoard-Linux
         path: OpenBoard-Linux.tar.gz
+
+    - name: Upload Linux Build to Release
+      if: startsWith(github.ref, 'refs/tags/')
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: gh release upload "$GITHUB_REF_NAME" OpenBoard-Linux.tar.gz --clobber

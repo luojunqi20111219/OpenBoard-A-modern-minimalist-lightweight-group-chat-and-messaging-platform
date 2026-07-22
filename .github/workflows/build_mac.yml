@@ -2,10 +2,11 @@ name: Build macOS Web Client
 
 on:
   push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+    tags: [ "v*" ]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -42,7 +43,7 @@ jobs:
             <key>CFBundlePackageType</key>
             <string>APPL</string>
             <key>CFBundleShortVersionString</key>
-            <string>7.0</string>
+            <string>7.6.0</string>
             <key>LSMinimumSystemVersion</key>
             <string>10.13</string>
             <key>NSHighResolutionCapable</key>
@@ -74,3 +75,9 @@ jobs:
       with:
         name: OpenBoard-macOS
         path: OpenBoard-macOS.zip
+
+    - name: Upload macOS Build to Release
+      if: startsWith(github.ref, 'refs/tags/')
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: gh release upload "$GITHUB_REF_NAME" OpenBoard-macOS.zip --clobber
