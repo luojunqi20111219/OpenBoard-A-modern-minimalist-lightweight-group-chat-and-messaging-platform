@@ -7,6 +7,7 @@ def get_db_connection():
     conn = sqlite3.connect(Config.DB_FILE, check_same_thread=False)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -103,6 +104,14 @@ def patch_db():
         )
     """)
     cursor.execute("""
+        CREATE TABLE IF NOT EXISTS revoked_sessions (
+            token_hash TEXT PRIMARY KEY,
+            user_id INTEGER,
+            device_id TEXT,
+            revoked_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS favorite_emojis (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT,
@@ -168,6 +177,10 @@ def patch_db():
         ],
         "notifications": [
             ("target_user", "TEXT")
+        ],
+        "user_devices": [
+            ("device_name", "TEXT"),
+            ("user_agent", "TEXT")
         ]
     }
     
@@ -204,6 +217,17 @@ def patch_db():
             INSERT INTO users (username, password_hash, nickname, role, avatar) 
             VALUES (?, ?, ?, 2, ?)
         """, ("filehelper", "system_account", "文件传输助手", "system_filehelper"))
+
+    # Create performance optimization indexes
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_messages_room ON messages(room_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_messages_receiver ON messages(receiver)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_messages_name ON messages(name)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_messages_room_receiver_id ON messages(room_id, receiver, id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_messages_name_receiver_id ON messages(name, receiver, id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_friend_requests_users ON friend_requests(from_user, to_user)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_friends_users ON friends(user_a, user_b)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_devices_user_login ON user_devices(user_id, last_login DESC)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_revoked_sessions_user ON revoked_sessions(user_id)")
 
     conn.commit()
     conn.close()

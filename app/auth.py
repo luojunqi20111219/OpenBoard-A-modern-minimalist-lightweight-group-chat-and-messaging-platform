@@ -1,18 +1,26 @@
 import datetime
+import hashlib
+import uuid
 import jwt
+from typing import Optional
 from fastapi import Request, HTTPException, Depends
 from app.config import Config
 from app.database import get_db
 
-def create_access_token(data: dict):
+def create_access_token(data: dict, expires_minutes: Optional[int] = None):
     to_encode = data.copy()
-    expire = datetime.datetime.utcnow() + datetime.timedelta(minutes=Config.JWT_EXP_MINUTES)
+    to_encode.setdefault("jti", uuid.uuid4().hex)
+    lifetime = expires_minutes if expires_minutes is not None else Config.JWT_EXP_MINUTES
+    expire = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=lifetime)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, Config.JWT_SECRET, algorithm=Config.JWT_ALGORITHM)
     return encoded_jwt
 
 def verify_token(token: str, db) -> dict:
     if not token:
+        return None
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    if db.execute("SELECT 1 FROM revoked_sessions WHERE token_hash=?", (token_hash,)).fetchone():
         return None
     # 1. Try standard JWT decode
     try:
@@ -22,6 +30,8 @@ def verify_token(token: str, db) -> dict:
             user = db.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
             if user:
                 return dict(user)
+    except jwt.ExpiredSignatureError:
+        return None
     except jwt.PyJWTError:
         pass
 
@@ -31,6 +41,15 @@ def verify_token(token: str, db) -> dict:
         return dict(user)
         
     return None
+
+def revoke_token(db, token: str, user_id: int, device_id: str) -> None:
+    if not token:
+        return
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    db.execute(
+        "INSERT OR IGNORE INTO revoked_sessions (token_hash, user_id, device_id) VALUES (?, ?, ?)",
+        (token_hash, user_id, device_id),
+    )
 
 async def get_current_user(request: Request, db = Depends(get_db)) -> dict:
     # Check Authorization Header

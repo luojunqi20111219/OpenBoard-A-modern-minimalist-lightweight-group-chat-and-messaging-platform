@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from werkzeug.security import generate_password_hash
 from app.config import Config
 from app.database import get_db
+from app.media import normalize_avatar
 from app.models import AdminAction, MessageData
 from app.auth import get_current_admin
 from app.routes.auth import delete_user_and_data
@@ -32,7 +33,11 @@ async def admin_update_user_avatar(
     db = Depends(get_db), 
     current_admin = Depends(get_current_admin)
 ):
-    db.execute("UPDATE users SET avatar=? WHERE id=?", (data.avatar_base64, data.user_id))
+    try:
+        avatar = normalize_avatar(data.avatar_base64)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    db.execute("UPDATE users SET avatar=? WHERE id=?", (avatar, data.user_id))
     db.commit()
     return {"status": "success", "msg": "头像已强行修改"}
 
@@ -42,7 +47,11 @@ async def admin_update_group_avatar(
     db = Depends(get_db), 
     current_admin = Depends(get_current_admin)
 ):
-    db.execute("UPDATE groups SET avatar=? WHERE id=?", (data.avatar_base64, data.group_id))
+    try:
+        avatar = normalize_avatar(data.avatar_base64)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    db.execute("UPDATE groups SET avatar=? WHERE id=?", (avatar, data.group_id))
     db.commit()
     return {"status": "success", "msg": "群头像已强行修改"}
 

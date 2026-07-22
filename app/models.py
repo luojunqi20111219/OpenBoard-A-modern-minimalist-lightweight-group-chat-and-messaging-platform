@@ -4,11 +4,17 @@ from typing import Optional, List
 class LoginData(BaseModel):
     username: str
     password: str
+    remember_me: bool = True
+    device_id: Optional[str] = None
+    device_name: Optional[str] = None
 
 class RegisterData(BaseModel):
     username: str
     password: str
     nickname: Optional[str] = None
+    remember_me: bool = True
+    device_id: Optional[str] = None
+    device_name: Optional[str] = None
 
 class PasswordChangeData(BaseModel):
     old_password: str
@@ -59,7 +65,14 @@ class AdminAction(BaseModel):
 class PushTokenData(BaseModel):
     push_token: str
     device_id: str
+    device_name: Optional[str] = None
+
+class WebDeviceData(BaseModel):
+    device_id: str
+    device_name: Optional[str] = None
+
+class DeviceLogoutData(BaseModel):
+    password: str
 
 class FavoriteEmojiData(BaseModel):
     emoji: str
-

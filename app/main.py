@@ -16,6 +16,9 @@ patch_db()
 app = FastAPI(title="信语 (OpenBoard)", version=Config.CURRENT_VERSION)
 templates = Jinja2Templates(directory="templates")
 
+# Serve bundled frontend dependencies without relying on slow external CDNs.
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 # Mount Uploads directory for static access
 app.mount("/uploads", StaticFiles(directory=Config.UPLOAD_DIR), name="uploads")
 
@@ -96,4 +99,4 @@ async def websocket_endpoint(websocket: WebSocket, token: str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app.main:app", host="0.0.0.0", port=5000, reload=True)
+    uvicorn.run("app.main:app", host="0.0.0.0", port=5000, reload=False)

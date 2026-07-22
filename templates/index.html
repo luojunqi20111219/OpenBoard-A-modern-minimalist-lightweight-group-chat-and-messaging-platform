@@ -6,11 +6,11 @@
     <title>信语 (OpenBoard) | 现代群聊与私聊</title>
     <link rel="icon" href="/favicon.ico" type="image/x-icon">
     
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@1/index.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <script src="/static/vendor/tailwindcss-3.4.17.js"></script>
+    <link href="/static/vendor/fontawesome/css/all.min.css" rel="stylesheet">
+    <script type="module" src="/static/vendor/emoji-picker-element/index.js"></script>
+    <script defer src="/static/vendor/qrcode.min.js"></script>
+    <script defer src="/static/vendor/html5-qrcode.min.js"></script>
     <style>
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
@@ -132,7 +132,7 @@
                             <!-- 动态加载 -->
                         </div>
                     </div>
-                    <emoji-picker></emoji-picker>
+                    <emoji-picker data-source="/static/vendor/emoji-picker-element/data.json"></emoji-picker>
                 </div>
                 
                 <div class="flex items-end gap-2 bg-gray-100 rounded-2xl p-2 shadow-inner">
@@ -166,6 +166,10 @@
                 <input id="auth-u" type="text" placeholder="账号名" class="w-full mb-4 px-5 py-3.5 bg-gray-100 rounded-xl outline-none">
                 <input id="auth-p" type="password" placeholder="密码" class="w-full mb-4 px-5 py-3.5 bg-gray-100 rounded-xl outline-none">
                 <input id="auth-n" type="text" placeholder="设置昵称 (选填)" class="w-full mb-6 px-5 py-3.5 bg-gray-100 rounded-xl outline-none hidden">
+                <label class="mb-5 flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+                    <input id="remember-login" type="checkbox" checked class="w-4 h-4 accent-blue-600">
+                    <span>保持登录状态（30 天）</span>
+                </label>
                 <button id="btn-auth-action" onclick="submitAuth()" class="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-500/30 transition">立即登录</button>
             </div>
             <div id="qr-container" class="hidden flex flex-col items-center justify-center py-4">
@@ -197,6 +201,10 @@
                 <input id="pwd-new" type="password" placeholder="新密码" class="w-1/2 px-4 py-2.5 bg-gray-100 rounded-xl outline-none text-sm">
             </div>
             <button onclick="changePassword()" class="w-full bg-gray-800 text-white py-2.5 rounded-xl font-bold hover:bg-gray-900 text-sm mb-3 transition">修改密码</button>
+            <button onclick="showLoginDevices()" class="w-full bg-blue-50 text-blue-700 py-2.5 rounded-xl font-bold hover:bg-blue-100 text-sm mb-4 transition flex items-center justify-center gap-2">
+                <i class="fa-solid fa-laptop"></i>
+                <span>登录设备</span>
+            </button>
             
             <hr class="border-gray-100 mb-4">
             <div class="text-left mb-3"><span class="text-xs font-bold text-gray-400 uppercase tracking-widest">备份与恢复</span></div>
@@ -208,6 +216,33 @@
 
             <button onclick="deleteAccount()" class="w-full bg-red-50 text-red-500 py-2.5 rounded-xl font-bold hover:bg-red-100 text-sm transition">🚨 永久注销我的账号</button>
             <button onclick="hideModal('profile-modal')" class="w-full mt-4 text-sm text-gray-400">关闭</button>
+        </div>
+    </div>
+
+    <div id="devices-modal" class="fixed inset-0 bg-black/60 hidden flex items-center justify-center z-[60] backdrop-blur-sm p-4">
+        <div class="bg-white w-full max-w-md rounded-2xl p-6 shadow-2xl max-h-[85vh] overflow-y-auto no-scrollbar">
+            <div class="flex items-center justify-between mb-5">
+                <h2 class="text-lg font-bold text-gray-900 flex items-center gap-2">
+                    <i class="fa-solid fa-shield-halved text-blue-600"></i>
+                    登录设备
+                </h2>
+                <button onclick="closeLoginDevices()" class="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-700" title="关闭">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div id="devices-list" class="divide-y divide-gray-100 border-y border-gray-100 min-h-[72px]">
+                <div class="py-6 text-center text-sm text-gray-400">正在加载...</div>
+            </div>
+            <div id="device-logout-confirm" class="hidden mt-5 pt-5 border-t border-gray-100">
+                <div id="device-logout-name" class="text-sm font-bold text-gray-800 mb-3"></div>
+                <input id="device-logout-password" type="password" placeholder="输入账号密码" autocomplete="current-password" class="w-full px-4 py-3 bg-gray-100 rounded-xl outline-none text-sm mb-3">
+                <div class="flex gap-2">
+                    <button onclick="cancelDeviceLogout()" class="flex-1 bg-gray-100 text-gray-600 py-2.5 rounded-xl font-bold text-sm hover:bg-gray-200">取消</button>
+                    <button id="device-logout-submit" onclick="confirmDeviceLogout()" class="flex-1 bg-red-600 text-white py-2.5 rounded-xl font-bold text-sm hover:bg-red-700">
+                        退出该设备
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -354,11 +389,39 @@
     </div>
 
     <script>
-        let currentUser = JSON.parse(localStorage.getItem('user') || 'null');
+        let rememberCurrentSession = Boolean(localStorage.getItem('user'));
+        let currentUser = JSON.parse(localStorage.getItem('user') || sessionStorage.getItem('user') || 'null');
         let currentRoomId = 0; let currentTargetUser = null; 
         let pendingAvatarBase64 = null; let pendingGroupAvatarBase64 = null; 
         let globalGroups = []; let authMode = 'login'; let globalBlockedUsers = [];
-        let ws = null; let onlineUsers = []; let typingTimer = null;
+        let ws = null; let wsReconnectTimer = null; let onlineUsers = []; let typingTimer = null;
+        let noticesInterval = null;
+        let selectedLogoutDevice = null;
+
+        function getWebDeviceId() {
+            const storageKey = 'openboard_web_device_id';
+            let deviceId = localStorage.getItem(storageKey);
+            if (!deviceId) {
+                deviceId = window.crypto && crypto.randomUUID
+                    ? crypto.randomUUID()
+                    : `web-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+                localStorage.setItem(storageKey, deviceId);
+            }
+            return deviceId;
+        }
+
+        function getWebDeviceName() {
+            const ua = navigator.userAgent;
+            const browser = ua.includes('Edg/') ? 'Edge'
+                : ua.includes('Chrome/') ? 'Chrome'
+                : ua.includes('Firefox/') ? 'Firefox'
+                : ua.includes('Safari/') ? 'Safari'
+                : '网页浏览器';
+            const platform = (navigator.userAgentData && navigator.userAgentData.platform)
+                || navigator.platform
+                || '未知系统';
+            return `${browser} · ${platform}`;
+        }
 
         function getAvatarHtml(avatarStr, name, sizeClass = "w-10 h-10 text-base") {
             const displayName = name || "?";
@@ -386,7 +449,6 @@
                     </div>
                 `;
                 setupWebSocket();
-                
                 // 并行发起所有初始化 API 请求，消除 Cloudflare 代理带来的高延迟阻塞
                 Promise.all([
                     loadUsers(),
@@ -398,7 +460,7 @@
                     switchRoom(0, '公共大厅');
                 });
                 
-                setInterval(loadNotices, 30000);
+                if (!noticesInterval) noticesInterval = setInterval(loadNotices, 30000);
             } else {
                 loadGroups().then(() => switchRoom(0, '公共大厅'));
             }
@@ -407,6 +469,11 @@
         let pingInterval = null;
         function setupWebSocket() {
             if (!currentUser) return;
+            if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) return;
+            if (wsReconnectTimer) {
+                clearTimeout(wsReconnectTimer);
+                wsReconnectTimer = null;
+            }
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             ws = new WebSocket(`${protocol}//${window.location.host}/ws/${currentUser.token}`);
             
@@ -466,7 +533,7 @@
                 }
             };
 
-            ws.onclose = () => {
+            ws.onclose = (event) => {
                 if (pingInterval) {
                     clearInterval(pingInterval);
                     pingInterval = null;
@@ -476,8 +543,77 @@
                 statusDot.className = "w-1.5 h-1.5 bg-gray-400 rounded-full mr-1.5";
                 statusText.innerText = "已断开 (重连中...)";
                 statusText.className = "text-gray-400";
-                setTimeout(setupWebSocket, 3000);
+                ws = null;
+                if (event.code === 1008) {
+                    localStorage.removeItem('user');
+                    sessionStorage.removeItem('user');
+                    document.cookie = 'token=; max-age=0; path=/; SameSite=Lax; Secure';
+                    location.reload();
+                    return;
+                }
+                if (currentUser) wsReconnectTimer = setTimeout(setupWebSocket, 3000);
             };
+        }
+
+        function storeSession(userObj, remember) {
+            localStorage.removeItem('user');
+            sessionStorage.removeItem('user');
+            (remember ? localStorage : sessionStorage).setItem('user', JSON.stringify(userObj));
+            rememberCurrentSession = remember;
+        }
+
+        function enterAuthenticatedSession(userObj, remember = true, setBrowserCookie = false) {
+            currentUser = userObj;
+            storeSession(userObj, remember);
+            if (setBrowserCookie) {
+                const maxAge = remember ? '; max-age=2592000' : '';
+                document.cookie = `token=${userObj.token}${maxAge}; path=/; SameSite=Lax; Secure`;
+            }
+            hideModal('login-modal');
+            registerCurrentWebDevice();
+            init();
+        }
+
+        async function registerCurrentWebDevice() {
+            if (!currentUser) return;
+            try {
+                await fetch('/api/user/devices/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': currentUser.token
+                    },
+                    body: JSON.stringify({
+                        device_id: getWebDeviceId(),
+                        device_name: getWebDeviceName()
+                    })
+                });
+            } catch (error) {
+                console.error(error);
+            }
+        }
+
+        async function restoreStoredSession() {
+            if (!currentUser) {
+                init();
+                return;
+            }
+            try {
+                const response = await fetch('/api/session', {
+                    headers: { 'Authorization': currentUser.token }
+                });
+                if (!response.ok) throw new Error('session expired');
+                currentUser = await response.json();
+                storeSession(currentUser, rememberCurrentSession);
+                registerCurrentWebDevice();
+                init();
+            } catch (error) {
+                localStorage.removeItem('user');
+                sessionStorage.removeItem('user');
+                currentUser = null;
+                init();
+                showToast("登录状态已失效，请重新登录");
+            }
         }
 
         function handleNewMessage(data) {
@@ -828,59 +964,33 @@
             let safe = content.replace(/</g, '&lt;').replace(/>/g, '&gt;');
             safe = safe.replace(/\[img:([^\]]+)\]/g, '<img src="$1" class="max-w-[200px] sm:max-w-xs mt-1 rounded-lg cursor-pointer hover:opacity-90 transition" onclick="window.open(\'$1\')">');
             safe = safe.replace(/\[file:([^|]+)\|([^\]]+)\]/g, '<a href="$1" target="_blank" class="flex items-center mt-1 p-2 bg-black/10 rounded-lg hover:bg-black/20 transition underline break-all"><i class="fa-solid fa-file-arrow-down mr-2 shrink-0"></i>$2</a>');
-            safe = safe.replace(/\[user_card:([^:\]]+)(?::([^:\]]*))?(?::([^\]]*))?\]/g, (match, username, nickname, avatar) => {
+            safe = safe.replace(/\[user_card:([^:]+):?([^\]]*)\]/g, (match, username, nickname) => {
                 const decodedNickname = decodeURIComponent(nickname || username);
-                const decodedAvatar = avatar ? decodeURIComponent(avatar) : "";
-                
-                let btnHtml = '';
-                if (currentUser && username === currentUser.username) {
-                    btnHtml = `<button class="w-full mt-3 bg-gray-200 text-gray-500 text-xs font-bold py-1.5 rounded-lg cursor-not-allowed" disabled>我的名片</button>`;
-                } else {
-                    btnHtml = `<button onclick="addFriendDirectly('${username}')" class="w-full mt-3 bg-blue-600 text-white text-xs font-bold py-1.5 rounded-lg hover:bg-blue-700 active:scale-[0.98] transition">加为好友</button>`;
-                }
-
                 return `
                     <div class="user-card-message bg-white border border-gray-200 rounded-xl p-3.5 mt-1.5 shadow-sm max-w-xs select-none text-left">
                         <div class="flex items-center gap-3">
-                            ${getAvatarHtml(decodedAvatar, decodedNickname, "w-10 h-10 text-[10px] shrink-0")}
+                            <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 shadow-sm shrink-0">
+                                <i class="fa-solid fa-address-card text-lg"></i>
+                            </div>
                             <div class="min-w-0 flex-1">
                                 <div class="text-[9px] font-bold text-gray-400 uppercase tracking-wider">个人名片</div>
                                 <div class="font-bold text-sm text-gray-800 truncate">${decodedNickname}</div>
                                 <div class="text-xs text-gray-500 truncate">@${username}</div>
                             </div>
                         </div>
-                        ${btnHtml}
+                        <button onclick="handleNameCardClick('${username}')" class="w-full mt-3 bg-blue-600 text-white text-xs font-bold py-1.5 rounded-lg hover:bg-blue-700 active:scale-[0.98] transition">
+                            查看个人资料
+                        </button>
                     </div>
                 `;
             });
             return safe.replace(/\n/g, '<br>');
         }
 
-        async function addFriendDirectly(username) {
-            if (!currentUser) {
-                showToast("请先登录！");
-                return;
-            }
-            if (username === currentUser.username) {
-                showToast("不能添加自己为好友");
-                return;
-            }
-            try {
-                const res = await fetch('/api/friends/add', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token },
-                    body: JSON.stringify({ username: username })
-                });
-                const data = await res.json();
-                if (res.ok) {
-                    showToast(data.msg || "添加成功！");
-                    if (window.loadFriends) loadFriends();
-                } else {
-                    showToast(data.detail || "添加失败");
-                }
-            } catch (err) {
-                showToast("添加失败，网络或后台出错");
-            }
+        function handleNameCardClick(username) {
+            showSearchFriendsModal();
+            document.getElementById('friend-search-input').value = username;
+            performFriendSearch();
         }
 
         async function loadMsgs() {
@@ -1037,26 +1147,12 @@
                 }
                 
                 const filtered = result.data.filter(u => u.username !== 'filehelper' && u.username !== currentUser.username);
+                if(filtered.length === 0) {
+                    listDiv.innerHTML = '<div class="text-center py-6 text-gray-400 text-xs">暂无好友可推荐</div>';
+                    return;
+                }
                 
                 listDiv.innerHTML = '';
-
-                // Prepend "我的名片" (own card)
-                const myName = currentUser.nickname || currentUser.username;
-                const myItem = document.createElement('div');
-                myItem.className = "flex items-center justify-between p-3 hover:bg-gray-50 rounded-2xl cursor-pointer transition border border-gray-100 bg-blue-50/30 mb-2";
-                myItem.innerHTML = `
-                    <div class="flex items-center gap-3">
-                        ${getAvatarHtml(currentUser.avatar, myName, "w-8 h-8 text-[10px] shrink-0")}
-                        <div class="text-left">
-                            <div class="font-bold text-sm text-gray-800">${myName} (我)</div>
-                            <div class="text-xs text-gray-500">@${currentUser.username}</div>
-                        </div>
-                    </div>
-                    <button class="bg-blue-600 text-white text-xs px-3 py-1.5 rounded-lg font-bold hover:bg-blue-700 active:scale-95 transition">推送</button>
-                `;
-                myItem.onclick = () => sendCardMessage(currentUser.username, myName, currentUser.avatar || "");
-                listDiv.appendChild(myItem);
-                
                 filtered.forEach(u => {
                     const name = u.nickname || u.username;
                     const item = document.createElement('div');
@@ -1071,7 +1167,7 @@
                         </div>
                         <button class="bg-green-600 text-white text-xs px-3 py-1.5 rounded-lg font-bold hover:bg-green-700 active:scale-95 transition">推送</button>
                     `;
-                    item.onclick = () => sendCardMessage(u.username, name, u.avatar || "");
+                    item.onclick = () => sendCardMessage(u.username, name);
                     listDiv.appendChild(item);
                 });
             } catch(e) {
@@ -1080,11 +1176,10 @@
             }
         }
 
-        async function sendCardMessage(targetUsername, targetNickname, targetAvatar) {
+        async function sendCardMessage(targetUsername, targetNickname) {
             hideModal('share-card-modal');
             const encodedNickname = encodeURIComponent(targetNickname);
-            const encodedAvatar = encodeURIComponent(targetAvatar || "");
-            const cardContent = `[user_card:${targetUsername}:${encodedNickname}:${encodedAvatar}]`;
+            const cardContent = `[user_card:${targetUsername}:${encodedNickname}]`;
             await sendMsgDirect(cardContent);
         }
 
@@ -1492,9 +1587,7 @@
                                         id: statusRes.user.id,
                                         role: statusRes.user.role
                                     };
-                                    localStorage.setItem('user', JSON.stringify(userObj));
-                                    document.cookie = `token=${statusRes.token}; max-age=${3600*24*7}; path=/`;
-                                    location.reload();
+                                    enterAuthenticatedSession(userObj, true, true);
                                     break;
                                 }
                             } catch (e) {
@@ -1516,13 +1609,35 @@
         async function submitAuth() {
             const u = document.getElementById('auth-u').value.trim(); const p = document.getElementById('auth-p').value.trim(); const n = document.getElementById('auth-n').value.trim();
             if (!u || !p) return alert("账号和密码必填！");
+            const remember = document.getElementById('remember-login').checked;
+            const deviceId = getWebDeviceId();
+            const deviceName = getWebDeviceName();
             const url = authMode === 'register' ? '/api/register' : '/api/login';
-            const body = authMode === 'register' ? {username:u, password:p, nickname:n} : {username:u, password:p};
+            const body = authMode === 'register'
+                ? {username:u, password:p, nickname:n, remember_me:remember, device_id:deviceId, device_name:deviceName}
+                : {username:u, password:p, remember_me:remember, device_id:deviceId, device_name:deviceName};
             const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-            if (res.ok) { localStorage.setItem('user', JSON.stringify(await res.json())); location.reload(); } 
+            if (res.ok) {
+                const userObj = await res.json();
+                showToast(authMode === 'register' ? "注册成功，正在进入..." : "登录成功，正在进入...");
+                enterAuthenticatedSession(userObj, remember);
+            }
             else { const err = await res.json(); alert(err.detail || "操作失败"); }
         }
-        function logout() { localStorage.removeItem('user'); location.reload(); }
+        async function logout() {
+            try {
+                await fetch('/api/logout', {
+                    method: 'POST',
+                    headers: currentUser ? { 'Authorization': currentUser.token } : {}
+                });
+            } catch (error) {
+                console.error(error);
+            }
+            localStorage.removeItem('user');
+            sessionStorage.removeItem('user');
+            document.cookie = 'token=; max-age=0; path=/; SameSite=Lax; Secure';
+            location.reload();
+        }
 
         // --- 个人安全与设置逻辑 ---
         function showProfile() {
@@ -1530,6 +1645,120 @@
             pendingAvatarBase64 = currentUser.avatar;
             document.getElementById('profile-avatar-preview').innerHTML = getAvatarHtml(currentUser.avatar, currentUser.nickname || currentUser.username, "w-full h-full text-3xl");
             document.getElementById('pwd-old').value = ''; document.getElementById('pwd-new').value = '';
+        }
+
+        async function showLoginDevices() {
+            hideModal('profile-modal');
+            showModal('devices-modal');
+            cancelDeviceLogout();
+            const list = document.getElementById('devices-list');
+            list.innerHTML = '<div class="py-6 text-center text-sm text-gray-400">正在加载...</div>';
+            try {
+                const response = await fetch('/api/user/devices', {
+                    headers: { 'Authorization': currentUser.token }
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.detail || '加载失败');
+                renderLoginDevices(result.data || []);
+            } catch (error) {
+                list.innerHTML = '<div class="py-6 text-center text-sm text-red-500">加载失败，请稍后重试</div>';
+            }
+        }
+
+        function renderLoginDevices(devices) {
+            const list = document.getElementById('devices-list');
+            list.innerHTML = '';
+            if (!devices.length) {
+                list.innerHTML = '<div class="py-6 text-center text-sm text-gray-400">暂无已登记设备</div>';
+                return;
+            }
+            devices.forEach(device => {
+                const row = document.createElement('div');
+                row.className = 'py-4 flex items-center gap-3';
+                row.innerHTML = `
+                    <div class="w-9 h-9 shrink-0 rounded-lg bg-gray-100 text-gray-600 flex items-center justify-center">
+                        <i class="fa-solid fa-${device.device_name.includes('Android') ? 'mobile-screen' : 'laptop'}"></i>
+                    </div>
+                    <div class="min-w-0 flex-1">
+                        <div class="flex items-center gap-2">
+                            <span class="device-name text-sm font-bold text-gray-800 truncate"></span>
+                            <span class="current-device hidden shrink-0 text-[10px] text-green-700 bg-green-50 px-1.5 py-0.5 rounded">当前设备</span>
+                        </div>
+                        <div class="device-time text-xs text-gray-400 mt-0.5"></div>
+                    </div>
+                    <button class="logout-device w-8 h-8 shrink-0 flex items-center justify-center text-red-500 hover:bg-red-50 rounded-lg" title="退出登录">
+                        <i class="fa-solid fa-right-from-bracket"></i>
+                    </button>
+                `;
+                row.querySelector('.device-name').textContent = device.device_name;
+                row.querySelector('.device-time').textContent = `最近登录：${device.last_login || '未知'}`;
+                row.querySelector('.current-device').classList.toggle('hidden', !device.is_current);
+                row.querySelector('.logout-device').onclick = () => selectDeviceLogout(device);
+                list.appendChild(row);
+            });
+        }
+
+        function selectDeviceLogout(device) {
+            selectedLogoutDevice = device;
+            document.getElementById('device-logout-name').textContent = `退出 ${device.device_name}`;
+            document.getElementById('device-logout-password').value = '';
+            document.getElementById('device-logout-confirm').classList.remove('hidden');
+            document.getElementById('device-logout-password').focus();
+        }
+
+        function cancelDeviceLogout() {
+            selectedLogoutDevice = null;
+            document.getElementById('device-logout-confirm').classList.add('hidden');
+            document.getElementById('device-logout-password').value = '';
+        }
+
+        function closeLoginDevices() {
+            hideModal('devices-modal');
+            cancelDeviceLogout();
+            showModal('profile-modal');
+        }
+
+        async function confirmDeviceLogout() {
+            if (!selectedLogoutDevice) return;
+            const password = document.getElementById('device-logout-password').value;
+            if (!password) {
+                showToast('请输入账号密码');
+                return;
+            }
+            const button = document.getElementById('device-logout-submit');
+            button.disabled = true;
+            button.classList.add('opacity-50');
+            try {
+                const response = await fetch(
+                    `/api/user/devices/${encodeURIComponent(selectedLogoutDevice.device_id)}/logout`,
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': currentUser.token
+                        },
+                        body: JSON.stringify({ password })
+                    }
+                );
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.detail || '退出失败');
+                const wasCurrentDevice = selectedLogoutDevice.is_current;
+                cancelDeviceLogout();
+                showToast('设备已退出登录');
+                if (wasCurrentDevice) {
+                    localStorage.removeItem('user');
+                    sessionStorage.removeItem('user');
+                    document.cookie = 'token=; max-age=0; path=/; SameSite=Lax; Secure';
+                    location.reload();
+                } else {
+                    await showLoginDevices();
+                }
+            } catch (error) {
+                showToast(error.message || '退出失败');
+            } finally {
+                button.disabled = false;
+                button.classList.remove('opacity-50');
+            }
         }
 
         function processAvatar(input) {
@@ -1554,7 +1783,7 @@
         async function saveProfile() {
             const nickname = document.getElementById('profile-nickname').value.trim();
             const res = await fetch('/api/user/profile', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token }, body: JSON.stringify({ nickname: nickname, avatar: pendingAvatarBase64 }) });
-            if(res.ok) { currentUser.nickname = nickname; currentUser.avatar = pendingAvatarBase64; localStorage.setItem('user', JSON.stringify(currentUser)); location.reload(); } else alert("保存失败");
+            if(res.ok) { currentUser.nickname = nickname; currentUser.avatar = pendingAvatarBase64; storeSession(currentUser, rememberCurrentSession); location.reload(); } else alert("保存失败");
         }
 
         async function changePassword() {
@@ -2127,7 +2356,7 @@
             }
         });
 
-        init();
+        restoreStoredSession();
     </script>
 </body>
 </html>

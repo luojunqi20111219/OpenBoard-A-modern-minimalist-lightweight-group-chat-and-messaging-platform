@@ -40,4 +40,4 @@ echo -e "${BLUE}===================================================${NC}"
 echo
 
 # 3. Run application
-$PYTHON_CMD -m app.main
+exec $PYTHON_CMD -m app.main

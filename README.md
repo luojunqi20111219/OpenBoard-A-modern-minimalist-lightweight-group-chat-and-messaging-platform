@@ -6,9 +6,21 @@
 
 **信语 (OpenBoard)** 是一个基于 **FastAPI**、**SQLite** 以及 **WebSocket** 构建的现代化极简即时通信平台。
 
-在最新的 **V6.0** 架构中，项目迎来了里程碑式的重大升级：由单一的 Web 网页版升级为**包含原生安卓客户端、现代 C++ 桌面客户端、服务端华为推送生态与网页端拖拽名片机制的全生态即时通信系统**。
+当前 **v7.6.0** 在多端通信能力之上，重点增强了网页加载速度、会话可靠性、设备管理和服务端资源占用。
 
-🌍 **线上体验地址**：[http://liuyan.luojunqi.xyz](http://liuyan.luojunqi.xyz)
+🌍 **线上体验地址**：[https://liuyan.luojunqi.xyz](https://liuyan.luojunqi.xyz)
+
+---
+
+## 🚀 v7.6.0 更新
+
+- **网页加载提速**：Tailwind CSS、Font Awesome、二维码和 Emoji 组件改为本地静态资源，避免第三方 CDN 阻塞登录页。
+- **登录状态恢复**：网页端支持保持登录 30 天；启动时先校验服务端 Session，失效后自动清理本地状态。
+- **登录设备管理**：可查看账号的网页端与移动端登录设备，并在验证账号密码后远程退出指定设备。
+- **会话安全**：JWT 增加唯一会话标识与撤销列表，退出或远程下线后旧 Token 立即失效。
+- **消息稳定性**：保留 WebSocket 心跳、自动重连、二维码长轮询和并行初始化，降低代理网络下的等待时间。
+- **服务端优化**：SQLite WAL、忙等待和消息索引优化；限制单用户 WebSocket 数量，广播增加超时与失效连接清理。
+- **媒体优化**：上传头像自动校验、缩放和压缩，减少数据库体积与历史消息接口压力。
 
 ---
 
@@ -39,7 +51,7 @@
 ### ⚙️ 4. 后端服务 (Backend) 安全与架构升级
 - **🛡️ 多设备安全并发限制（“强制下线”机制）**：
   * 引入 `user_devices` 设备状态绑定表。
-  * 限制单账号最多允许 2 台设备同时在线。当第 3 台设备登录时，服务器自动清除最旧的设备 Session，并下发下线指令（`action: logout`）强制其下线，防范 Token 泄露。
+  * 支持在网页端查看并管理登录设备；Android 推送设备记录保留最近 10 台，超出后自动撤销最旧 Session。
 - **🛡️ JWT 强加密通行证与 API 安全拦截**：免除频繁读库校验，大幅减轻数据库并发负载，对 `/admin` 等敏感管理接口实现后端直接校对 Cookie 拦截。
 - **🗃️ SQLite 自动回收连接**：通过依赖注入级别的 `get_db()` 自动生成器，确保每个 HTTP/WebSocket 请求完毕后强制自动关闭链接，彻底治愈 SQLite 锁表 `database is locked` 报错。
 
@@ -52,10 +64,21 @@
 * **Windows 部署**：直接双击运行根目录下的 **`run.bat`**。
 * **Linux / macOS 部署**：打开终端，执行以下指令：
   ```bash
+  python3 -m pip install -r requirements.txt
   chmod +x run.sh
   ./run.sh
   ```
-> **注**：一键运行脚本会自动检测 Python 环境，并自动执行 `pip install -r requirements.txt` 补齐依赖！
+> **注**：`run.sh` 默认直接启动服务，以避免每次重启都重复检查和安装依赖。首次部署或更新依赖后请先执行安装命令。
+
+生产环境建议设置以下变量：
+
+```bash
+export JWT_SECRET="替换为足够长的随机字符串"
+export HMS_APP_ID="您的华为应用 ID"
+export HMS_CLIENT_SECRET="您的华为应用密钥"
+```
+
+未设置 `JWT_SECRET` 时，程序会在项目目录生成权限为 `0600` 的 `.openboard_jwt_secret`。该文件和 `board.db` 都不应提交到仓库。
 
 ### 2. 安卓客户端编译 (Android)
 1. 在 Android Studio 中导入 `OpenBoardAndroid` 目录。

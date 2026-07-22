@@ -23,7 +23,10 @@ venv/
 *.log
 google2989fe35afe0729a.html
 *.html.new
-static/
+static/*
+!static/vendor/
+!static/vendor/**
+.openboard_jwt_secret
 
 # HarmonyOS files to ignore
 OpenBoardHarmony/.hvigor/

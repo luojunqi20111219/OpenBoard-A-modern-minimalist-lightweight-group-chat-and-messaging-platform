@@ -3,6 +3,7 @@ from app.config import Config
 from app.database import get_db
 from app.models import GroupCreate, GroupUpdate, GroupPermissionUpdate, GroupAvatarUpdate
 from app.auth import get_current_user, verify_token
+from app.media import normalize_avatar
 
 router = APIRouter(prefix="/api")
 
@@ -113,7 +114,11 @@ async def update_group_avatar(
     if not group or (group['owner_id'] != current_user['id'] and not is_admin):
         raise HTTPException(status_code=403, detail="无权")
         
-    db.execute("UPDATE groups SET avatar=? WHERE id=?", (data.avatar, group_id))
+    try:
+        avatar = normalize_avatar(data.avatar)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    db.execute("UPDATE groups SET avatar=? WHERE id=?", (avatar, group_id))
     db.commit()
     return {"status": "success"}
 
