@@ -12,7 +12,7 @@ import java.util.concurrent.TimeUnit
  * Retrofit 客户端单例，支持动态修改 baseUrl 与登录授权 Token
  */
 object RetrofitClient {
-    private var baseUrl = "https://liuyan.luojunqi.xyz/"
+    private var baseUrl = "http://47.93.6.111:5000/"
     private var token: String? = null
     private var retrofit: Retrofit? = null
 

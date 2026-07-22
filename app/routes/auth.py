@@ -206,9 +206,18 @@ async def qr_generate(db = Depends(get_db)):
 
 @router.get("/qr/status")
 async def qr_status(qr_id: str, db = Depends(get_db)):
-    session = db.execute("SELECT * FROM qr_sessions WHERE qr_id = ?", (qr_id,)).fetchone()
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
+    import asyncio
+    
+    # 长轮询 (Long Polling)：如果当前状态为 'pending'，在服务端挂起最多 10 秒，状态一变立即返回
+    for _ in range(30):
+        session = db.execute("SELECT * FROM qr_sessions WHERE qr_id = ?", (qr_id,)).fetchone()
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+            
+        if session["status"] != "pending":
+            break
+            
+        await asyncio.sleep(0.3)
     
     response = {
         "status": session["status"],

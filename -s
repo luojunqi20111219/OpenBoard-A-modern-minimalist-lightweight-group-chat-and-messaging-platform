@@ -1403,11 +1403,7 @@
             const qrContainer = document.getElementById('qr-container');
 
             if (qrPollInterval) {
-                if (typeof qrPollInterval === 'object' && qrPollInterval.cancel) {
-                    qrPollInterval.cancel();
-                } else {
-                    clearInterval(qrPollInterval);
-                }
+                clearInterval(qrPollInterval);
                 qrPollInterval = null;
             }
 
@@ -1459,52 +1455,43 @@
                         correctLevel : QRCode.CorrectLevel.H
                     });
 
-                    let isPollingActive = true;
-                    qrPollInterval = { cancel: () => { isPollingActive = false; } };
-                    
                     let attempts = 0;
-                    async function pollQrStatus() {
-                        while (isPollingActive) {
-                            attempts++;
-                            if (attempts > 30) {
-                                isPollingActive = false;
-                                qrBox.innerHTML = '<div class="text-xs text-red-500 font-bold cursor-pointer" onclick="startQrLoginFlow()">二维码已失效<br>点击重新获取</div>';
-                                qrMsg.innerText = "";
-                                break;
-                            }
-                            
-                            try {
-                                const statusResp = await fetch(`/api/qr/status?qr_id=${qrId}`);
-                                if (!statusResp.ok) break;
-                                const statusRes = await statusResp.json();
-                                
-                                if (statusRes.status === 'scanned') {
-                                    qrMsg.innerText = "📱 已扫描，请在手机上确认登录...";
-                                } else if (statusRes.status === 'authorized') {
-                                    isPollingActive = false;
-                                    showToast("登录成功，正在进入...");
-                                    const userObj = {
-                                        code: 200,
-                                        token: statusRes.token,
-                                        username: statusRes.user.username,
-                                        nickname: statusRes.user.nickname,
-                                        avatar: statusRes.user.avatar,
-                                        id: statusRes.user.id,
-                                        role: statusRes.user.role
-                                    };
-                                    localStorage.setItem('user', JSON.stringify(userObj));
-                                    document.cookie = `token=${statusRes.token}; max-age=${3600*24*7}; path=/`;
-                                    location.reload();
-                                    break;
-                                }
-                            } catch (e) {
-                                console.error("Error polling QR status:", e);
-                                await new Promise(r => setTimeout(r, 2000));
-                            }
+                    qrPollInterval = setInterval(async () => {
+                        attempts++;
+                        if (attempts > 80) {
+                            clearInterval(qrPollInterval);
+                            qrBox.innerHTML = '<div class="text-xs text-red-500 font-bold cursor-pointer" onclick="startQrLoginFlow()">二维码已失效<br>点击重新获取</div>';
+                            qrMsg.innerText = "";
+                            return;
                         }
-                    }
-
-                    pollQrStatus();
+                        
+                        try {
+                            const statusResp = await fetch(`/api/qr/status?qr_id=${qrId}`);
+                            const statusRes = await statusResp.json();
+                            
+                            if (statusRes.status === 'scanned') {
+                                qrMsg.innerText = "📱 已扫描，请在手机上确认登录...";
+                            } else if (statusRes.status === 'authorized') {
+                                clearInterval(qrPollInterval);
+                                showToast("登录成功，正在进入...");
+                                // Construct complete AuthResponse mapping
+                                const userObj = {
+                                    code: 200,
+                                    token: statusRes.token,
+                                    username: statusRes.user.username,
+                                    nickname: statusRes.user.nickname,
+                                    avatar: statusRes.user.avatar,
+                                    id: statusRes.user.id,
+                                    role: statusRes.user.role
+                                };
+                                localStorage.setItem('user', JSON.stringify(userObj));
+                                document.cookie = `token=${statusRes.token}; max-age=${3600*24*7}; path=/`;
+                                location.reload();
+                            }
+                        } catch (e) {
+                            console.error("Error polling QR status:", e);
+                        }
+                    }, 1500);
                 } else {
                     qrBox.innerHTML = '<div class="text-xs text-red-500 cursor-pointer" onclick="startQrLoginFlow()">生成失败，点击重试</div>';
                 }

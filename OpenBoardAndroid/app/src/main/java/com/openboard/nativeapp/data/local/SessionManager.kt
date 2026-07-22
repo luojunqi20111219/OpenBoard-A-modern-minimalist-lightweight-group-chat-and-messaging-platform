@@ -43,14 +43,14 @@ object SessionManager {
         if (!savedServerUrl.isNullOrEmpty()) {
             RetrofitClient.setBaseUrl(savedServerUrl)
         } else {
-            RetrofitClient.setBaseUrl("https://liuyan.luojunqi.xyz/")
+            RetrofitClient.setBaseUrl("http://47.93.6.111:5000/")
         }
         
         prefs.getString(KEY_TOKEN, null)?.let { RetrofitClient.setToken(it) }
     }
 
     var serverUrl: String?
-        get() = prefs.getString(KEY_SERVER_URL, "https://liuyan.luojunqi.xyz/")
+        get() = prefs.getString(KEY_SERVER_URL, "http://47.93.6.111:5000/")
         set(value) {
             var finalValue = value
             if (finalValue != null && finalValue.contains("liuyan.luojunqi.xyz") && finalValue.startsWith("http://")) {
