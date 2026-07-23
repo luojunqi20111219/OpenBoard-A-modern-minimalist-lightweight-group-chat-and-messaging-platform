@@ -291,6 +291,57 @@ def patch_db():
             except sqlite3.OperationalError:
                 # Column already exists, safe to ignore
                 pass
+
+    # v7.7 replaces the legacy user-id membership table with username-based
+    # membership records. Migrate in place so existing groups keep their
+    # approved members and pending applications.
+    member_columns = {
+        row[1] for row in cursor.execute("PRAGMA table_info(group_members)").fetchall()
+    }
+    if "username" not in member_columns and "user_id" in member_columns:
+        cursor.execute("ALTER TABLE group_members RENAME TO group_members_legacy")
+        cursor.execute("""
+            CREATE TABLE group_members (
+                group_id INTEGER NOT NULL,
+                username TEXT NOT NULL,
+                member_role TEXT DEFAULT 'member',
+                muted_until DATETIME,
+                joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY(group_id, username)
+            )
+        """)
+        cursor.execute("""
+            INSERT OR IGNORE INTO group_members
+                (group_id, username, member_role, joined_at)
+            SELECT legacy.group_id,
+                   users.username,
+                   CASE WHEN groups.owner_id = legacy.user_id THEN 'owner' ELSE 'member' END,
+                   legacy.joined_at
+            FROM group_members_legacy AS legacy
+            JOIN users ON users.id = legacy.user_id
+            LEFT JOIN groups ON groups.id = legacy.group_id
+            WHERE COALESCE(legacy.status, 'approved') = 'approved'
+        """)
+        cursor.execute("""
+            INSERT OR IGNORE INTO group_join_requests
+                (group_id, username, status, created_at, updated_at)
+            SELECT legacy.group_id, users.username, 'pending',
+                   legacy.joined_at, legacy.joined_at
+            FROM group_members_legacy AS legacy
+            JOIN users ON users.id = legacy.user_id
+            WHERE legacy.status = 'pending'
+        """)
+        cursor.execute("DROP TABLE group_members_legacy")
+
+    group_columns = {
+        row[1] for row in cursor.execute("PRAGMA table_info(groups)").fetchall()
+    }
+    if "need_approval" in group_columns and "join_approval" in group_columns:
+        cursor.execute("""
+            UPDATE groups
+            SET join_approval = need_approval
+            WHERE COALESCE(join_approval, 0) = 0 AND COALESCE(need_approval, 0) = 1
+        """)
             
     # Seed public lobby group if not present
     check_group = cursor.execute("SELECT * FROM groups WHERE id=0").fetchone()

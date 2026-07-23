@@ -1,5 +1,6 @@
 import io
 import os
+import sqlite3
 import tempfile
 import time
 import unittest
@@ -11,6 +12,65 @@ from app.config import Config
 from app.database import patch_db
 from app.main import app
 from app.security import _totp_code
+
+
+class LegacyGroupMembershipMigrationTest(unittest.TestCase):
+    def test_legacy_user_id_memberships_are_preserved(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            Config.DB_FILE = os.path.join(temp_dir, "legacy.db")
+            connection = sqlite3.connect(Config.DB_FILE)
+            connection.executescript("""
+                CREATE TABLE users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT UNIQUE,
+                    password_hash TEXT,
+                    nickname TEXT
+                );
+                CREATE TABLE groups (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    owner_id INTEGER NOT NULL,
+                    is_public INTEGER DEFAULT 1,
+                    need_approval INTEGER DEFAULT 0
+                );
+                CREATE TABLE group_members (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    group_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    status TEXT DEFAULT 'approved',
+                    joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                INSERT INTO users (id, username, password_hash, nickname)
+                VALUES (1, 'legacy_owner', 'x', 'Owner'),
+                       (2, 'legacy_member', 'x', 'Member'),
+                       (3, 'legacy_pending', 'x', 'Pending');
+                INSERT INTO groups (id, name, owner_id, need_approval)
+                VALUES (9, 'Legacy group', 1, 1);
+                INSERT INTO group_members (group_id, user_id, status)
+                VALUES (9, 1, 'approved'),
+                       (9, 2, 'approved'),
+                       (9, 3, 'pending');
+            """)
+            connection.commit()
+            connection.close()
+
+            patch_db()
+
+            connection = sqlite3.connect(Config.DB_FILE)
+            members = connection.execute(
+                "SELECT username, member_role FROM group_members WHERE group_id=9 ORDER BY username"
+            ).fetchall()
+            pending = connection.execute(
+                "SELECT username, status FROM group_join_requests WHERE group_id=9"
+            ).fetchall()
+            approval = connection.execute(
+                "SELECT join_approval FROM groups WHERE id=9"
+            ).fetchone()[0]
+            connection.close()
+
+            self.assertEqual(members, [('legacy_member', 'member'), ('legacy_owner', 'owner')])
+            self.assertEqual(pending, [('legacy_pending', 'pending')])
+            self.assertEqual(approval, 1)
 
 
 class AdvancedFeatureIntegrationTest(unittest.TestCase):
