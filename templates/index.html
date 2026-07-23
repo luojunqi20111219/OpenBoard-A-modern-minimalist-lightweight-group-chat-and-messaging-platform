@@ -17,6 +17,39 @@
         .msg-appear { animation: fadeIn 0.3s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .avatar-gradient { background: linear-gradient(135deg, #4F46E5 0%, #06B6D4 100%); }
+        #mobile-sidebar-toggle, #sidebar-backdrop { display: none; }
+        @media (max-width: 767px) {
+            body { width: 100vw; max-width: 100vw; }
+            #app-sidebar {
+                position: fixed;
+                inset: 0 auto 0 0;
+                width: min(82vw, 280px);
+                max-width: 280px;
+                transform: translateX(-100%);
+                transition: transform 180ms ease;
+                z-index: 60;
+            }
+            #app-sidebar.mobile-open { transform: translateX(0); }
+            #sidebar-backdrop {
+                display: block;
+                position: fixed;
+                inset: 0;
+                z-index: 50;
+                background: rgba(15, 23, 42, 0.42);
+                opacity: 0;
+                visibility: hidden;
+                transition: opacity 180ms ease, visibility 180ms ease;
+            }
+            #sidebar-backdrop.mobile-open { opacity: 1; visibility: visible; }
+            #mobile-sidebar-toggle { display: inline-flex; }
+            main { min-width: 0; width: 100%; }
+            main > header { padding-left: 0.75rem; padding-right: 0.75rem; }
+            main > header > div:last-child { gap: 0.125rem; }
+            #header-icon { width: 2.25rem; height: 2.25rem; margin-right: 0.5rem; }
+            #msg-list { padding: 1rem; }
+            #composer-shell { padding: 0.5rem; }
+            #composer-shell textarea { min-width: 0; padding-left: 0.25rem; padding-right: 0.25rem; }
+        }
     </style>
 </head>
 <body class="bg-gray-100 h-screen flex overflow-hidden font-sans">
@@ -34,7 +67,7 @@
         </button>
     </div>
 
-    <aside class="w-64 bg-gray-900 text-white flex flex-col h-full shadow-2xl z-20 shrink-0">
+    <aside id="app-sidebar" class="w-64 bg-gray-900 text-white flex flex-col h-full shadow-2xl z-20 shrink-0">
         <div class="p-5 border-b border-gray-800 flex justify-between items-center">
             <h1 class="text-xl font-bold tracking-tight flex items-center">
                 <img src="/favicon.ico" alt="logo" class="w-7 h-7 mr-2 drop-shadow-md">信语
@@ -47,7 +80,7 @@
         <div class="flex-1 overflow-y-auto no-scrollbar pb-4">
             <div class="p-4 pb-2 text-xs font-bold text-gray-500 uppercase tracking-widest flex justify-between items-center">
                 <span>群聊频道</span>
-                <button onclick="showCreateGroup()" class="hover:text-white transition" title="新建群聊"><i class="fa-solid fa-plus"></i></button>
+                <div class="flex gap-2"><button onclick="showGroupDiscovery()" class="hover:text-white transition" title="发现群聊"><i class="fa-solid fa-compass"></i></button><button onclick="showCreateGroup()" class="hover:text-white transition" title="新建群聊"><i class="fa-solid fa-plus"></i></button></div>
             </div>
             <div id="channel-list" class="px-3 space-y-1"></div>
 
@@ -79,9 +112,14 @@
         </div>
     </aside>
 
+    <button id="sidebar-backdrop" type="button" onclick="toggleMobileSidebar(false)" aria-label="关闭会话列表"></button>
+
     <main class="flex-1 flex flex-col h-full bg-white relative">
         <header class="h-16 border-b flex items-center justify-between px-6 shrink-0 bg-white/80 backdrop-blur-md sticky top-0 z-10">
             <div class="flex items-center">
+                <button id="mobile-sidebar-toggle" type="button" onclick="toggleMobileSidebar(true)" class="w-9 h-9 mr-1 items-center justify-center text-gray-500 hover:text-blue-600" title="打开会话列表" aria-label="打开会话列表">
+                    <i class="fa-solid fa-bars"></i>
+                </button>
                 <div id="header-icon" class="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center text-blue-600 mr-3 overflow-hidden">
                     <i class="fa-solid fa-hashtag text-xl"></i>
                 </div>
@@ -100,6 +138,9 @@
             </div>
 
             <div class="flex items-center gap-4 relative">
+                <button onclick="showChatSearch()" class="text-gray-400 hover:text-blue-600 transition w-9 h-9 flex items-center justify-center" title="搜索聊天记录"><i class="fa-solid fa-magnifying-glass"></i></button>
+                <button onclick="showFavoriteMessages()" class="text-gray-400 hover:text-yellow-500 transition w-9 h-9 flex items-center justify-center" title="收藏的消息"><i class="fa-regular fa-star"></i></button>
+                <button id="pin-conversation-btn" onclick="toggleCurrentConversationPin()" class="text-gray-400 hover:text-blue-600 transition w-9 h-9 flex items-center justify-center" title="置顶当前会话"><i class="fa-solid fa-thumbtack"></i></button>
                 <a href="https://github.com/luojunqi20111219/OpenBoard-A-modern-minimalist-lightweight-group-chat-and-messaging-platform" target="_blank" class="text-gray-400 hover:text-gray-700 transition p-2" title="GitHub"><svg width="22" height="22" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></a>
                 <div id="notice-btn" class="relative cursor-pointer text-gray-400 hover:text-blue-600 transition p-2" title="系统消息公告" onclick="toggleNoticeDropdown(event)">
                     <i class="fa-solid fa-bell text-xl"></i>
@@ -119,11 +160,13 @@
             </div>
         </header>
 
+        <div id="network-banner" class="hidden bg-amber-50 text-amber-700 border-b border-amber-100 px-4 py-2 text-xs text-center">网络已断开，消息会保存在本机并在恢复连接后重试</div>
+
         <div id="msg-list" class="flex-1 overflow-y-auto p-6 space-y-6 no-scrollbar bg-gray-50/50">
             <div class="text-center py-20 text-gray-400">正在同步消息...</div>
         </div>
 
-        <div class="p-4 border-t bg-white shrink-0">
+        <div id="composer-shell" class="p-4 border-t bg-white shrink-0">
             <div class="max-w-4xl mx-auto relative">
                 <div id="emoji-picker-container" class="hidden absolute bottom-[110%] left-0 shadow-2xl rounded-2xl overflow-hidden z-50 border border-gray-200 bg-white flex flex-col w-[350px]">
                     <div id="emoji-favorites-bar" class="p-2 border-b bg-gray-50 flex flex-col gap-1 shrink-0">
@@ -165,6 +208,7 @@
             <div id="auth-form-container">
                 <input id="auth-u" type="text" placeholder="账号名" class="w-full mb-4 px-5 py-3.5 bg-gray-100 rounded-xl outline-none">
                 <input id="auth-p" type="password" placeholder="密码" class="w-full mb-4 px-5 py-3.5 bg-gray-100 rounded-xl outline-none">
+                <input id="auth-otp" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="两步验证动态码" class="hidden w-full mb-4 px-5 py-3.5 bg-gray-100 rounded-xl outline-none">
                 <input id="auth-n" type="text" placeholder="设置昵称 (选填)" class="w-full mb-6 px-5 py-3.5 bg-gray-100 rounded-xl outline-none hidden">
                 <label class="mb-5 flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
                     <input id="remember-login" type="checkbox" checked class="w-4 h-4 accent-blue-600">
@@ -204,6 +248,9 @@
             <button onclick="showLoginDevices()" class="w-full bg-blue-50 text-blue-700 py-2.5 rounded-xl font-bold hover:bg-blue-100 text-sm mb-4 transition flex items-center justify-center gap-2">
                 <i class="fa-solid fa-laptop"></i>
                 <span>登录设备</span>
+            </button>
+            <button onclick="showSecurityCenter()" class="w-full bg-green-50 text-green-700 py-2.5 rounded-xl font-bold hover:bg-green-100 text-sm mb-4 transition flex items-center justify-center gap-2">
+                <i class="fa-solid fa-shield-halved"></i><span>账号安全中心</span>
             </button>
             
             <hr class="border-gray-100 mb-4">
@@ -300,6 +347,7 @@
 
             <button onclick="hideModal('search-friends-modal')" class="w-full mt-4 text-sm text-gray-400 hover:text-gray-600">关闭</button>
         </div>
+    </div>
     <!-- 推荐好友名片 Modal -->
     <div id="share-card-modal" class="fixed inset-0 bg-black/60 hidden flex items-center justify-center z-50 backdrop-blur-sm p-4">
         <div class="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl relative overflow-hidden">
@@ -390,9 +438,85 @@
                 <input id="group-white-speak" type="text" placeholder="允许发言的用户名" class="w-full mb-2 px-3 py-2 bg-gray-50 rounded-lg text-sm outline-none border hidden">
             </div>
 
+            <div class="border-t border-gray-100 pt-3 mb-4 space-y-3">
+                <label class="text-xs font-bold text-gray-500 block">群公告</label>
+                <textarea id="group-announcement" rows="3" maxlength="2000" class="w-full px-3 py-2 bg-gray-50 rounded-lg text-sm outline-none border resize-none" placeholder="群公告"></textarea>
+                <label class="flex items-center justify-between text-sm text-gray-700"><span>仅群成员可查看</span><input id="group-member-only" type="checkbox" class="accent-blue-600"></label>
+                <label class="flex items-center justify-between text-sm text-gray-700"><span>入群需要审批</span><input id="group-join-approval" type="checkbox" class="accent-blue-600"></label>
+                <button onclick="showGroupMembers()" class="w-full bg-gray-100 text-gray-700 py-2.5 rounded-xl font-bold text-sm hover:bg-gray-200"><i class="fa-solid fa-users mr-1"></i>成员、申请与操作日志</button>
+            </div>
+
             <button onclick="submitEditGroup()" class="w-full bg-blue-600 text-white py-3 rounded-2xl font-bold hover:bg-blue-700 mb-2">保存修改</button>
             <button onclick="submitDeleteGroup()" class="w-full bg-red-50 text-red-600 py-3 rounded-2xl font-bold hover:bg-red-100 transition">🚨 彻底解散该群</button>
             <button onclick="hideModal('manage-group-modal')" class="w-full mt-3 text-sm text-gray-400">取消</button>
+        </div>
+    </div>
+
+    <div id="chat-search-modal" class="fixed inset-0 bg-black/60 hidden flex items-center justify-center z-[70] backdrop-blur-sm p-4">
+        <div class="bg-white w-full max-w-2xl rounded-2xl p-6 shadow-2xl max-h-[88vh] flex flex-col">
+            <div class="flex items-center justify-between mb-4"><h2 class="text-lg font-bold">搜索聊天记录</h2><button onclick="hideModal('chat-search-modal')" class="w-8 h-8 text-gray-400" title="关闭"><i class="fa-solid fa-xmark"></i></button></div>
+            <div class="grid grid-cols-1 sm:grid-cols-4 gap-2 mb-3">
+                <input id="chat-search-query" class="sm:col-span-2 px-3 py-2 bg-gray-100 rounded-lg text-sm outline-none" placeholder="关键词">
+                <select id="chat-search-kind" class="px-3 py-2 bg-gray-100 rounded-lg text-sm"><option value="">全部类型</option><option value="text">文字</option><option value="image">图片</option><option value="file">文件</option></select>
+                <button onclick="searchChatMessages()" class="bg-blue-600 text-white rounded-lg font-bold text-sm"><i class="fa-solid fa-magnifying-glass mr-1"></i>搜索</button>
+                <input id="chat-search-from" type="date" class="px-3 py-2 bg-gray-100 rounded-lg text-sm">
+                <input id="chat-search-to" type="date" class="px-3 py-2 bg-gray-100 rounded-lg text-sm">
+                <label class="sm:col-span-2 flex items-center gap-2 text-xs text-gray-600"><input id="chat-search-current" type="checkbox" checked class="accent-blue-600">只搜索当前会话</label>
+            </div>
+            <div id="chat-search-results" class="overflow-y-auto space-y-2 min-h-[180px] no-scrollbar"><div class="text-center py-12 text-gray-400 text-sm">输入条件开始搜索</div></div>
+        </div>
+    </div>
+
+    <div id="favorite-messages-modal" class="fixed inset-0 bg-black/60 hidden flex items-center justify-center z-[70] backdrop-blur-sm p-4">
+        <div class="bg-white w-full max-w-xl rounded-2xl p-6 shadow-2xl max-h-[88vh] flex flex-col">
+            <div class="flex items-center justify-between mb-4"><h2 class="text-lg font-bold">收藏的消息</h2><button onclick="hideModal('favorite-messages-modal')" class="w-8 h-8 text-gray-400" title="关闭"><i class="fa-solid fa-xmark"></i></button></div>
+            <div id="favorite-messages-list" class="overflow-y-auto space-y-2 min-h-[180px] no-scrollbar"></div>
+        </div>
+    </div>
+
+    <div id="security-center-modal" class="fixed inset-0 bg-black/60 hidden flex items-center justify-center z-[70] backdrop-blur-sm p-4">
+        <div class="bg-white w-full max-w-lg rounded-2xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto no-scrollbar">
+            <div class="flex items-center justify-between mb-5"><h2 class="text-lg font-bold">账号安全中心</h2><button onclick="closeSecurityCenter()" class="w-8 h-8 text-gray-400" title="关闭"><i class="fa-solid fa-xmark"></i></button></div>
+            <label class="flex items-center justify-between py-3 border-y text-sm"><span>发送已读回执</span><input id="read-receipts-toggle" type="checkbox" class="accent-blue-600" onchange="saveSecurityPreferences()"></label>
+            <div class="py-4 border-b">
+                <div class="flex items-center justify-between mb-3"><span class="text-sm font-bold">两步验证</span><span id="two-factor-status" class="text-xs text-gray-400"></span></div>
+                <div id="two-factor-setup" class="space-y-2">
+                    <input id="two-factor-password" type="password" placeholder="账号密码" class="w-full px-3 py-2 bg-gray-100 rounded-lg text-sm">
+                    <button onclick="beginTwoFactorSetup()" class="w-full bg-green-600 text-white py-2.5 rounded-lg font-bold text-sm">开启两步验证</button>
+                </div>
+                <div id="two-factor-confirm" class="hidden space-y-2">
+                    <div id="two-factor-qr" class="flex justify-center"></div>
+                    <div id="two-factor-secret" class="text-xs text-center break-all text-gray-500"></div>
+                    <input id="two-factor-code" inputmode="numeric" maxlength="6" placeholder="输入动态码" class="w-full px-3 py-2 bg-gray-100 rounded-lg text-sm">
+                    <button onclick="confirmTwoFactorSetup()" class="w-full bg-blue-600 text-white py-2.5 rounded-lg font-bold text-sm">确认开启</button>
+                </div>
+                <div id="two-factor-disable" class="hidden space-y-2">
+                    <input id="two-factor-disable-password" type="password" placeholder="账号密码" class="w-full px-3 py-2 bg-gray-100 rounded-lg text-sm">
+                    <input id="two-factor-disable-code" inputmode="numeric" maxlength="6" placeholder="动态码" class="w-full px-3 py-2 bg-gray-100 rounded-lg text-sm">
+                    <button onclick="disableTwoFactor()" class="w-full bg-red-50 text-red-600 py-2.5 rounded-lg font-bold text-sm">关闭两步验证</button>
+                </div>
+            </div>
+            <div class="py-4 border-b"><div class="text-sm font-bold mb-2">最近登录记录</div><div id="login-history-list" class="max-h-52 overflow-y-auto divide-y text-xs"></div></div>
+            <div class="pt-4"><input id="logout-all-password" type="password" placeholder="输入密码后退出全部设备" class="w-full px-3 py-2 bg-gray-100 rounded-lg text-sm mb-2"><button onclick="logoutAllDevices()" class="w-full bg-red-600 text-white py-2.5 rounded-lg font-bold text-sm">退出全部设备</button></div>
+        </div>
+    </div>
+
+    <div id="group-members-modal" class="fixed inset-0 bg-black/60 hidden flex items-center justify-center z-[70] backdrop-blur-sm p-4">
+        <div class="bg-white w-full max-w-2xl rounded-2xl p-6 shadow-2xl max-h-[90vh] flex flex-col">
+            <div class="flex items-center justify-between mb-4"><h2 class="text-lg font-bold">群成员管理</h2><button onclick="hideModal('group-members-modal')" class="w-8 h-8 text-gray-400" title="关闭"><i class="fa-solid fa-xmark"></i></button></div>
+            <div class="flex gap-2 mb-3"><input id="group-invite-username" class="flex-1 px-3 py-2 bg-gray-100 rounded-lg text-sm" placeholder="邀请用户名"><button onclick="inviteGroupMember()" class="bg-blue-600 text-white px-4 rounded-lg text-sm font-bold">邀请</button></div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 overflow-y-auto no-scrollbar">
+                <div><div class="text-xs font-bold text-gray-500 mb-2">成员</div><div id="group-members-list" class="space-y-2"></div></div>
+                <div><div class="text-xs font-bold text-gray-500 mb-2">待处理申请</div><div id="group-requests-list" class="space-y-2 mb-4"></div><div class="text-xs font-bold text-gray-500 mb-2">操作日志</div><div id="group-audit-list" class="space-y-2"></div></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="group-discovery-modal" class="fixed inset-0 bg-black/60 hidden flex items-center justify-center z-[70] backdrop-blur-sm p-4">
+        <div class="bg-white w-full max-w-lg rounded-2xl p-6 shadow-2xl max-h-[88vh] flex flex-col">
+            <div class="flex items-center justify-between mb-4"><h2 class="text-lg font-bold">发现群聊与邀请</h2><button onclick="hideModal('group-discovery-modal')" class="w-8 h-8 text-gray-400" title="关闭"><i class="fa-solid fa-xmark"></i></button></div>
+            <div class="text-xs font-bold text-gray-500 mb-2">待处理邀请</div><div id="group-invites-list" class="space-y-2 mb-5"></div>
+            <div class="text-xs font-bold text-gray-500 mb-2">公开群聊</div><div id="group-discovery-list" class="overflow-y-auto space-y-2 no-scrollbar"></div>
         </div>
     </div>
 
@@ -406,6 +530,40 @@
         let ws = null; let wsReconnectTimer = null; let onlineUsers = []; let typingTimer = null;
         let noticesInterval = null;
         let selectedLogoutDevice = null;
+        let currentMessages = [];
+        let oldestMessageId = null;
+        let latestMessageId = 0;
+        let hasMoreMessages = false;
+        let historyLoading = false;
+        let conversationSettings = {};
+
+        function toggleMobileSidebar(open) {
+            const shouldOpen = Boolean(open) && window.innerWidth < 768;
+            document.getElementById('app-sidebar').classList.toggle('mobile-open', shouldOpen);
+            document.getElementById('sidebar-backdrop').classList.toggle('mobile-open', shouldOpen);
+        }
+
+        window.addEventListener('resize', () => {
+            if (window.innerWidth >= 768) toggleMobileSidebar(false);
+        });
+
+        function currentConversationKey() {
+            return currentTargetUser ? `user:${currentTargetUser}` : `room:${Math.max(0, currentRoomId)}`;
+        }
+
+        function messageCacheKey() {
+            return currentUser ? `openboard_messages:${currentUser.username}:${currentConversationKey()}` : '';
+        }
+
+        function cacheCurrentMessages() {
+            const key = messageCacheKey();
+            if (!key) return;
+            try { localStorage.setItem(key, JSON.stringify(currentMessages.slice(-50))); } catch (_) {}
+        }
+
+        function getCachedMessages() {
+            try { return JSON.parse(localStorage.getItem(messageCacheKey()) || '[]'); } catch (_) { return []; }
+        }
 
         function getWebDeviceId() {
             const storageKey = 'openboard_web_device_id';
@@ -463,6 +621,7 @@
                     loadUsers(),
                     loadGroups(),
                     loadFavoriteEmojis(),
+                    loadConversationSettings(),
                     checkPendingFriendRequests(),
                     loadNotices()
                 ]).then(() => {
@@ -470,6 +629,7 @@
                 });
                 
                 if (!noticesInterval) noticesInterval = setInterval(loadNotices, 30000);
+                flushPendingMessages();
             } else {
                 loadGroups().then(() => switchRoom(0, '公共大厅'));
             }
@@ -492,6 +652,8 @@
                 statusDot.className = "w-1.5 h-1.5 bg-green-500 rounded-full mr-1.5 animate-pulse";
                 statusText.innerText = "在线";
                 statusText.className = "text-green-500";
+                syncMissedMessages();
+                flushPendingMessages();
 
                 // 定时发送心跳（每30秒），防止 Cloudflare 等 CDN/代理在 100 秒空闲时自动断开连接
                 if (pingInterval) clearInterval(pingInterval);
@@ -513,6 +675,10 @@
                     handleTyping(msg);
                 } else if (msg.type === 'recall') {
                     handleRecall(msg.msg_id);
+                } else if (msg.type === 'message_edited') {
+                    handleMessageEdited(msg);
+                } else if (msg.type === 'messages_read') {
+                    handleMessagesRead(msg);
                 } else if (msg.type === 'friend_request') {
                     showToast(`收到来自 ${msg.from_nickname || msg.from_user} 的好友申请！`);
                     document.getElementById('friend-req-badge').classList.remove('hidden');
@@ -702,6 +868,7 @@
 
         function switchRoom(id, name) {
             currentRoomId = id; currentTargetUser = null;
+            toggleMobileSidebar(false);
             document.getElementById('room-title').innerText = name;
             const blockBtn = document.getElementById('user-block-btn');
             if(blockBtn) blockBtn.classList.add('hidden');
@@ -725,11 +892,12 @@
                 : (group ? getAvatarHtml(group.avatar, name, "w-full h-full text-xl") : '<i class="fa-solid fa-hashtag text-xl"></i>');
             document.getElementById('header-icon').innerHTML = avatarHtml;
 
-            updateActiveBtn(`room-btn-${id}`); checkGroupOwnership(id); loadMsgs();
+            updateActiveBtn(`room-btn-${id}`); checkGroupOwnership(id); updatePinButton(); loadMsgs(true);
         }
 
         function switchPrivateChat(username, displayName, avatar) {
             currentRoomId = -1; currentTargetUser = username;
+            toggleMobileSidebar(false);
             document.getElementById('room-title').innerText = `与 ${displayName} 私信`;
             document.getElementById('header-icon').innerHTML = getAvatarHtml(avatar, displayName, "w-full h-full text-lg");
             
@@ -748,7 +916,7 @@
                 blockBtn.classList.remove('hidden');
             }
             
-            loadMsgs();
+            updatePinButton(); loadMsgs(true);
         }
 
         function updateActiveBtn(btnId) {
@@ -757,10 +925,82 @@
             if(act) { act.classList.add('bg-gray-800', 'text-white'); act.classList.remove('text-gray-300'); }
         }
 
+        function handleMessageEdited(event) {
+            const message = currentMessages.find(item => item.id === event.msg_id);
+            if (!message) return;
+            message.content = event.content;
+            message.edited = true;
+            message.edited_at = event.edited_at;
+            renderMessageList(false);
+            cacheCurrentMessages();
+        }
+
+        function handleMessagesRead(event) {
+            if (!currentUser || event.reader === currentUser.username) return;
+            currentMessages.forEach(message => {
+                if (message.name === currentUser.username && message.id <= event.up_to_id) {
+                    message.read_count = Math.max(1, Number(message.read_count || 0));
+                }
+            });
+            renderMessageList(false);
+        }
+
+        async function syncMissedMessages() {
+            if (!currentUser || !latestMessageId) return;
+            let url = currentTargetUser
+                ? `/api/messages?target_user=${encodeURIComponent(currentTargetUser)}&after_id=${latestMessageId}&limit=50`
+                : `/api/messages?room_id=${Math.max(0, currentRoomId)}&after_id=${latestMessageId}&limit=50`;
+            try {
+                const response = await fetch(url, { headers: { 'Authorization': currentUser.token } });
+                const result = await response.json();
+                if (response.ok) (result.data || []).forEach(appendMessage);
+            } catch (_) {}
+        }
+
+        async function loadConversationSettings() {
+            if (!currentUser) return;
+            try {
+                const response = await fetch('/api/conversation-settings', { headers: { 'Authorization': currentUser.token } });
+                const result = await response.json();
+                if (response.ok) {
+                    conversationSettings = Object.fromEntries((result.data || []).map(item => [item.conversation_key, item]));
+                    updatePinButton();
+                }
+            } catch (_) {}
+        }
+
+        function updatePinButton() {
+            const button = document.getElementById('pin-conversation-btn');
+            const pinned = Boolean(conversationSettings[currentConversationKey()]?.is_pinned);
+            button.classList.toggle('text-blue-600', pinned);
+            button.classList.toggle('text-gray-400', !pinned);
+            button.title = pinned ? '取消置顶当前会话' : '置顶当前会话';
+        }
+
+        async function toggleCurrentConversationPin() {
+            if (!currentUser) return showLogin();
+            const key = currentConversationKey();
+            const old = conversationSettings[key] || { conversation_key: key, is_pinned: 0, is_muted: 0, last_read_id: 0 };
+            const next = { ...old, is_pinned: old.is_pinned ? 0 : 1 };
+            const response = await fetch('/api/conversation-settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token },
+                body: JSON.stringify({ conversation_key: key, is_pinned: Boolean(next.is_pinned), is_muted: Boolean(next.is_muted) })
+            });
+            if (!response.ok) return showToast('置顶状态保存失败');
+            conversationSettings[key] = next;
+            updatePinButton();
+            await Promise.all([loadGroups(), loadUsers()]);
+        }
+
+        function isConversationPinned(key) {
+            return Boolean(conversationSettings[key]?.is_pinned);
+        }
+
         async function loadGroups() {
             const res = await fetch('/api/groups'); globalGroups = (await res.json()).data;
             const list = document.getElementById('channel-list'); list.innerHTML = '';
-            globalGroups.forEach(g => {
+            [...globalGroups].sort((a, b) => Number(isConversationPinned(`room:${b.id}`)) - Number(isConversationPinned(`room:${a.id}`))).forEach(g => {
                 const btn = document.createElement('button'); btn.id = `room-btn-${g.id}`;
                 btn.className = "room-btn w-full text-left px-3 py-2.5 rounded-lg text-gray-300 hover:bg-gray-800 transition flex items-center";
                 const isMine = currentUser && g.owner_id === currentUser.id && g.id !== 0;
@@ -770,13 +1010,36 @@
                     ? `<img src="/favicon.ico" class="w-6 h-6 rounded-full object-cover shadow-sm shrink-0 mr-3">` 
                     : getAvatarHtml(g.avatar, g.name, "w-6 h-6 text-[10px] shrink-0 mr-3");
                     
-                btn.innerHTML = `${groupAvatarHtml}<span class="flex-1 truncate">${escapeHtml(g.name)}</span>${isMine ? '<i class="fa-solid fa-crown text-[10px] text-yellow-500"></i>' : ''}`;
+                btn.innerHTML = `${groupAvatarHtml}<span class="flex-1 truncate">${escapeHtml(g.name)}</span>${isConversationPinned(`room:${g.id}`) ? '<i class="fa-solid fa-thumbtack text-[9px] text-blue-400 mr-1"></i>' : ''}${isMine ? '<i class="fa-solid fa-crown text-[10px] text-yellow-500"></i>' : ''}`;
                 btn.onclick = () => switchRoom(g.id, g.name);
                 list.appendChild(btn);
             });
         }
 
         function showCreateGroup() { if(!currentUser) return showLogin(); document.getElementById('new-group-name').value = ''; showModal('create-group-modal'); }
+        async function showGroupDiscovery() {
+            if (!currentUser) return showLogin();
+            showModal('group-discovery-modal');
+            const headers = { 'Authorization': currentUser.token };
+            const [groupsResponse, invitesResponse] = await Promise.all([
+                fetch('/api/groups/discover', { headers }), fetch('/api/group-invites', { headers })
+            ]);
+            const groups = await groupsResponse.json();
+            const invites = await invitesResponse.json();
+            document.getElementById('group-invites-list').innerHTML = (invites.data || []).map(item => `<div class="p-3 border rounded-lg flex items-center justify-between gap-2"><span class="text-sm font-bold truncate">${escapeHtml(item.group_name)}</span><div class="flex gap-1"><button onclick="respondGroupInvite(${item.id},'accept')" class="px-2 py-1 text-xs bg-green-50 text-green-600 rounded">接受</button><button onclick="respondGroupInvite(${item.id},'reject')" class="px-2 py-1 text-xs bg-red-50 text-red-500 rounded">拒绝</button></div></div>`).join('') || '<div class="text-xs text-gray-400">暂无邀请</div>';
+            document.getElementById('group-discovery-list').innerHTML = (groups.data || []).map(group => `<div class="p-3 border rounded-lg flex items-center justify-between gap-3"><div class="min-w-0"><div class="font-bold text-sm truncate">${escapeHtml(group.name)}</div><div class="text-xs text-gray-400 truncate">${escapeHtml(group.announcement || '暂无公告')}</div></div><button ${group.is_member || group.request_status === 'pending' ? 'disabled' : ''} onclick="requestJoinGroup(${group.id})" class="shrink-0 px-3 py-1.5 text-xs rounded bg-blue-50 text-blue-600 disabled:text-gray-400">${group.is_member ? '已加入' : group.request_status === 'pending' ? '待审批' : '申请加入'}</button></div>`).join('') || '<div class="text-xs text-gray-400">暂无公开群聊</div>';
+        }
+        async function requestJoinGroup(groupId) {
+            const response = await fetch(`/api/groups/${groupId}/join`, { method: 'POST', headers: { 'Authorization': currentUser.token } });
+            const result = await response.json();
+            showToast(response.ok ? (result.pending ? '申请已提交' : '已加入群聊') : (result.detail || '操作失败'));
+            await loadGroups(); showGroupDiscovery();
+        }
+        async function respondGroupInvite(inviteId, action) {
+            const response = await fetch('/api/group-invites/respond', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token }, body: JSON.stringify({ invite_id: inviteId, action }) });
+            showToast(response.ok ? '邀请已处理' : '操作失败');
+            await loadGroups(); showGroupDiscovery();
+        }
         async function submitCreateGroup() {
             const name = document.getElementById('new-group-name').value.trim(); if(!name) return;
             const res = await fetch('/api/groups', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token }, body: JSON.stringify({ name: name, is_public: 1 }) });
@@ -802,6 +1065,9 @@
             document.getElementById('group-white-view').value = group.white_view || '';
             document.getElementById('group-black-speak').value = group.black_speak || '';
             document.getElementById('group-white-speak').value = group.white_speak || '';
+            document.getElementById('group-announcement').value = group.announcement || '';
+            document.getElementById('group-member-only').checked = Boolean(group.member_only);
+            document.getElementById('group-join-approval').checked = Boolean(group.join_approval);
             togglePermViews();
             
             pendingGroupAvatarBase64 = group.avatar;
@@ -831,6 +1097,15 @@
                 if (pendingGroupAvatarBase64 !== group.avatar) {
                     await fetch(`/api/groups/${currentRoomId}/avatar`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token }, body: JSON.stringify({ avatar: pendingGroupAvatarBase64 || "" }) });
                 }
+                await fetch(`/api/groups/${currentRoomId}/advanced`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token },
+                    body: JSON.stringify({
+                        announcement: document.getElementById('group-announcement').value.trim(),
+                        member_only: document.getElementById('group-member-only').checked,
+                        join_approval: document.getElementById('group-join-approval').checked
+                    })
+                });
                 hideModal('manage-group-modal'); await loadGroups(); switchRoom(currentRoomId, name); 
             } else {
                 alert("修改群聊失败，可能无权限");
@@ -840,6 +1115,60 @@
             if(!confirm("🚨 警告：解散群聊将永久删除历史记录！")) return;
             const res = await fetch(`/api/groups/${currentRoomId}`, { method: 'DELETE', headers: { 'Authorization': currentUser.token } });
             if(res.ok) { hideModal('manage-group-modal'); await loadGroups(); switchRoom(0, '公共大厅'); }
+        }
+
+        async function showGroupMembers() {
+            if (!currentRoomId) return;
+            showModal('group-members-modal');
+            const headers = { 'Authorization': currentUser.token };
+            const [membersResponse, requestsResponse, auditResponse] = await Promise.all([
+                fetch(`/api/groups/${currentRoomId}/members`, { headers }),
+                fetch(`/api/groups/${currentRoomId}/join-requests`, { headers }),
+                fetch(`/api/groups/${currentRoomId}/audit`, { headers })
+            ]);
+            const members = await membersResponse.json();
+            const requests = await requestsResponse.json();
+            const audit = await auditResponse.json();
+            const membersList = document.getElementById('group-members-list');
+            membersList.innerHTML = (members.data || []).map(member => `
+                <div class="p-2 border rounded-lg text-xs">
+                    <div class="flex items-center justify-between gap-2"><span class="font-bold truncate">${escapeHtml(member.nickname || member.username)} <span class="text-gray-400">@${escapeHtml(member.username)}</span></span><span class="text-blue-600">${escapeHtml(member.member_role)}</span></div>
+                    ${member.member_role !== 'owner' ? `<div class="flex gap-1 mt-2"><button onclick="setGroupMemberRole('${escapeHtml(member.username)}', '${member.member_role === 'admin' ? 'member' : 'admin'}')" class="px-2 py-1 bg-blue-50 text-blue-600 rounded">${member.member_role === 'admin' ? '取消管理员' : '设为管理员'}</button><button onclick="muteGroupMember('${escapeHtml(member.username)}')" class="px-2 py-1 bg-amber-50 text-amber-600 rounded">禁言1小时</button><button onclick="removeGroupMember('${escapeHtml(member.username)}')" class="px-2 py-1 bg-red-50 text-red-500 rounded">移除</button></div>` : ''}
+                </div>`).join('') || '<div class="text-gray-400 text-xs">暂无成员</div>';
+            const requestList = document.getElementById('group-requests-list');
+            requestList.innerHTML = (requests.data || []).map(item => `<div class="p-2 border rounded-lg text-xs"><div class="font-bold">${escapeHtml(item.nickname || item.username)}</div><div class="flex gap-1 mt-2"><button onclick="respondGroupRequest('${escapeHtml(item.username)}','accept')" class="px-2 py-1 bg-green-50 text-green-600 rounded">同意</button><button onclick="respondGroupRequest('${escapeHtml(item.username)}','reject')" class="px-2 py-1 bg-red-50 text-red-500 rounded">拒绝</button></div></div>`).join('') || '<div class="text-gray-400 text-xs">暂无申请</div>';
+            const auditList = document.getElementById('group-audit-list');
+            auditList.innerHTML = (audit.data || []).slice(0, 50).map(item => `<div class="py-1 border-b text-[11px]"><span class="font-bold">${escapeHtml(item.actor)}</span> ${escapeHtml(item.action)} ${escapeHtml(item.target || '')}<div class="text-gray-400">${escapeHtml(item.created_at || '')}</div></div>`).join('') || '<div class="text-gray-400 text-xs">暂无日志</div>';
+        }
+
+        async function inviteGroupMember() {
+            const username = document.getElementById('group-invite-username').value.trim();
+            if (!username) return;
+            const response = await fetch(`/api/groups/${currentRoomId}/invite`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token }, body: JSON.stringify({ username }) });
+            const result = await response.json();
+            showToast(response.ok ? '邀请已发送' : (result.detail || '邀请失败'));
+        }
+
+        async function respondGroupRequest(username, action) {
+            await fetch(`/api/groups/${currentRoomId}/join-requests/respond`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token }, body: JSON.stringify({ username, action }) });
+            showGroupMembers();
+        }
+
+        async function setGroupMemberRole(username, role) {
+            await fetch(`/api/groups/${currentRoomId}/members/${encodeURIComponent(username)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token }, body: JSON.stringify({ role }) });
+            showGroupMembers();
+        }
+
+        async function muteGroupMember(username) {
+            const mutedUntil = new Date(Date.now() + 3600000).toISOString().slice(0, 19);
+            await fetch(`/api/groups/${currentRoomId}/members/${encodeURIComponent(username)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token }, body: JSON.stringify({ muted_until: mutedUntil }) });
+            showGroupMembers();
+        }
+
+        async function removeGroupMember(username) {
+            if (!confirm(`确定移除 @${username} 吗？`)) return;
+            await fetch(`/api/groups/${currentRoomId}/members/${encodeURIComponent(username)}`, { method: 'DELETE', headers: { 'Authorization': currentUser.token } });
+            showGroupMembers();
         }
 
         function processGroupAvatar(input) {
@@ -881,18 +1210,19 @@
                     list.innerHTML = '<div class="text-gray-500 text-xs px-2 italic py-2 text-center">暂无好友，点击右上角搜索添加</div>';
                     return;
                 }
-                result.data.forEach(u => {
+                [...result.data].sort((a, b) => Number(isConversationPinned(`user:${b.username}`)) - Number(isConversationPinned(`user:${a.username}`))).forEach(u => {
                     if(u.username === currentUser.username) return;
                     const name = u.nickname || u.username;
                     const btn = document.createElement('button'); btn.id = `user-btn-${u.username}`;
                     const blockIcon = globalBlockedUsers.includes(u.username) ? '<i class="fa-solid fa-ban text-red-500 ml-auto text-xs"></i>' : '';
+                    const pinIcon = isConversationPinned(`user:${u.username}`) ? '<i class="fa-solid fa-thumbtack text-[9px] text-blue-400 ml-auto"></i>' : '';
                     btn.className = "room-btn w-full text-left p-2 rounded-lg text-gray-300 hover:bg-gray-800 transition flex items-center gap-3";
                     btn.innerHTML = `
                         <div class="relative relative-container">
                             ${getAvatarHtml(u.avatar, name, "w-6 h-6 text-[10px] shrink-0")}
                             ${onlineUsers.includes(u.username) ? '<div class="online-dot w-2 h-2 bg-green-500 rounded-full absolute -bottom-0.5 -right-0.5 border border-gray-900"></div>' : ''}
                         </div>
-                        <span class="truncate text-sm flex-1">${escapeHtml(name)}</span>${blockIcon}
+                        <span class="truncate text-sm flex-1">${escapeHtml(name)}</span>${pinIcon}${blockIcon}
                     `;
                     btn.onclick = () => switchPrivateChat(u.username, name, u.avatar);
                     list.appendChild(btn);
@@ -946,30 +1276,20 @@
 
         function appendMessage(msg) {
             const list = document.getElementById('msg-list');
-            const noMsg = list.querySelector('.text-center.py-20');
-            if (noMsg) noMsg.remove();
-            
-            const isMe = currentUser && (msg.name === currentUser.username);
-            const name = msg.nickname || msg.name;
-            const div = document.createElement('div');
-            div.setAttribute('data-msg-id', msg.id);
-            div.className = `flex ${isMe ? 'justify-end' : 'justify-start'} msg-appear mb-4`;
-            
-            div.innerHTML = `
-                ${!isMe ? `<div class="mr-2 mt-1 shrink-0">${getAvatarHtml(msg.avatar, name, "w-8 h-8 text-xs")}</div>` : ''}
-                <div class="max-w-[80%] sm:max-w-[70%] flex flex-col ${isMe ? 'items-end' : 'items-start'} group">
-                    ${!isMe ? `<div class="text-[10px] text-gray-400 mb-1 ml-1">${escapeHtml(name)}</div>` : ''}
-                    <div class="${isMe ? 'bg-blue-600 text-white rounded-2xl rounded-tr-none' : 'bg-white text-gray-800 rounded-2xl rounded-tl-none border border-gray-100 shadow-sm'} p-3 px-4 text-sm break-words leading-relaxed">${renderContent(msg.content)}</div>
-                    <div class="text-[10px] text-gray-300 mt-1 ${isMe ? 'mr-1' : 'ml-1'} flex items-center gap-2">
-                        刚刚
-                        <button onclick="showForwardMessageModal(${msg.id})" class="text-blue-400 hover:text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity focus:opacity-100">转发</button>
-                        ${(isMe && msg.can_recall !== false) ? `<button onclick="recallMsg(${msg.id})" data-recall-expires="${msg.recall_expires_in || 120}" class="text-red-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity focus:opacity-100">撤回</button>` : ''}
-                    </div>
-                </div>
-                ${isMe ? `<div class="ml-2 mt-1 shrink-0">${getAvatarHtml(msg.avatar, name, "w-8 h-8 text-xs")}</div>` : ''}
-            `;
-            list.appendChild(div);
-            scheduleRecallButtons(div);
+            if (currentMessages.some(item => item.id === msg.id)) return;
+            currentMessages.push(msg);
+            currentMessages = currentMessages.slice(-100);
+            latestMessageId = Math.max(latestMessageId, Number(msg.id) || 0);
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = messageRowHtml(msg);
+            const row = wrapper.firstElementChild;
+            const empty = list.querySelector('.text-center.py-20');
+            if (empty) empty.remove();
+            list.appendChild(row);
+            scheduleRecallButtons(row);
+            scheduleEditButtons(row);
+            cacheCurrentMessages();
+            markCurrentConversationRead(latestMessageId);
             list.scrollTop = list.scrollHeight;
         }
 
@@ -1004,9 +1324,11 @@
 
             let text = String(content || '');
             text = text.replace(/\[img:([^\]]+)\]/g, (match, value) => {
-                const url = safeLocalUrl(value);
-                if (!url) return '[无效图片]';
-                return stash(`<img src="${escapeHtml(url)}" class="max-w-[200px] sm:max-w-xs mt-1 rounded-lg cursor-pointer hover:opacity-90 transition" onclick="window.open(this.src)">`);
+                const [originalValue, thumbnailValue] = value.split('|', 2);
+                const originalUrl = safeLocalUrl(originalValue);
+                const thumbnailUrl = safeLocalUrl(thumbnailValue || originalValue);
+                if (!originalUrl || !thumbnailUrl) return '[无效图片]';
+                return stash(`<img src="${escapeHtml(thumbnailUrl)}" data-original="${escapeHtml(originalUrl)}" loading="lazy" decoding="async" class="max-w-[200px] sm:max-w-xs mt-1 rounded-lg cursor-pointer hover:opacity-90 transition" onclick="window.open(this.dataset.original, '_blank', 'noopener')">`);
             });
             text = text.replace(/\[file:([^|]+)\|([^\]]+)\]/g, (match, value, filename) => {
                 const url = safeLocalUrl(value);
@@ -1045,71 +1367,110 @@
             performFriendSearch();
         }
 
-        async function loadMsgs() {
+        function messageRowHtml(msg) {
+            const isMe = currentUser && msg.name === currentUser.username;
+            const name = msg.nickname || msg.name;
+            const isGroupMessage = !msg.receiver;
+            if (msg.content === '[system_recalled]') {
+                return `<div data-msg-id="${msg.id}" class="flex justify-center msg-appear mb-4"><div class="bg-black/5 text-gray-400 px-4 py-1.5 rounded-full text-[11px]">"${escapeHtml(name)}" 撤回了一条信息</div></div>`;
+            }
+            const edited = msg.edited || msg.edited_at ? '<span title="该消息已编辑">已编辑</span>' : '';
+            const readLabel = isMe ? `<button onclick="showMessageReads(${msg.id})" class="hover:text-blue-500">${msg.read_count ? `${msg.read_count}人已读` : '未读'}</button>` : '';
+            return `
+                <div data-msg-id="${msg.id}" class="flex ${isMe ? 'justify-end' : 'justify-start'} msg-appear mb-4">
+                    ${!isMe ? `<div class="mr-2 mt-1 shrink-0">${getAvatarHtml(msg.avatar, name, 'w-8 h-8 text-xs')}</div>` : ''}
+                    <div class="max-w-[80%] sm:max-w-[70%] flex flex-col ${isMe ? 'items-end' : 'items-start'} group">
+                        ${(!isMe || isGroupMessage) ? `<div class="text-[10px] text-gray-400 mb-1 ${isMe ? 'mr-1' : 'ml-1'}">${escapeHtml(name)} <span class="text-gray-300">(@${escapeHtml(msg.name)})</span></div>` : ''}
+                        <div class="message-content ${isMe ? 'bg-blue-600 text-white rounded-2xl rounded-tr-none' : 'bg-white text-gray-800 rounded-2xl rounded-tl-none border border-gray-100 shadow-sm'} p-3 px-4 text-sm break-words leading-relaxed">${renderContent(msg.content)}</div>
+                        <div class="text-[10px] text-gray-300 mt-1 ${isMe ? 'mr-1' : 'ml-1'} flex flex-wrap items-center gap-2">
+                            <span>${escapeHtml(msg.time || '刚刚')}</span>${edited}${readLabel}
+                            <button onclick="favoriteMessage(${msg.id})" class="text-yellow-500 opacity-0 group-hover:opacity-100 focus:opacity-100" title="收藏"><i class="fa-regular fa-star"></i></button>
+                            <button onclick="showForwardMessageModal(${msg.id})" class="text-blue-400 opacity-0 group-hover:opacity-100 focus:opacity-100">转发</button>
+                            ${(isMe && msg.can_edit) ? `<button onclick="editMessage(${msg.id})" data-edit-expires="${msg.edit_expires_in}" class="text-blue-400 opacity-0 group-hover:opacity-100 focus:opacity-100">编辑</button>` : ''}
+                            ${(isMe && msg.can_recall) ? `<button onclick="recallMsg(${msg.id})" data-recall-expires="${msg.recall_expires_in}" class="text-red-400 opacity-0 group-hover:opacity-100 focus:opacity-100">撤回</button>` : ''}
+                        </div>
+                    </div>
+                    ${isMe ? `<div class="ml-2 mt-1 shrink-0">${getAvatarHtml(msg.avatar, name, 'w-8 h-8 text-xs')}</div>` : ''}
+                </div>`;
+        }
+
+        function renderMessageList(scrollToBottom = false, preserveHeight = 0) {
+            const list = document.getElementById('msg-list');
+            const oldHeight = list.scrollHeight;
+            const loadMore = hasMoreMessages
+                ? '<div class="text-center mb-4"><button onclick="loadOlderMessages()" class="px-4 py-2 text-xs bg-white border rounded-lg text-blue-600 hover:bg-blue-50">加载更早消息</button></div>'
+                : '';
+            const html = currentMessages.length
+                ? loadMore + currentMessages.map(messageRowHtml).join('')
+                : '<div class="text-center py-20 text-gray-400">这里还是一片荒芜...</div>';
+            list.innerHTML = html;
+            scheduleRecallButtons(list);
+            scheduleEditButtons(list);
+            if (preserveHeight) list.scrollTop = list.scrollHeight - oldHeight;
+            else if (scrollToBottom) setTimeout(() => list.scrollTop = list.scrollHeight, 30);
+        }
+
+        async function loadMsgs(reset = true) {
             const list = document.getElementById('msg-list');
             if (!currentUser) {
                 list.innerHTML = '<div class="text-center py-20 text-gray-400">登录后查看历史消息</div>';
                 return;
             }
-
-            let url = `/api/messages?room_id=${currentRoomId}`;
-            if (currentTargetUser) url = `/api/messages?target_user=${currentTargetUser}`;
-            const headers = { 'Authorization': currentUser.token };
-            let result;
+            if (historyLoading) return;
+            historyLoading = true;
+            if (reset) {
+                currentMessages = getCachedMessages();
+                oldestMessageId = currentMessages[0]?.id || null;
+                latestMessageId = currentMessages[currentMessages.length - 1]?.id || 0;
+                hasMoreMessages = false;
+                if (currentMessages.length) renderMessageList(true);
+                else list.innerHTML = '<div class="text-center py-20 text-gray-400">正在加载消息...</div>';
+            }
+            let url = currentTargetUser
+                ? `/api/messages?target_user=${encodeURIComponent(currentTargetUser)}&limit=50`
+                : `/api/messages?room_id=${Math.max(0, currentRoomId)}&limit=50`;
+            if (!reset && oldestMessageId) url += `&before_id=${oldestMessageId}`;
             try {
-                const res = await fetch(url, { headers });
-                result = await res.json();
-                if (!res.ok) {
-                    list.innerHTML = `<div class="text-center py-20 text-red-400">${escapeHtml(result.detail || '历史消息加载失败')}</div>`;
-                    return;
-                }
+                const response = await fetch(url, { headers: { 'Authorization': currentUser.token } });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.detail || '历史消息加载失败');
+                const incoming = Array.isArray(result.data) ? result.data : [];
+                currentMessages = reset
+                    ? incoming
+                    : [...incoming, ...currentMessages].filter((msg, index, all) => all.findIndex(item => item.id === msg.id) === index);
+                oldestMessageId = currentMessages[0]?.id || null;
+                latestMessageId = currentMessages[currentMessages.length - 1]?.id || 0;
+                hasMoreMessages = Boolean(result.pagination?.has_more);
+                renderMessageList(reset, reset ? 0 : 1);
+                cacheCurrentMessages();
+                if (latestMessageId) markCurrentConversationRead(latestMessageId);
             } catch (error) {
-                list.innerHTML = '<div class="text-center py-20 text-red-400">网络异常，请稍后重试</div>';
-                return;
+                if (!currentMessages.length) list.innerHTML = `<div class="text-center py-20 text-red-400">${escapeHtml(error.message || '网络异常，请稍后重试')}</div>`;
+            } finally {
+                historyLoading = false;
             }
+        }
 
-            const messages = Array.isArray(result.data) ? result.data : [];
-            let html = '';
-            
-            if (messages.length === 0) {
-                html = '<div class="text-center py-20 text-gray-400">这里还是一片荒芜...</div>';
-            } else {
-                messages.forEach(msg => {
-                    const isMe = currentUser && (msg.name === currentUser.username); const name = msg.nickname || msg.name;
-                    
-                    if (msg.content === '[system_recalled]') {
-                        html += `
-                            <div class="flex justify-center msg-appear mb-4">
-                                <div class="bg-black/5 text-gray-400 px-4 py-1.5 rounded-full text-[11px]">
-                                    "${escapeHtml(name)}" 撤回了一条信息
-                                </div>
-                            </div>
-                        `;
-                        return;
-                    }
-                    
-                    html += `
-                        <div class="flex ${isMe ? 'justify-end' : 'justify-start'} msg-appear mb-4">
-                            ${!isMe ? `<div class="mr-2 mt-1 shrink-0">${getAvatarHtml(msg.avatar, name, "w-8 h-8 text-xs")}</div>` : ''}
-                            <div class="max-w-[80%] sm:max-w-[70%] flex flex-col ${isMe ? 'items-end' : 'items-start'} group">
-                                ${!isMe ? `<div class="text-[10px] text-gray-400 mb-1 ml-1">${escapeHtml(name)}</div>` : ''}
-                                <div class="${isMe ? 'bg-blue-600 text-white rounded-2xl rounded-tr-none' : 'bg-white text-gray-800 rounded-2xl rounded-tl-none border border-gray-100 shadow-sm'} p-3 px-4 text-sm break-words leading-relaxed">${renderContent(msg.content)}</div>
-                                <div class="text-[10px] text-gray-300 mt-1 ${isMe ? 'mr-1' : 'ml-1'} flex items-center gap-2">
-                                    ${msg.time}
-                                    <button onclick="showForwardMessageModal(${msg.id})" class="text-blue-400 hover:text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity focus:opacity-100">转发</button>
-                                    ${(isMe && msg.can_recall) ? `<button onclick="recallMsg(${msg.id})" data-recall-expires="${msg.recall_expires_in}" class="text-red-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity focus:opacity-100">撤回</button>` : ''}
-                                </div>
-                            </div>
-                            ${isMe ? `<div class="ml-2 mt-1 shrink-0">${getAvatarHtml(msg.avatar, name, "w-8 h-8 text-xs")}</div>` : ''}
-                        </div>
-                    `;
+        function loadOlderMessages() { loadMsgs(false); }
+
+        async function markCurrentConversationRead(upToId) {
+            if (!currentUser || !upToId) return;
+            const body = { room_id: Math.max(0, currentRoomId), up_to_id: upToId };
+            if (currentTargetUser) body.target_user = currentTargetUser;
+            try {
+                await fetch('/api/messages/read', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token }, body: JSON.stringify(body)
                 });
-            }
-            if (list.innerHTML !== html) { 
-                list.innerHTML = html; 
-                scheduleRecallButtons(list);
-                setTimeout(() => list.scrollTop = list.scrollHeight, 100);
-            }
+            } catch (_) {}
+        }
+
+        function scheduleEditButtons(root = document) {
+            root.querySelectorAll('[data-edit-expires]').forEach(button => {
+                const seconds = Number(button.dataset.editExpires);
+                if (!Number.isFinite(seconds) || seconds <= 0) button.remove();
+                else setTimeout(() => button.remove(), seconds * 1000);
+                button.removeAttribute('data-edit-expires');
+            });
         }
 
         // --- 通知系统逻辑 ---
@@ -1162,22 +1523,74 @@
             loadNotices();
         }
 
+        function pendingQueueKey() { return currentUser ? `openboard_pending:${currentUser.username}` : ''; }
+        function getPendingQueue() {
+            try { return JSON.parse(localStorage.getItem(pendingQueueKey()) || '[]'); } catch (_) { return []; }
+        }
+        function savePendingQueue(queue) {
+            try { localStorage.setItem(pendingQueueKey(), JSON.stringify(queue.slice(-50))); } catch (_) {}
+        }
+        function renderPendingMessage(item, status = 'sending') {
+            if (item.conversation_key !== currentConversationKey()) return;
+            document.querySelector(`[data-client-id="${item.client_id}"]`)?.remove();
+            const list = document.getElementById('msg-list');
+            const row = document.createElement('div');
+            row.dataset.clientId = item.client_id;
+            row.className = 'flex justify-end msg-appear mb-4';
+            const label = status === 'failed'
+                ? `<button onclick="retryPendingMessage('${item.client_id}')" class="text-red-500 font-bold">发送失败，点击重试</button>`
+                : status === 'sent' ? '<span class="text-green-500">已发送</span>' : '<span>发送中...</span>';
+            row.innerHTML = `<div class="max-w-[80%] sm:max-w-[70%] flex flex-col items-end"><div class="bg-blue-500/80 text-white rounded-2xl rounded-tr-none p-3 px-4 text-sm break-words">${renderContent(item.content)}</div><div class="text-[10px] text-gray-400 mt-1">${label}</div></div>`;
+            list.appendChild(row);
+            list.scrollTop = list.scrollHeight;
+        }
+        async function transmitPendingMessage(item) {
+            renderPendingMessage(item, 'sending');
+            try {
+                const body = { content: item.content, room_id: item.room_id, client_id: item.client_id };
+                if (item.receiver) body.receiver = item.receiver;
+                const response = await fetch('/api/messages', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token }, body: JSON.stringify(body)
+                });
+                const result = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(result.detail || '发送失败');
+                savePendingQueue(getPendingQueue().filter(entry => entry.client_id !== item.client_id));
+                renderPendingMessage(item, 'sent');
+                setTimeout(() => {
+                    document.querySelector(`[data-client-id="${item.client_id}"]`)?.remove();
+                    if (item.conversation_key === currentConversationKey()) loadMsgs(true);
+                }, 350);
+                return true;
+            } catch (error) {
+                const queue = getPendingQueue().filter(entry => entry.client_id !== item.client_id);
+                queue.push(item);
+                savePendingQueue(queue);
+                renderPendingMessage(item, 'failed');
+                return false;
+            }
+        }
+        async function retryPendingMessage(clientId) {
+            const item = getPendingQueue().find(entry => entry.client_id === clientId);
+            if (item) await transmitPendingMessage(item);
+        }
+        async function flushPendingMessages() {
+            if (!currentUser || !navigator.onLine) return;
+            for (const item of getPendingQueue()) await transmitPendingMessage(item);
+        }
         async function sendMsg() {
             if(!currentUser) return showLogin();
-            const content = document.getElementById('msg-input').value.trim(); if(!content) return;
-            const body = { content: content, room_id: currentRoomId }; if (currentTargetUser) body.receiver = currentTargetUser;
-            try {
-                const res = await fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token }, body: JSON.stringify(body) });
-                if(res.ok) { 
-                    document.getElementById('msg-input').value = ''; 
-                    loadMsgs(); 
-                } else {
-                    const data = await res.json().catch(() => ({}));
-                    alert(data.detail || "发送失败，后台出问题");
-                }
-            } catch (err) {
-                alert("发送失败，网络或后台出问题");
-            }
+            const input = document.getElementById('msg-input');
+            const content = input.value.trim(); if(!content) return;
+            input.value = '';
+            const item = {
+                client_id: (crypto.randomUUID ? crypto.randomUUID() : `web-${Date.now()}-${Math.random().toString(16).slice(2)}`),
+                content,
+                room_id: Math.max(0, currentRoomId),
+                receiver: currentTargetUser || null,
+                conversation_key: currentConversationKey(),
+                created_at: Date.now()
+            };
+            await transmitPendingMessage(item);
         }
 
         async function recallMsg(id) {
@@ -1186,20 +1599,111 @@
             if(res.ok) { loadMsgs(); } else { const data = await res.json(); alert("撤回失败: " + (data.detail || "无权限")); }
         }
 
+        async function editMessage(id) {
+            const message = currentMessages.find(item => item.id === id);
+            if (!message) return;
+            const content = prompt('编辑消息', message.content);
+            if (content === null || !content.trim() || content === message.content) return;
+            const response = await fetch(`/api/messages/${id}`, {
+                method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token },
+                body: JSON.stringify({ content: content.trim() })
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) return showToast(result.detail || '编辑失败');
+            message.content = result.content;
+            message.edited = true;
+            renderMessageList(false);
+            cacheCurrentMessages();
+        }
+
+        async function favoriteMessage(id) {
+            const response = await fetch(`/api/favorites/messages/${id}`, {
+                method: 'POST', headers: { 'Authorization': currentUser.token }
+            });
+            showToast(response.ok ? '消息已收藏' : '收藏失败');
+        }
+
+        async function showMessageReads(id) {
+            const response = await fetch(`/api/messages/${id}/reads`, { headers: { 'Authorization': currentUser.token } });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) return showToast(result.detail || '读取失败');
+            const names = (result.data || []).map(item => item.nickname || item.username);
+            alert(names.length ? `已读：${names.join('、')}` : '暂时无人已读');
+        }
+
+        function showChatSearch() {
+            if (!currentUser) return showLogin();
+            showModal('chat-search-modal');
+            document.getElementById('chat-search-query').focus();
+        }
+
+        async function searchChatMessages() {
+            const params = new URLSearchParams();
+            const query = document.getElementById('chat-search-query').value.trim();
+            const kind = document.getElementById('chat-search-kind').value;
+            const from = document.getElementById('chat-search-from').value;
+            const to = document.getElementById('chat-search-to').value;
+            if (query) params.set('q', query);
+            if (kind) params.set('kind', kind);
+            if (from) params.set('date_from', from);
+            if (to) params.set('date_to', to);
+            if (document.getElementById('chat-search-current').checked) {
+                if (currentTargetUser) params.set('target_user', currentTargetUser);
+                else params.set('room_id', Math.max(0, currentRoomId));
+            }
+            const list = document.getElementById('chat-search-results');
+            list.innerHTML = '<div class="text-center py-12 text-gray-400 text-sm">正在搜索...</div>';
+            try {
+                const response = await fetch(`/api/messages/search?${params}`, { headers: { 'Authorization': currentUser.token } });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.detail || '搜索失败');
+                const rows = result.data || [];
+                list.innerHTML = rows.length ? rows.map(message => `
+                    <button onclick="openSearchResult(${message.room_id || 0}, '${escapeHtml(message.receiver || '')}', '${escapeHtml(message.name || '')}')" class="w-full text-left p-3 border rounded-lg hover:bg-gray-50">
+                        <div class="text-xs text-gray-400 mb-1">${escapeHtml(message.nickname || message.name)} · ${escapeHtml(message.time || '')}</div>
+                        <div class="text-sm text-gray-800 line-clamp-2">${renderContent(message.content)}</div>
+                    </button>`).join('') : '<div class="text-center py-12 text-gray-400 text-sm">没有找到匹配消息</div>';
+            } catch (error) {
+                list.innerHTML = `<div class="text-center py-12 text-red-500 text-sm">${escapeHtml(error.message)}</div>`;
+            }
+        }
+
+        function openSearchResult(roomId, receiver, sender) {
+            hideModal('chat-search-modal');
+            if (receiver) {
+                const peer = sender === currentUser.username ? receiver : sender;
+                const friend = globalFriends.find(item => item.username === peer);
+                switchPrivateChat(peer, friend?.nickname || peer, friend?.avatar || '');
+            } else {
+                const group = globalGroups.find(item => item.id === roomId);
+                switchRoom(roomId, group?.name || '群聊');
+            }
+        }
+
+        async function showFavoriteMessages() {
+            if (!currentUser) return showLogin();
+            showModal('favorite-messages-modal');
+            const list = document.getElementById('favorite-messages-list');
+            list.innerHTML = '<div class="text-center py-12 text-gray-400">正在加载...</div>';
+            const response = await fetch('/api/favorites/messages', { headers: { 'Authorization': currentUser.token } });
+            const result = await response.json().catch(() => ({}));
+            const rows = result.data || [];
+            list.innerHTML = rows.length ? rows.map(message => `<div class="p-3 border rounded-lg"><div class="text-xs text-gray-400 mb-1">${escapeHtml(message.nickname || message.name)} · ${escapeHtml(message.time || '')}</div><div class="text-sm">${renderContent(message.content)}</div><button onclick="unfavoriteMessage(${message.id})" class="mt-2 text-xs text-red-500">取消收藏</button></div>`).join('') : '<div class="text-center py-12 text-gray-400">暂无收藏消息</div>';
+        }
+
+        async function unfavoriteMessage(id) {
+            await fetch(`/api/favorites/messages/${id}`, { method: 'DELETE', headers: { 'Authorization': currentUser.token } });
+            showFavoriteMessages();
+        }
+
         async function sendMsgDirect(content) {
             if(!currentUser) return showLogin();
-            const body = { content: content, room_id: currentRoomId }; if (currentTargetUser) body.receiver = currentTargetUser;
-            try {
-                const res = await fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token }, body: JSON.stringify(body) });
-                if(res.ok) { 
-                    loadMsgs(); 
-                } else {
-                    const data = await res.json().catch(() => ({}));
-                    alert(data.detail || "发送失败，后台出问题");
-                }
-            } catch (err) {
-                alert("发送失败，网络或后台出问题");
-            }
+            const item = {
+                client_id: (crypto.randomUUID ? crypto.randomUUID() : `web-${Date.now()}-${Math.random().toString(16).slice(2)}`),
+                content, room_id: Math.max(0, currentRoomId), receiver: currentTargetUser || null,
+                conversation_key: currentConversationKey(), created_at: Date.now()
+            };
+            return transmitPendingMessage(item);
         }
 
         async function showShareCardModal() {
@@ -1352,12 +1856,33 @@
             }
         }
 
+        async function compressImageForUpload(file) {
+            if (!file.type.startsWith('image/') || file.type === 'image/gif') return file;
+            const bitmap = await createImageBitmap(file);
+            const maxSide = 1920;
+            const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+            if (scale === 1 && file.size < 1024 * 1024) {
+                bitmap.close();
+                return file;
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+            canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+            canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+            bitmap.close();
+            const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/webp', 0.82));
+            if (!blob || blob.size >= file.size) return file;
+            return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.webp', { type: 'image/webp' });
+        }
+
         async function uploadFile(input) {
             if(!currentUser) return showLogin();
             if(!input.files || !input.files[0]) return;
-            const file = input.files[0];
+            const originalFile = input.files[0];
+            let file = originalFile;
+            try { file = await compressImageForUpload(originalFile); } catch (_) {}
             const formData = new FormData();
-            formData.append('file', file);
+            formData.append('file', file, file.name);
             
             const msgInput = document.getElementById('msg-input');
             const originalPlaceholder = msgInput.placeholder;
@@ -1376,20 +1901,12 @@
                     const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].includes(ext);
                     let fileMarkdown = "";
                     if (isImage) {
-                        fileMarkdown = `[img:${data.url}]`;
+                        fileMarkdown = `[img:${data.url}${data.thumbnail_url ? `|${data.thumbnail_url}` : ''}]`;
                     } else {
                         fileMarkdown = `[file:${data.download_url}|${file.name}]`;
                     }
                     
-                    const body = { content: fileMarkdown, room_id: currentRoomId };
-                    if (currentTargetUser) body.receiver = currentTargetUser;
-                    const resMsg = await fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token }, body: JSON.stringify(body) });
-                    if (resMsg.ok) {
-                        loadMsgs();
-                    } else {
-                        const errData = await resMsg.json().catch(() => ({}));
-                        alert(errData.detail || "文件已上传，但消息发送失败，后台出问题");
-                    }
+                    await sendMsgDirect(fileMarkdown);
                 } else {
                     alert("文件上传失败");
                 }
@@ -1662,6 +2179,7 @@
             const tReg = document.getElementById('tab-register');
             const tQr = document.getElementById('tab-qr');
             const fNick = document.getElementById('auth-n'); 
+            const fOtp = document.getElementById('auth-otp');
             const btn = document.getElementById('btn-auth-action');
             const formContainer = document.getElementById('auth-form-container');
             const qrContainer = document.getElementById('qr-container');
@@ -1684,6 +2202,7 @@
                 formContainer.classList.remove('hidden');
                 qrContainer.classList.add('hidden');
                 fNick.classList.add('hidden'); 
+                fOtp.classList.add('hidden');
                 btn.innerText = "立即登录"; 
                 btn.className = "w-full bg-blue-600 text-white py-4 rounded-2xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-500/30 transition";
             } else if (mode === 'register') {
@@ -1691,6 +2210,7 @@
                 formContainer.classList.remove('hidden');
                 qrContainer.classList.add('hidden');
                 fNick.classList.remove('hidden'); 
+                fOtp.classList.add('hidden');
                 btn.innerText = "完成注册并进入"; 
                 btn.className = "w-full bg-green-500 text-white py-4 rounded-2xl font-bold hover:bg-green-600 shadow-lg shadow-green-500/30 transition";
             } else if (mode === 'qr') {
@@ -1777,6 +2297,7 @@
 
         async function submitAuth() {
             const u = document.getElementById('auth-u').value.trim(); const p = document.getElementById('auth-p').value.trim(); const n = document.getElementById('auth-n').value.trim();
+            const otp = document.getElementById('auth-otp').value.trim();
             if (!u || !p) return alert("账号和密码必填！");
             const remember = document.getElementById('remember-login').checked;
             const deviceId = getWebDeviceId();
@@ -1784,14 +2305,22 @@
             const url = authMode === 'register' ? '/api/register' : '/api/login';
             const body = authMode === 'register'
                 ? {username:u, password:p, nickname:n, remember_me:remember, device_id:deviceId, device_name:deviceName}
-                : {username:u, password:p, remember_me:remember, device_id:deviceId, device_name:deviceName};
+                : {username:u, password:p, remember_me:remember, device_id:deviceId, device_name:deviceName, ...(otp ? {otp} : {})};
             const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
             if (res.ok) {
                 const userObj = await res.json();
                 showToast(authMode === 'register' ? "注册成功，正在进入..." : "登录成功，正在进入...");
                 enterAuthenticatedSession(userObj, remember);
             }
-            else { const err = await res.json(); alert(err.detail || "操作失败"); }
+            else {
+                const err = await res.json();
+                if (res.headers.get('X-OpenBoard-2FA') === 'required') {
+                    const otpInput = document.getElementById('auth-otp');
+                    otpInput.classList.remove('hidden');
+                    otpInput.focus();
+                    showToast('请输入两步验证动态码');
+                } else alert(err.detail || "操作失败");
+            }
         }
         async function logout() {
             try {
@@ -1814,6 +2343,97 @@
             pendingAvatarBase64 = currentUser.avatar;
             document.getElementById('profile-avatar-preview').innerHTML = getAvatarHtml(currentUser.avatar, currentUser.nickname || currentUser.username, "w-full h-full text-3xl");
             document.getElementById('pwd-old').value = ''; document.getElementById('pwd-new').value = '';
+        }
+
+        let pendingTwoFactorSecret = null;
+        async function showSecurityCenter() {
+            hideModal('profile-modal');
+            showModal('security-center-modal');
+            const [securityResponse, historyResponse] = await Promise.all([
+                fetch('/api/user/security', { headers: { 'Authorization': currentUser.token } }),
+                fetch('/api/user/login-history', { headers: { 'Authorization': currentUser.token } })
+            ]);
+            const security = await securityResponse.json();
+            const history = await historyResponse.json();
+            const enabled = Boolean(security.data?.two_factor_enabled);
+            document.getElementById('read-receipts-toggle').checked = security.data?.read_receipts_enabled !== false;
+            document.getElementById('two-factor-status').textContent = enabled ? '已开启' : '未开启';
+            document.getElementById('two-factor-setup').classList.toggle('hidden', enabled);
+            document.getElementById('two-factor-disable').classList.toggle('hidden', !enabled);
+            document.getElementById('two-factor-confirm').classList.add('hidden');
+            const list = document.getElementById('login-history-list');
+            const rows = history.data || [];
+            list.innerHTML = rows.length ? rows.map(item => `<div class="py-2"><div class="flex justify-between gap-3"><span class="font-bold ${item.success ? 'text-green-600' : 'text-red-500'}">${item.success ? '登录成功' : '登录失败'}</span><span class="text-gray-400">${escapeHtml(item.created_at || '')}</span></div><div class="text-gray-500 truncate">${escapeHtml(item.device_name || '未知设备')} · ${escapeHtml(item.ip_address || '未知 IP')} ${item.country ? `· ${escapeHtml(item.country)}` : ''}</div></div>`).join('') : '<div class="py-6 text-center text-gray-400">暂无登录记录</div>';
+        }
+
+        function closeSecurityCenter() {
+            hideModal('security-center-modal');
+            showModal('profile-modal');
+        }
+
+        async function saveSecurityPreferences() {
+            const enabled = document.getElementById('read-receipts-toggle').checked;
+            const response = await fetch('/api/user/security/preferences', {
+                method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token },
+                body: JSON.stringify({ read_receipts_enabled: enabled })
+            });
+            showToast(response.ok ? '已读回执设置已保存' : '设置保存失败');
+        }
+
+        async function beginTwoFactorSetup() {
+            const password = document.getElementById('two-factor-password').value;
+            if (!password) return showToast('请输入账号密码');
+            const response = await fetch('/api/user/two-factor/setup', {
+                method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token },
+                body: JSON.stringify({ password })
+            });
+            const result = await response.json();
+            if (!response.ok) return showToast(result.detail || '设置失败');
+            pendingTwoFactorSecret = result.secret;
+            document.getElementById('two-factor-setup').classList.add('hidden');
+            document.getElementById('two-factor-confirm').classList.remove('hidden');
+            document.getElementById('two-factor-secret').textContent = `密钥：${result.secret}`;
+            const qr = document.getElementById('two-factor-qr');
+            qr.innerHTML = '';
+            new QRCode(qr, { text: result.otpauth_uri, width: 160, height: 160 });
+        }
+
+        async function confirmTwoFactorSetup() {
+            const code = document.getElementById('two-factor-code').value.trim();
+            const response = await fetch('/api/user/two-factor/confirm', {
+                method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token },
+                body: JSON.stringify({ code })
+            });
+            const result = await response.json();
+            if (!response.ok) return showToast(result.detail || '动态码错误');
+            pendingTwoFactorSecret = null;
+            showToast('两步验证已开启');
+            showSecurityCenter();
+        }
+
+        async function disableTwoFactor() {
+            const password = document.getElementById('two-factor-disable-password').value;
+            const code = document.getElementById('two-factor-disable-code').value.trim();
+            const response = await fetch('/api/user/two-factor/disable', {
+                method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token },
+                body: JSON.stringify({ password, code })
+            });
+            const result = await response.json();
+            if (!response.ok) return showToast(result.detail || '关闭失败');
+            showToast('两步验证已关闭');
+            showSecurityCenter();
+        }
+
+        async function logoutAllDevices() {
+            const password = document.getElementById('logout-all-password').value;
+            if (!password || !confirm('确定退出全部设备吗？')) return;
+            const response = await fetch('/api/user/logout-all', {
+                method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': currentUser.token },
+                body: JSON.stringify({ password })
+            });
+            const result = await response.json();
+            if (!response.ok) return showToast(result.detail || '操作失败');
+            localStorage.removeItem('user'); sessionStorage.removeItem('user'); location.reload();
         }
 
         async function showLoginDevices() {
@@ -1860,7 +2480,7 @@
                     </button>
                 `;
                 row.querySelector('.device-name').textContent = device.device_name;
-                row.querySelector('.device-time').textContent = `最近登录：${device.last_login || '未知'}`;
+                row.querySelector('.device-time').textContent = `最近登录：${device.last_login || '未知'} · ${device.ip_address || '未知 IP'}${device.country ? ` · ${device.country}` : ''}`;
                 row.querySelector('.current-device').classList.toggle('hidden', !device.is_current);
                 row.querySelector('.logout-device').onclick = () => selectDeviceLogout(device);
                 list.appendChild(row);
@@ -2524,6 +3144,18 @@
                 uploadFile({ files: e.dataTransfer.files });
             }
         });
+
+        function updateNetworkState() {
+            document.getElementById('network-banner').classList.toggle('hidden', navigator.onLine);
+            if (navigator.onLine) {
+                setupWebSocket();
+                flushPendingMessages();
+                syncMissedMessages();
+            }
+        }
+        window.addEventListener('online', updateNetworkState);
+        window.addEventListener('offline', updateNetworkState);
+        updateNetworkState();
 
         restoreStoredSession();
     </script>

@@ -30,6 +30,17 @@
         android:orientation="vertical"
         android:gravity="end">
 
+        <TextView
+            android:id="@+id/tv_name_self"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:textColor="@color/primary"
+            android:layout_marginBottom="3dp"
+            android:visibility="gone"
+            android:text="发送者"/>
+
         <!-- Time -->
         <TextView
             android:id="@+id/tv_time"

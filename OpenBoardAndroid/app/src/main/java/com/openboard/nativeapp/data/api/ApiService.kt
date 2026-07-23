@@ -19,7 +19,10 @@ interface ApiService {
     @GET("api/messages")
     fun getMessages(
         @Query("room_id") roomId: Int = 0,
-        @Query("target_user") targetUser: String? = null
+        @Query("target_user") targetUser: String? = null,
+        @Query("before_id") beforeId: Int? = null,
+        @Query("after_id") afterId: Int? = null,
+        @Query("limit") limit: Int = 50
     ): Call<ApiResponse<List<Message>>>
 
     @POST("api/messages")
@@ -27,6 +30,32 @@ interface ApiService {
 
     @DELETE("api/messages/{msgId}")
     fun recallMessage(@Path("msgId") msgId: Int): Call<ApiResponse<Any>>
+
+    @PUT("api/messages/{msgId}")
+    fun editMessage(
+        @Path("msgId") msgId: Int,
+        @Body request: EditMessageRequest
+    ): Call<ApiResponse<Any>>
+
+    @POST("api/messages/read")
+    fun markMessagesRead(@Body request: MarkReadRequest): Call<ApiResponse<Any>>
+
+    @POST("api/favorites/messages/{msgId}")
+    fun favoriteMessage(@Path("msgId") msgId: Int): Call<ApiResponse<Any>>
+
+    @DELETE("api/favorites/messages/{msgId}")
+    fun unfavoriteMessage(@Path("msgId") msgId: Int): Call<ApiResponse<Any>>
+
+    @GET("api/messages/search")
+    fun searchMessages(
+        @Query("q") query: String,
+        @Query("room_id") roomId: Int? = null,
+        @Query("target_user") targetUser: String? = null,
+        @Query("limit") limit: Int = 30
+    ): Call<ApiResponse<List<Message>>>
+
+    @GET("api/favorites/messages")
+    fun getFavoriteMessages(): Call<ApiResponse<List<Message>>>
 
     @Multipart
     @POST("api/upload")

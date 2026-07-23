@@ -147,6 +147,94 @@ def patch_db():
             UNIQUE(user_a, user_b)
         )
     """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS message_edits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            msg_id INTEGER NOT NULL,
+            editor TEXT NOT NULL,
+            old_content TEXT NOT NULL,
+            edited_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS message_favorites (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            msg_id INTEGER NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(username, msg_id)
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS conversation_settings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            conversation_key TEXT NOT NULL,
+            is_pinned INTEGER DEFAULT 0,
+            is_muted INTEGER DEFAULT 0,
+            last_read_id INTEGER DEFAULT 0,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(username, conversation_key)
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS group_members (
+            group_id INTEGER NOT NULL,
+            username TEXT NOT NULL,
+            member_role TEXT DEFAULT 'member',
+            muted_until DATETIME,
+            joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(group_id, username)
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS group_join_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id INTEGER NOT NULL,
+            username TEXT NOT NULL,
+            status TEXT DEFAULT 'pending',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(group_id, username)
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS group_invites (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id INTEGER NOT NULL,
+            inviter TEXT NOT NULL,
+            invitee TEXT NOT NULL,
+            status TEXT DEFAULT 'pending',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(group_id, invitee)
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS group_audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id INTEGER NOT NULL,
+            actor TEXT NOT NULL,
+            action TEXT NOT NULL,
+            target TEXT,
+            detail TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS login_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            username TEXT NOT NULL,
+            device_id TEXT,
+            device_name TEXT,
+            ip_address TEXT,
+            country TEXT,
+            user_agent TEXT,
+            success INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
     
     # Check & append missing columns to guarantee backwards compatibility
     columns_to_add = {
@@ -157,12 +245,18 @@ def patch_db():
             ("avatar", "TEXT"), 
             ("blocked_users", "TEXT DEFAULT ''"), 
             ("last_read_notice_id", "INTEGER DEFAULT 0"),
-            ("push_token", "TEXT")
+            ("push_token", "TEXT"),
+            ("two_factor_secret", "TEXT"),
+            ("two_factor_enabled", "INTEGER DEFAULT 0"),
+            ("read_receipts_enabled", "INTEGER DEFAULT 1")
         ],
         "messages": [
             ("room_id", "INTEGER DEFAULT 0"), 
             ("reply", "TEXT"), 
-            ("receiver", "TEXT")
+            ("receiver", "TEXT"),
+            ("edited_at", "DATETIME"),
+            ("edit_count", "INTEGER DEFAULT 0"),
+            ("client_id", "TEXT")
         ],
         "groups": [
             ("owner_id", "INTEGER DEFAULT 0"), 
@@ -173,14 +267,20 @@ def patch_db():
             ("black_view", "TEXT DEFAULT ''"), 
             ("black_speak", "TEXT DEFAULT ''"),
             ("white_view", "TEXT DEFAULT ''"), 
-            ("white_speak", "TEXT DEFAULT ''")
+            ("white_speak", "TEXT DEFAULT ''"),
+            ("announcement", "TEXT DEFAULT ''"),
+            ("member_only", "INTEGER DEFAULT 0"),
+            ("join_approval", "INTEGER DEFAULT 0")
         ],
         "notifications": [
             ("target_user", "TEXT")
         ],
         "user_devices": [
             ("device_name", "TEXT"),
-            ("user_agent", "TEXT")
+            ("user_agent", "TEXT"),
+            ("ip_address", "TEXT"),
+            ("country", "TEXT"),
+            ("last_seen", "DATETIME")
         ]
     }
     
@@ -224,10 +324,29 @@ def patch_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_messages_name ON messages(name)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_messages_room_receiver_id ON messages(room_id, receiver, id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_messages_name_receiver_id ON messages(name, receiver, id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_messages_content ON messages(content)")
+    cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_sender_client ON messages(name, client_id) WHERE client_id IS NOT NULL")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_message_reads_msg ON message_reads(msg_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_message_favorites_user ON message_favorites(username, created_at DESC)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_conversation_settings_user ON conversation_settings(username, is_pinned DESC)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_group_members_user ON group_members(username, group_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_group_requests_group_status ON group_join_requests(group_id, status)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_group_invites_user_status ON group_invites(invitee, status)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_group_audit_group_id ON group_audit_logs(group_id, id DESC)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_login_history_user_id ON login_history(user_id, id DESC)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_friend_requests_users ON friend_requests(from_user, to_user)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_friends_users ON friends(user_a, user_b)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_devices_user_login ON user_devices(user_id, last_login DESC)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_revoked_sessions_user ON revoked_sessions(user_id)")
+
+    # Backfill group owners into the new membership model without changing the
+    # visibility rules of existing groups.
+    cursor.execute("""
+        INSERT OR IGNORE INTO group_members (group_id, username, member_role)
+        SELECT g.id, u.username, 'owner'
+        FROM groups g JOIN users u ON g.owner_id = u.id
+        WHERE g.id > 0
+    """)
 
     conn.commit()
     conn.close()

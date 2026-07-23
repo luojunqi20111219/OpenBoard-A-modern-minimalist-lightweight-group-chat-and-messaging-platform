@@ -1,4 +1,9 @@
 import time
+import base64
+import hashlib
+import hmac
+import secrets
+import struct
 from collections import deque
 from threading import Lock
 
@@ -80,6 +85,30 @@ def client_ip(request) -> str:
         if forwarded:
             peer = forwarded.split(",", 1)[0].strip()
     return peer[:64]
+
+
+def generate_totp_secret() -> str:
+    return base64.b32encode(secrets.token_bytes(20)).decode("ascii").rstrip("=")
+
+
+def _totp_code(secret: str, timestamp: float) -> str:
+    padded = secret.upper() + "=" * ((8 - len(secret) % 8) % 8)
+    key = base64.b32decode(padded, casefold=True)
+    counter = int(timestamp // 30)
+    digest = hmac.new(key, struct.pack(">Q", counter), hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    number = struct.unpack(">I", digest[offset:offset + 4])[0] & 0x7FFFFFFF
+    return f"{number % 1000000:06d}"
+
+
+def verify_totp(secret: str, code: str, timestamp: float = None) -> bool:
+    if not secret or not code or not code.isdigit():
+        return False
+    now = timestamp if timestamp is not None else time.time()
+    return any(
+        hmac.compare_digest(_totp_code(secret, now + offset * 30), code.zfill(6))
+        for offset in (-1, 0, 1)
+    )
 
 
 login_rate_limiter = LoginRateLimiter()

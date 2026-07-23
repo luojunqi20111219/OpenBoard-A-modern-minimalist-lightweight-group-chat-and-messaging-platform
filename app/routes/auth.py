@@ -1,17 +1,22 @@
 import asyncio
 import datetime
 import hmac
+import urllib.parse
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from werkzeug.security import generate_password_hash, check_password_hash
 from app.config import Config
 from app.database import get_db
 from app.models import (
     LoginData, RegisterData, PasswordChangeData, BlockUserData, UserProfileData,
-    PushTokenData, WebDeviceData, DeviceLogoutData,
+    PushTokenData, WebDeviceData, DeviceLogoutData, SecurityPreferencesData,
+    TwoFactorConfirmData, TwoFactorDisableData, LogoutAllData,
 )
 from app.auth import create_access_token, get_current_user, revoke_token, verify_token
 from app.media import normalize_avatar
-from app.security import client_ip, login_ip_rate_limiter, login_rate_limiter, sanitize_plain_text
+from app.security import (
+    client_ip, generate_totp_secret, login_ip_rate_limiter, login_rate_limiter,
+    sanitize_plain_text, verify_totp,
+)
 from app.websocket import manager
 
 router = APIRouter(prefix="/api")
@@ -40,24 +45,53 @@ def set_session_cookie(response: Response, token: str, remember_me: bool) -> Non
         cookie_options["max_age"] = REMEMBER_SESSION_MINUTES * 60
     response.set_cookie(**cookie_options)
 
-def register_device_session(db, user_id: int, token: str, device_id: str, device_name: str, user_agent: str = "") -> None:
+def register_device_session(
+    db, user_id: int, token: str, device_id: str, device_name: str,
+    user_agent: str = "", ip_address: str = "", country: str = "",
+) -> bool:
     device_id = (device_id or "").strip()[:128]
     if not device_id:
-        return
+        return False
     device_name = (device_name or "网页设备").strip()[:120]
     user_agent = (user_agent or "").strip()[:500]
+    existed = db.execute(
+        "SELECT 1 FROM user_devices WHERE user_id=? AND device_id=?", (user_id, device_id)
+    ).fetchone()
     db.execute(
         """
-        INSERT INTO user_devices (user_id, device_id, token, device_name, user_agent, last_login)
-        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        INSERT INTO user_devices (
+            user_id, device_id, token, device_name, user_agent, ip_address, country, last_login, last_seen
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         ON CONFLICT(user_id, device_id) DO UPDATE SET
             token=excluded.token,
             device_name=excluded.device_name,
             user_agent=excluded.user_agent,
-            last_login=CURRENT_TIMESTAMP
+            ip_address=excluded.ip_address,
+            country=excluded.country,
+            last_login=CURRENT_TIMESTAMP,
+            last_seen=CURRENT_TIMESTAMP
         """,
-        (user_id, device_id, token, device_name, user_agent),
+        (user_id, device_id, token, device_name, user_agent, ip_address[:64], country[:16]),
     )
+    return not bool(existed)
+
+
+def record_login_history(db, user, data, request, success):
+    ip_address = client_ip(request)
+    country = (request.headers.get("CF-IPCountry") or request.headers.get("X-Country-Code") or "").upper()[:16]
+    db.execute(
+        """
+        INSERT INTO login_history (
+            user_id, username, device_id, device_name, ip_address, country, user_agent, success
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            user['id'] if user else None, data.username, data.device_id, data.device_name,
+            ip_address, country, request.headers.get("User-Agent", "")[:500], int(success),
+        ),
+    )
+    return ip_address, country
 
 def delete_user_and_data(db, user_id: int, username: str):
     db.execute("DELETE FROM messages WHERE name=?", (username,))
@@ -70,6 +104,13 @@ def delete_user_and_data(db, user_id: int, username: str):
     db.execute("DELETE FROM friends WHERE user_a=? OR user_b=?", (username, username))
     db.execute("DELETE FROM friend_requests WHERE from_user=? OR to_user=?", (username, username))
     db.execute("DELETE FROM favorite_emojis WHERE username=?", (username,))
+    db.execute("DELETE FROM message_favorites WHERE username=?", (username,))
+    db.execute("DELETE FROM conversation_settings WHERE username=?", (username,))
+    db.execute("DELETE FROM message_reads WHERE user=?", (username,))
+    db.execute("DELETE FROM group_members WHERE username=?", (username,))
+    db.execute("DELETE FROM group_join_requests WHERE username=?", (username,))
+    db.execute("DELETE FROM group_invites WHERE inviter=? OR invitee=?", (username, username))
+    db.execute("DELETE FROM login_history WHERE user_id=?", (user_id,))
     db.execute("DELETE FROM notifications WHERE target_user=?", (username,))
     db.execute("DELETE FROM users WHERE id=?", (user_id,))
 
@@ -99,7 +140,10 @@ async def register(data: RegisterData, response: Response, request: Request, db 
         register_device_session(
             db, user_id, token, data.device_id, data.device_name,
             request.headers.get("User-Agent", ""),
+            client_ip(request),
+            (request.headers.get("CF-IPCountry") or "")[:16],
         )
+        record_login_history(db, {"id": user_id}, data, request, True)
         
         db.execute(
             "INSERT INTO notifications (content, sender, target_user) VALUES (?, ?, ?)",
@@ -144,17 +188,48 @@ async def login(data: LoginData, response: Response, request: Request, db = Depe
         None, check_password_hash, password_hash, data.password
     )
     if user and password_matches:
-        login_rate_limiter.reset(account_key)
         if user['is_banned'] == 1:
             raise HTTPException(status_code=403, detail="您的账号已被管理员封禁")
-            
+
+        if user['two_factor_enabled'] and not verify_totp(user['two_factor_secret'], data.otp or ""):
+            record_login_history(db, user, data, request, False)
+            db.commit()
+            login_rate_limiter.record_failure(account_key)
+            raise HTTPException(
+                status_code=401,
+                detail="需要有效的两步验证动态码",
+                headers={"X-OpenBoard-2FA": "required"},
+            )
+
+        login_rate_limiter.reset(account_key)
+        had_successful_login = db.execute(
+            "SELECT 1 FROM login_history WHERE user_id=? AND success=1 LIMIT 1", (user['id'],)
+        ).fetchone()
+        ip_address = client_ip(request)
+        country = (request.headers.get("CF-IPCountry") or request.headers.get("X-Country-Code") or "").upper()[:16]
+        known_country = bool(country and db.execute(
+            "SELECT 1 FROM login_history WHERE user_id=? AND success=1 AND country=? LIMIT 1",
+            (user['id'], country),
+        ).fetchone())
+
         token = create_session_token(user['id'], user['username'], user['role'], data.remember_me)
-        
+
         db.execute("UPDATE users SET token=? WHERE id=?", (token, user['id']))
-        register_device_session(
+        new_device = register_device_session(
             db, user['id'], token, data.device_id, data.device_name,
             request.headers.get("User-Agent", ""),
+            ip_address, country,
         )
+        record_login_history(db, user, data, request, True)
+        if had_successful_login and (new_device or (country and not known_country)):
+            location = f"，地区 {country}" if country else ""
+            db.execute(
+                "INSERT INTO notifications (content, sender, target_user) VALUES (?, '安全中心', ?)",
+                (
+                    f"检测到新设备或新地区登录：{data.device_name or '未知设备'}，IP {ip_address}{location}",
+                    user['username'],
+                ),
+            )
         db.commit()
         
         # Write to HTTP-only Cookie for seamless secure access to /admin
@@ -167,9 +242,12 @@ async def login(data: LoginData, response: Response, request: Request, db = Depe
             "nickname": user['nickname'],
             "avatar": user['avatar'],
             "id": user['id'],
-            "role": user['role']
+            "role": user['role'],
+            "two_factor_enabled": bool(user['two_factor_enabled']),
         }
-        
+
+    record_login_history(db, user, data, request, False)
+    db.commit()
     lock_seconds = max(
         login_rate_limiter.record_failure(account_key),
         login_ip_rate_limiter.record_failure(ip_key),
@@ -212,6 +290,8 @@ async def get_session(request: Request, response: Response, current_user = Depen
         "avatar": current_user["avatar"],
         "id": current_user["id"],
         "role": current_user["role"],
+        "two_factor_enabled": bool(current_user.get("two_factor_enabled", 0)),
+        "read_receipts_enabled": bool(current_user.get("read_receipts_enabled", 1)),
     }
 
 @router.put("/user/password")
@@ -298,7 +378,8 @@ async def get_login_devices(request: Request, current_user = Depends(get_current
     current_token = request.headers.get("Authorization") or request.cookies.get("token") or ""
     rows = db.execute(
         """
-        SELECT device_id, device_name, user_agent, push_token, token, last_login
+        SELECT device_id, device_name, user_agent, push_token, token, last_login,
+               ip_address, country, last_seen
         FROM user_devices
         WHERE user_id=?
         ORDER BY last_login DESC
@@ -312,6 +393,9 @@ async def get_login_devices(request: Request, current_user = Depends(get_current
             "device_id": row["device_id"],
             "device_name": row["device_name"] or fallback_name,
             "last_login": row["last_login"],
+            "last_seen": row["last_seen"],
+            "ip_address": row["ip_address"],
+            "country": row["country"],
             "is_current": bool(row["token"] and hmac.compare_digest(row["token"], current_token)),
         })
     return {"status": "success", "data": devices}
@@ -327,6 +411,8 @@ async def register_web_device(
     register_device_session(
         db, current_user["id"], token, data.device_id, data.device_name,
         request.headers.get("User-Agent", ""),
+        client_ip(request),
+        (request.headers.get("CF-IPCountry") or "")[:16],
     )
     db.commit()
     return {"status": "success"}
@@ -393,6 +479,128 @@ async def logout_device(
 
     await manager.close_user_connections(current_user["username"])
     return {"status": "success", "msg": "设备已退出登录"}
+
+
+@router.get("/user/security")
+async def get_security_settings(current_user = Depends(get_current_user)):
+    return {
+        "status": "success",
+        "data": {
+            "two_factor_enabled": bool(current_user.get("two_factor_enabled", 0)),
+            "read_receipts_enabled": bool(current_user.get("read_receipts_enabled", 1)),
+        },
+    }
+
+
+@router.put("/user/security/preferences")
+async def update_security_preferences(
+    data: SecurityPreferencesData,
+    current_user = Depends(get_current_user),
+    db = Depends(get_db),
+):
+    db.execute(
+        "UPDATE users SET read_receipts_enabled=? WHERE id=?",
+        (int(data.read_receipts_enabled), current_user['id']),
+    )
+    db.commit()
+    return {"status": "success"}
+
+
+@router.get("/user/login-history")
+async def get_login_history(current_user = Depends(get_current_user), db = Depends(get_db)):
+    rows = db.execute(
+        """
+        SELECT id, device_id, device_name, ip_address, country, user_agent, success, created_at
+        FROM login_history WHERE user_id=? ORDER BY id DESC LIMIT 100
+        """,
+        (current_user['id'],),
+    ).fetchall()
+    return {"status": "success", "data": [dict(row) for row in rows]}
+
+
+@router.post("/user/two-factor/setup")
+async def setup_two_factor(
+    data: DeviceLogoutData,
+    current_user = Depends(get_current_user),
+    db = Depends(get_db),
+):
+    password_matches = await asyncio.get_running_loop().run_in_executor(
+        None, check_password_hash, current_user['password_hash'], data.password
+    )
+    if not password_matches:
+        raise HTTPException(status_code=400, detail="密码错误")
+    secret = generate_totp_secret()
+    db.execute(
+        "UPDATE users SET two_factor_secret=?, two_factor_enabled=0 WHERE id=?",
+        (secret, current_user['id']),
+    )
+    db.commit()
+    label = urllib.parse.quote(f"OpenBoard:{current_user['username']}")
+    issuer = urllib.parse.quote("OpenBoard")
+    uri = f"otpauth://totp/{label}?secret={secret}&issuer={issuer}&digits=6&period=30"
+    return {"status": "success", "secret": secret, "otpauth_uri": uri}
+
+
+@router.post("/user/two-factor/confirm")
+async def confirm_two_factor(
+    data: TwoFactorConfirmData,
+    current_user = Depends(get_current_user),
+    db = Depends(get_db),
+):
+    secret = current_user.get('two_factor_secret')
+    if not verify_totp(secret, data.code):
+        raise HTTPException(status_code=400, detail="动态验证码错误")
+    db.execute("UPDATE users SET two_factor_enabled=1 WHERE id=?", (current_user['id'],))
+    db.execute(
+        "INSERT INTO notifications (content, sender, target_user) VALUES ('两步验证已开启', '安全中心', ?)",
+        (current_user['username'],),
+    )
+    db.commit()
+    return {"status": "success"}
+
+
+@router.post("/user/two-factor/disable")
+async def disable_two_factor(
+    data: TwoFactorDisableData,
+    current_user = Depends(get_current_user),
+    db = Depends(get_db),
+):
+    password_matches = await asyncio.get_running_loop().run_in_executor(
+        None, check_password_hash, current_user['password_hash'], data.password
+    )
+    if not password_matches or not verify_totp(current_user.get('two_factor_secret'), data.code):
+        raise HTTPException(status_code=400, detail="密码或动态验证码错误")
+    db.execute(
+        "UPDATE users SET two_factor_enabled=0, two_factor_secret=NULL WHERE id=?",
+        (current_user['id'],),
+    )
+    db.commit()
+    return {"status": "success"}
+
+
+@router.post("/user/logout-all")
+async def logout_all_devices(
+    data: LogoutAllData,
+    response: Response,
+    current_user = Depends(get_current_user),
+    db = Depends(get_db),
+):
+    password_matches = await asyncio.get_running_loop().run_in_executor(
+        None, check_password_hash, current_user['password_hash'], data.password
+    )
+    if not password_matches:
+        raise HTTPException(status_code=400, detail="密码错误")
+    sessions = db.execute(
+        "SELECT device_id, token FROM user_devices WHERE user_id=?", (current_user['id'],)
+    ).fetchall()
+    for session in sessions:
+        revoke_token(db, session['token'], current_user['id'], session['device_id'])
+    db.execute("DELETE FROM user_devices WHERE user_id=?", (current_user['id'],))
+    db.execute("UPDATE users SET token=NULL WHERE id=?", (current_user['id'],))
+    db.commit()
+    response.delete_cookie(key="token", path="/")
+    await manager.close_user_connections(current_user['username'])
+    return {"status": "success", "msg": "所有设备已退出登录"}
 
 @router.post("/user/push_token")
 async def register_push_token(request: Request, data: PushTokenData, current_user = Depends(get_current_user), db = Depends(get_db)):

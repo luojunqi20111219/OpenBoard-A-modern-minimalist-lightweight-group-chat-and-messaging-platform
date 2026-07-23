@@ -15,5 +15,17 @@ data class ApiResponse<T>(
     @SerializedName("last_read_id")
     val lastReadId: Int? = null,
     @SerializedName("blocked_users")
-    val blockedUsers: List<String>? = null
+    val blockedUsers: List<String>? = null,
+    val id: Int? = null,
+    val pagination: Pagination? = null
+)
+
+data class Pagination(
+    val limit: Int = 50,
+    @SerializedName("has_more")
+    val hasMore: Boolean = false,
+    @SerializedName("next_before_id")
+    val nextBeforeId: Int? = null,
+    @SerializedName("last_id")
+    val lastId: Int? = null
 )

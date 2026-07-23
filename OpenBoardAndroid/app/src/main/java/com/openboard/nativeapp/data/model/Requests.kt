@@ -7,7 +7,8 @@ import com.google.gson.annotations.SerializedName
  */
 data class LoginRequest(
     val username: String,
-    val password: String
+    val password: String,
+    val otp: String? = null
 )
 
 data class RegisterRequest(
@@ -23,7 +24,20 @@ data class SendMessageRequest(
     val receiver: String? = null,
     @SerializedName("reply_to")
     val replyTo: Int? = null,
-    val type: Int = 0
+    val type: Int = 0,
+    @SerializedName("client_id")
+    val clientId: String? = null
+)
+
+data class EditMessageRequest(val content: String)
+
+data class MarkReadRequest(
+    @SerializedName("up_to_id")
+    val upToId: Int,
+    @SerializedName("room_id")
+    val roomId: Int = 0,
+    @SerializedName("target_user")
+    val targetUser: String? = null
 )
 
 data class CreateGroupRequest(

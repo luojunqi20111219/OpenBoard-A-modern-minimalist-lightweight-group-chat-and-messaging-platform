@@ -26,7 +26,13 @@ data class WsMessage(
     @SerializedName("by_nickname")
     val byNickname: String? = null,
     @SerializedName("by_avatar")
-    val byAvatar: String? = null
+    val byAvatar: String? = null,
+    val content: String? = null,
+    @SerializedName("edited_at")
+    val editedAt: String? = null,
+    val reader: String? = null,
+    @SerializedName("up_to_id")
+    val upToId: Int? = null
 )
 
 data class WsData(
@@ -42,5 +48,11 @@ data class WsData(
     @SerializedName("reply_to")
     val replyTo: Int? = null,
     @SerializedName("can_recall")
-    val canRecall: Boolean = false
+    val canRecall: Boolean = false,
+    @SerializedName("client_id")
+    val clientId: String? = null,
+    @SerializedName("read_count")
+    val readCount: Int = 0,
+    @SerializedName("can_edit")
+    val canEdit: Boolean = false
 )

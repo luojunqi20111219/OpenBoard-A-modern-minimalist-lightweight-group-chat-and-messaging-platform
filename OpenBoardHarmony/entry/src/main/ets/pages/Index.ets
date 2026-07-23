@@ -25,6 +25,12 @@ interface Message {
   isRecalled?: number;
   avatar?: string;
   can_recall?: boolean;
+  can_edit?: boolean;
+  edited?: boolean;
+  edited_at?: string;
+  read_count?: number;
+  client_id?: string;
+  delivery_status?: string;
 }
 
 interface Relation {
@@ -58,6 +64,12 @@ interface LoginResponse {
 
 interface HistoryResponse {
   data: Message[];
+  pagination?: HistoryPagination;
+}
+
+interface HistoryPagination {
+  has_more?: boolean;
+  next_before_id?: number;
 }
 
 interface WsMsgData {
@@ -70,6 +82,9 @@ interface WsMsgData {
   avatar?: string;
   receiver?: string;
   can_recall?: boolean;
+  can_edit?: boolean;
+  read_count?: number;
+  client_id?: string;
 }
 
 interface WsMsg {
@@ -92,6 +107,7 @@ interface SendMsgPayload {
   content: string;
   room_id: number;
   receiver?: string;
+  client_id?: string;
 }
 
 interface ForwardMsgPayload {
@@ -173,6 +189,9 @@ struct Index {
   @State activeTargetUser: string = "";
   @State activeChatTitle: string = "公共大厅";
   @State messages: Message[] = [];
+  @State hasMoreHistory: boolean = true;
+  private oldestMessageId: number = 0;
+  private isLoadingHistory: boolean = false;
   @State msgInput: string = "";
   @State relations: Relation[] = [];
   
@@ -222,6 +241,7 @@ struct Index {
   @State cardModalVisible: boolean = false;
   @State forwardModalVisible: boolean = false;
   @State forwardMessageId: number = 0;
+  private editingMessageId: number = 0;
   @State blockedUsers: string[] = [];
   @State isTargetBlocked: boolean = false;
 
@@ -684,7 +704,9 @@ struct Index {
   }
 
   // Load chat history
-  loadHistory() {
+  loadHistory(loadOlder: boolean = false) {
+    if (this.isLoadingHistory || (loadOlder && !this.hasMoreHistory)) return;
+    this.isLoadingHistory = true;
     let apiPath = "";
     if (this.activeRoomId > 0) {
       apiPath = `${this.serverUrl}/api/messages?room_id=${this.activeRoomId}`;
@@ -692,6 +714,10 @@ struct Index {
       apiPath = `${this.serverUrl}/api/messages?target_user=${this.activeTargetUser}`;
     } else {
       apiPath = `${this.serverUrl}/api/messages?room_id=0`;
+    }
+    apiPath += `&limit=50`;
+    if (loadOlder && this.oldestMessageId > 0) {
+      apiPath += `&before_id=${this.oldestMessageId}`;
     }
 
     let httpRequest = http.createHttp();
@@ -708,8 +734,21 @@ struct Index {
           try {
             let res = JSON.parse(data.result as string) as HistoryResponse;
             let rawList: Message[] = res.data || [];
-            // API returns oldest first (ASC), display directly
-            this.messages = rawList;
+            this.hasMoreHistory = res.pagination?.has_more === true;
+            this.oldestMessageId = res.pagination?.next_before_id || (rawList.length > 0 && rawList[0].id ? rawList[0].id as number : 0);
+            if (loadOlder) {
+              let older: Message[] = rawList.filter((incoming: Message) => {
+                return this.messages.findIndex((current: Message) => current.id === incoming.id) === -1;
+              });
+              this.messages = older.concat(this.messages);
+              if (older.length > 0) {
+                setTimeout((): void => {
+                  this.scroller.scrollToIndex(older.length, false, ScrollAlign.START);
+                }, 50);
+              }
+            } else {
+              this.messages = rawList;
+            }
             
             // Set last message snippet
             if (rawList.length > 0) {
@@ -722,12 +761,34 @@ struct Index {
               this.lastMessages[key] = snippet;
             }
             
-            this.scrollToBottom();
+            if (!loadOlder) this.scrollToBottom();
+            if (this.messages.length > 0) {
+              let latest = this.messages[this.messages.length - 1];
+              if (latest.id) this.markMessagesRead(latest.id);
+            }
           } catch (e) {
             console.error("Error parsing chat history");
           }
         }
+        this.isLoadingHistory = false;
       }
+    );
+  }
+
+  markMessagesRead(upToId: number) {
+    let payload: Record<string, string | number> = {
+      'up_to_id': upToId,
+      'room_id': this.activeRoomId
+    };
+    if (this.activeTargetUser) payload['target_user'] = this.activeTargetUser;
+    http.createHttp().request(
+      `${this.serverUrl}/api/messages/read`,
+      {
+        method: http.RequestMethod.POST,
+        header: { 'Authorization': this.token, 'Content-Type': 'application/json' },
+        extraData: JSON.stringify(payload)
+      },
+      (): void => {}
     );
   }
 
@@ -907,7 +968,8 @@ struct Index {
     if (!msg.id) return;
     let buttonsList: promptAction.Button[] = [
       { text: "📋 复制文本内容", color: "#4CAF50" },
-      { text: "↗️ 转发消息", color: "#1677FF" }
+      { text: "↗️ 转发消息", color: "#1677FF" },
+      { text: "🔖 收藏消息", color: "#7C4DFF" }
     ];
     let isSticker = msg.content.startsWith("[img:") && msg.content.endsWith("]");
     let isEmoji = msg.content.trim().length <= 4;
@@ -916,6 +978,9 @@ struct Index {
     }
     if (msg.name === this.currentUsername && msg.can_recall === true) {
       buttonsList.push({ text: "↩️ 撤回消息", color: "#FF3B30" });
+    }
+    if (msg.name === this.currentUsername && msg.can_edit === true) {
+      buttonsList.push({ text: "✏️ 编辑消息", color: "#FF9800" });
     }
     
     promptAction.showActionMenu({
@@ -931,9 +996,45 @@ struct Index {
           this.forwardModalVisible = true;
         } else if (btnText === "❤️ 收藏此表情") {
           this.addFavoriteEmoji(msg.content);
+        } else if (btnText === "🔖 收藏消息" && msg.id) {
+          this.favoriteMessageApi(msg.id);
         } else if (btnText === "↩️ 撤回消息" && msg.id) {
           this.recallMessageApi(msg.id);
+        } else if (btnText === "✏️ 编辑消息" && msg.id) {
+          this.editMessagePrompt(msg);
         }
+      }
+    });
+  }
+
+  getMessageImageUrl(content: string, thumbnail: boolean): string {
+    let raw = content.substring(5, content.length - 1);
+    let parts = raw.split('|');
+    let selected = thumbnail && parts.length > 1 ? parts[1] : parts[0];
+    return selected.startsWith("http") || selected.startsWith("data:image")
+      ? selected
+      : `${this.serverUrl}${selected.startsWith('/') ? '' : '/'}${selected}`;
+  }
+
+  favoriteMessageApi(msgId: number) {
+    http.createHttp().request(
+      `${this.serverUrl}/api/favorites/messages/${msgId}`,
+      { method: http.RequestMethod.POST, header: { 'Authorization': this.token } },
+      (err: BusinessError, data: http.HttpResponse) => {
+        promptAction.showToast({ message: !err && data.responseCode === 200 ? "已收藏消息" : "收藏失败" });
+      }
+    );
+  }
+
+  editMessagePrompt(msg: Message) {
+    promptAction.showDialog({
+      title: "编辑消息（发送后2分钟内）",
+      message: "请在聊天输入框中修改后发送；原消息会保留编辑记录。",
+      buttons: [{ text: "取消", color: "#666666" }, { text: "载入输入框", color: this.themeColor }]
+    }).then((result: promptAction.ShowDialogSuccessResponse) => {
+      if (result.index === 1) {
+        this.msgInput = msg.content;
+        this.editingMessageId = msg.id || 0;
       }
     });
   }
@@ -1403,10 +1504,14 @@ struct Index {
     
     let text = this.msgInput;
     this.msgInput = "";
+    let editId = this.editingMessageId;
+    this.editingMessageId = 0;
+    let clientId = `${this.currentUsername}-${Date.now()}`;
     
     let postData: SendMsgPayload = {
       content: text,
-      room_id: this.activeRoomId
+      room_id: this.activeRoomId,
+      client_id: clientId
     };
     if (this.activeTargetUser) {
       postData.receiver = this.activeTargetUser;
@@ -1414,21 +1519,20 @@ struct Index {
     
     let httpRequest = http.createHttp();
     httpRequest.request(
-      `${this.serverUrl}/api/messages`,
+      editId > 0 ? `${this.serverUrl}/api/messages/${editId}` : `${this.serverUrl}/api/messages`,
       {
-        method: http.RequestMethod.POST,
+        method: editId > 0 ? http.RequestMethod.PUT : http.RequestMethod.POST,
         header: {
           'Content-Type': 'application/json',
           'Authorization': this.token
         },
-        extraData: JSON.stringify(postData)
+        extraData: JSON.stringify(editId > 0 ? { 'content': text } : postData)
       },
       (err: BusinessError, data: http.HttpResponse) => {
         if (!err) {
-          // Re-load history to include ours in sync
           this.loadHistory();
         } else {
-          promptAction.showToast({ message: "发送消息失败" });
+          promptAction.showToast({ message: editId > 0 ? "编辑消息失败" : "发送消息失败" });
         }
       }
     );
@@ -2706,18 +2810,13 @@ struct Index {
                               .fontColor(Color.Gray)
                               .fontStyle(FontStyle.Italic)
                           } else if (msg.content && msg.content.startsWith("[img:") && msg.content.endsWith("]")) {
-                            Image(msg.content.substring(5, msg.content.length - 1).startsWith("http") ? 
-                              msg.content.substring(5, msg.content.length - 1) : 
-                              `${this.serverUrl}${msg.content.substring(5, msg.content.length - 1)}`
-                            )
+                            Image(this.getMessageImageUrl(msg.content, true))
                               .width(180)
                               .height(180)
                               .objectFit(ImageFit.Contain)
                               .borderRadius(6)
                               .onClick(() => {
-                                this.previewImageUrl = msg.content.substring(5, msg.content.length - 1).startsWith("http") ? 
-                                  msg.content.substring(5, msg.content.length - 1) : 
-                                  `${this.serverUrl}${msg.content.substring(5, msg.content.length - 1)}`;
+                                this.previewImageUrl = this.getMessageImageUrl(msg.content, false);
                               })
                           } else if (msg.content && msg.content.startsWith("[file:") && msg.content.endsWith("]")) {
                             Row() {
@@ -2826,6 +2925,12 @@ struct Index {
                             })
                         )
                       }
+                      if (msg.edited === true || msg.edited_at || msg.name === this.currentUsername) {
+                        Text(`${msg.edited === true || msg.edited_at ? "已编辑" : ""}${msg.name === this.currentUsername ? ((msg.edited === true || msg.edited_at ? " · " : "") + ((msg.read_count || 0) > 0 ? `${msg.read_count}人已读` : "未读")) : ""}`)
+                          .fontSize(10)
+                          .fontColor(Color.Gray)
+                          .margin({ top: 2 })
+                      }
                     }
                     .alignItems(msg.name === this.currentUsername ? HorizontalAlign.End : HorizontalAlign.Start)
                     .layoutWeight(1)
@@ -2871,6 +2976,9 @@ struct Index {
             .width("100%")
             .layoutWeight(1)
             .backgroundColor("#FAFAFA")
+            .onReachStart(() => {
+              if (this.hasMoreHistory) this.loadHistory(true);
+            })
 
             // Quick Emoji Picker Bar
             Row() {

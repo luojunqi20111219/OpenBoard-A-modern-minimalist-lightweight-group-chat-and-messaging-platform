@@ -99,11 +99,38 @@ class ChatRepository {
     suspend fun getMessages(roomId: Int = 0, targetUser: String? = null): Result<List<Message>> =
         apiCallWrapped { api.getMessages(roomId, targetUser) }
 
+    suspend fun getMessagesPage(
+        roomId: Int = 0,
+        targetUser: String? = null,
+        beforeId: Int? = null,
+        afterId: Int? = null,
+        limit: Int = 50
+    ): Result<ApiResponse<List<Message>>> =
+        apiCallEnvelope { api.getMessages(roomId, targetUser, beforeId, afterId, limit) }
+
     suspend fun sendMessage(request: SendMessageRequest): Result<Unit> =
         apiCallVoid { api.sendMessage(request) }
 
     suspend fun recallMessage(msgId: Int): Result<Unit> =
         apiCallVoid { api.recallMessage(msgId) }
+
+    suspend fun editMessage(msgId: Int, content: String): Result<Unit> =
+        apiCallVoid { api.editMessage(msgId, EditMessageRequest(content)) }
+
+    suspend fun markMessagesRead(upToId: Int, roomId: Int, targetUser: String?): Result<Unit> =
+        apiCallVoid { api.markMessagesRead(MarkReadRequest(upToId, roomId, targetUser)) }
+
+    suspend fun favoriteMessage(msgId: Int): Result<Unit> =
+        apiCallVoid { api.favoriteMessage(msgId) }
+
+    suspend fun unfavoriteMessage(msgId: Int): Result<Unit> =
+        apiCallVoid { api.unfavoriteMessage(msgId) }
+
+    suspend fun searchMessages(query: String, roomId: Int, targetUser: String?): Result<List<Message>> =
+        apiCallWrapped { api.searchMessages(query, if (targetUser == null) roomId else null, targetUser) }
+
+    suspend fun getFavoriteMessages(): Result<List<Message>> =
+        apiCallWrapped { api.getFavoriteMessages() }
 
     suspend fun uploadFile(file: MultipartBody.Part): Result<UploadResponse> =
         apiCallRaw { api.uploadFile(file) }

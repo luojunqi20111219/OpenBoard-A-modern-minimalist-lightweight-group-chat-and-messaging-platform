@@ -29,16 +29,16 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
-          cp build2/outputs/apk/release/app-release.apk ../OpenBoard-Android-v7.6.0.apk
+          cp build2/outputs/apk/release/app-release.apk ../OpenBoard-Android-v7.7.0.apk
 
       - name: Upload Android Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: OpenBoard-Android-v7.6.0
-          path: OpenBoard-Android-v7.6.0.apk
+          name: OpenBoard-Android-v7.7.0
+          path: OpenBoard-Android-v7.7.0.apk
 
       - name: Upload Android Build to Release
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" OpenBoard-Android-v7.6.0.apk --clobber
+        run: gh release upload "$GITHUB_REF_NAME" OpenBoard-Android-v7.7.0.apk --clobber

@@ -7,6 +7,14 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../models/message.dart';
 import '../models/relation.dart';
 
+class MessagePage {
+  final List<Message> messages;
+  final bool hasMore;
+  final int? nextBeforeId;
+
+  const MessagePage(this.messages, this.hasMore, this.nextBeforeId);
+}
+
 class ApiService {
   static final ApiService _instance = ApiService._internal();
   factory ApiService() => _instance;
@@ -45,6 +53,7 @@ class ApiService {
     _currentAvatar = prefs.getString('avatar') ?? '';
     _currentRole = prefs.getInt('role') ?? 0;
     _pinnedKeys = prefs.getStringList('pinned_keys') ?? [];
+    await _loadConversationSettings();
   }
 
   Future<void> setServerUrl(String url) async {
@@ -174,19 +183,23 @@ class ApiService {
     }
   }
 
-  Future<List<Message>> fetchHistory({int roomId = 0, String? targetUser}) async {
-    if (_token.isEmpty) return [];
+  Future<MessagePage> fetchHistoryPage({
+    int roomId = 0,
+    String? targetUser,
+    int? beforeId,
+    int limit = 50,
+  }) async {
+    if (_token.isEmpty) return const MessagePage([], false, null);
 
-    String url = '$_serverUrl/api/messages';
-    if (targetUser != null && targetUser.isNotEmpty) {
-      url += '?target_user=$targetUser';
-    } else {
-      url += '?room_id=$roomId';
-    }
+    final query = <String, String>{'limit': '$limit'};
+    if (targetUser != null && targetUser.isNotEmpty) query['target_user'] = targetUser;
+    if (targetUser == null || targetUser.isEmpty) query['room_id'] = '$roomId';
+    if (beforeId != null) query['before_id'] = '$beforeId';
+    final uri = Uri.parse('$_serverUrl/api/messages').replace(queryParameters: query);
 
     try {
       final response = await http.get(
-        Uri.parse(url),
+        uri,
         headers: {'Authorization': _token},
       );
 
@@ -194,13 +207,23 @@ class ApiService {
         final data = jsonDecode(response.body);
         if (data['status'] == 'success') {
           final List<dynamic> list = data['data'] ?? [];
-          return list.map((item) => Message.fromJson(item)).toList();
+          final messages = list.map((item) => Message.fromJson(item)).toList();
+          final pagination = data['pagination'] as Map<String, dynamic>?;
+          return MessagePage(
+            messages,
+            pagination?['has_more'] == true,
+            pagination?['next_before_id'],
+          );
         }
       }
     } catch (e) {
       print('Fetch history error: $e');
     }
-    return [];
+    return const MessagePage([], false, null);
+  }
+
+  Future<List<Message>> fetchHistory({int roomId = 0, String? targetUser}) async {
+    return (await fetchHistoryPage(roomId: roomId, targetUser: targetUser)).messages;
   }
 
   Future<bool> updateProfile(String nickname) async {
@@ -285,7 +308,7 @@ class ApiService {
 
   Future<String?> uploadAttachment(File file) async {
     try {
-      var request = http.MultipartRequest('POST', Uri.parse('$_serverUrl/api/messages/upload'));
+      var request = http.MultipartRequest('POST', Uri.parse('$_serverUrl/api/upload'));
       request.headers['Authorization'] = _token;
       request.files.add(await http.MultipartFile.fromPath('file', file.path));
       
@@ -333,6 +356,54 @@ class ApiService {
       return response.statusCode == 200;
     } catch (_) {}
     return false;
+  }
+
+  Future<bool> editMessage(int messageId, String content) async {
+    try {
+      final response = await http.put(
+        Uri.parse('$_serverUrl/api/messages/$messageId'),
+        headers: {'Authorization': _token, 'Content-Type': 'application/json'},
+        body: jsonEncode({'content': content}),
+      );
+      return response.statusCode == 200;
+    } catch (_) {}
+    return false;
+  }
+
+  Future<bool> favoriteMessage(int messageId, {bool remove = false}) async {
+    try {
+      final uri = Uri.parse('$_serverUrl/api/favorites/messages/$messageId');
+      final response = remove
+          ? await http.delete(uri, headers: {'Authorization': _token})
+          : await http.post(uri, headers: {'Authorization': _token});
+      return response.statusCode == 200;
+    } catch (_) {}
+    return false;
+  }
+
+  Future<void> markMessagesRead(int upToId, {int roomId = 0, String? targetUser}) async {
+    try {
+      await http.post(
+        Uri.parse('$_serverUrl/api/messages/read'),
+        headers: {'Authorization': _token, 'Content-Type': 'application/json'},
+        body: jsonEncode({'up_to_id': upToId, 'room_id': roomId, 'target_user': targetUser}),
+      );
+    } catch (_) {}
+  }
+
+  Future<List<Message>> searchMessages(String query, {int roomId = 0, String? targetUser}) async {
+    try {
+      final params = <String, String>{'q': query, 'limit': '30'};
+      if (targetUser != null) params['target_user'] = targetUser;
+      if (targetUser == null) params['room_id'] = '$roomId';
+      final uri = Uri.parse('$_serverUrl/api/messages/search').replace(queryParameters: params);
+      final response = await http.get(uri, headers: {'Authorization': _token});
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return (data['data'] as List<dynamic>? ?? []).map((item) => Message.fromJson(item)).toList();
+      }
+    } catch (_) {}
+    return [];
   }
 
   void connectWebSocket({
@@ -541,6 +612,49 @@ class ApiService {
       _pinnedKeys.add(key);
     }
     await prefs.setStringList('pinned_keys', _pinnedKeys);
+    final conversationKey = key.startsWith('group_')
+        ? 'room:${key.substring(6)}'
+        : key.startsWith('friend_')
+            ? 'user:${key.substring(7)}'
+            : key;
+    try {
+      await http.put(
+        Uri.parse('$_serverUrl/api/conversation-settings'),
+        headers: {'Authorization': _token, 'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'conversation_key': conversationKey,
+          'is_pinned': _pinnedKeys.contains(key),
+          'is_muted': false,
+        }),
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _loadConversationSettings() async {
+    if (_token.isEmpty) return;
+    try {
+      final response = await http.get(
+        Uri.parse('$_serverUrl/api/conversation-settings'),
+        headers: {'Authorization': _token},
+      );
+      if (response.statusCode != 200) return;
+      final data = jsonDecode(response.body);
+      final remote = <String>[];
+      for (final item in data['data'] ?? []) {
+        if (item['is_pinned'] != 1) continue;
+        final value = item['conversation_key'] as String;
+        remote.add(value.startsWith('room:')
+            ? 'group_${value.substring(5)}'
+            : value.startsWith('user:')
+                ? 'friend_${value.substring(5)}'
+                : value);
+      }
+      if (remote.isNotEmpty) {
+        _pinnedKeys = remote;
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setStringList('pinned_keys', _pinnedKeys);
+      }
+    } catch (_) {}
   }
 
   Future<List<String>> fetchFavoriteEmojis() async {

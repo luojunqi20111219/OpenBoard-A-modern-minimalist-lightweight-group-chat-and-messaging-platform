@@ -46,6 +46,7 @@ import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.ByteArrayOutputStream
+import java.util.UUID
 
 /**
  * 聊天室 Activity，处理公共大厅、私聊以及群聊消息交互，支持打字态、附件上传、消息撤回、拉黑与群组权限配置。
@@ -57,6 +58,9 @@ class ChatActivity : AppCompatActivity() {
     private val favoriteEmojis = mutableListOf<String>()
     private var currentEmojis: List<String> = emptyList()
     private lateinit var adapter: ChatAdapter
+    private var oldestMessageId: Int? = null
+    private var hasMoreHistory = true
+    private var isLoadingMessages = false
 
     private var roomId = 0
     private var roomName = "大厅"
@@ -179,13 +183,21 @@ class ChatActivity : AppCompatActivity() {
             stackFromEnd = true // 从底部开始堆叠，符合聊天习惯
         }
         binding.recyclerView.adapter = adapter
+        binding.recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                super.onScrolled(recyclerView, dx, dy)
+                if (dy < 0 && !recyclerView.canScrollVertically(-1) && hasMoreHistory) {
+                    loadMessages(loadOlder = true)
+                }
+            }
+        })
 
         // 取消回复按钮
         binding.btnCancelReply.setOnClickListener { cancelReply() }
 
         // 附件上传点击
         binding.btnAttach.setOnClickListener {
-            val options = arrayOf("发送图片", "发送文件", "推送好友名片")
+            val options = arrayOf("发送图片", "发送文件", "推送好友名片", "搜索聊天记录", "收藏的消息")
             AlertDialog.Builder(this)
                 .setTitle("选择操作")
                 .setItems(options) { _, which ->
@@ -201,6 +213,8 @@ class ChatActivity : AppCompatActivity() {
                         2 -> {
                             showShareCardFriendListDialog()
                         }
+                        3 -> showMessageSearchDialog()
+                        4 -> showFavoriteMessages()
                     }
                 }
                 .show()
@@ -244,16 +258,46 @@ class ChatActivity : AppCompatActivity() {
     /**
      * 拉取并渲染最近 100 条聊天历史记录
      */
-    private fun loadMessages() {
-        binding.progressBar.visibility = View.VISIBLE
+    private fun loadMessages(loadOlder: Boolean = false) {
+        if (isLoadingMessages || (loadOlder && !hasMoreHistory)) return
+        isLoadingMessages = true
+        if (!loadOlder) binding.progressBar.visibility = View.VISIBLE
+        val layoutManager = binding.recyclerView.layoutManager as LinearLayoutManager
+        val oldFirstPosition = layoutManager.findFirstVisibleItemPosition()
+        val oldFirstOffset = if (oldFirstPosition >= 0) {
+            layoutManager.findViewByPosition(oldFirstPosition)?.top ?: 0
+        } else 0
         lifecycleScope.launch {
-            val result = repository.getMessages(roomId, targetUser)
+            val result = repository.getMessagesPage(
+                roomId = roomId,
+                targetUser = targetUser,
+                beforeId = if (loadOlder) oldestMessageId else null,
+                limit = 50
+            )
+            isLoadingMessages = false
             binding.progressBar.visibility = View.GONE
-            result.onSuccess { msgs ->
-                messagesList.clear()
-                messagesList.addAll(msgs)
-                adapter.notifyDataSetChanged()
-                scrollToBottom()
+            result.onSuccess { response ->
+                val msgs = response.data.orEmpty()
+                hasMoreHistory = response.pagination?.hasMore ?: false
+                oldestMessageId = response.pagination?.nextBeforeId ?: msgs.firstOrNull()?.id
+                if (loadOlder) {
+                    val unique = msgs.filter { incoming -> messagesList.none { it.id == incoming.id } }
+                    messagesList.addAll(0, unique)
+                    adapter.notifyItemRangeInserted(0, unique.size)
+                    if (unique.isNotEmpty()) {
+                        layoutManager.scrollToPositionWithOffset(oldFirstPosition + unique.size, oldFirstOffset)
+                    }
+                } else {
+                    messagesList.clear()
+                    messagesList.addAll(msgs)
+                    adapter.notifyDataSetChanged()
+                    scrollToBottom()
+                }
+                messagesList.lastOrNull()?.takeIf { it.id > 0 }?.let { latest ->
+                    lifecycleScope.launch {
+                        repository.markMessagesRead(latest.id, roomId, targetUser)
+                    }
+                }
             }.onFailure { e ->
                 Toast.makeText(this@ChatActivity, "加载历史消息失败: ${e.message}", Toast.LENGTH_SHORT).show()
             }
@@ -279,21 +323,41 @@ class ChatActivity : AppCompatActivity() {
             content
         }
 
-        val request = SendMessageRequest(
-            content = finalContent,
-            roomId = roomId,
-            receiver = targetUser,
-            replyTo = replyingMessage?.id
-        )
+        val replyId = replyingMessage?.id
 
         binding.etMessage.text.clear()
         cancelReply()
+        sendPreparedMessage(finalContent, replyId)
+    }
 
+    private fun sendPreparedMessage(content: String, replyId: Int? = null) {
+        val clientId = UUID.randomUUID().toString()
+        val pending = Message(
+            id = -System.currentTimeMillis().toInt().let { kotlin.math.abs(it) },
+            name = SessionManager.username.orEmpty(),
+            content = content,
+            time = "发送中",
+            roomId = roomId,
+            receiver = targetUser,
+            reply = replyId?.toString(),
+            clientId = clientId,
+            deliveryStatus = "sending"
+        )
+        messagesList.add(pending)
+        adapter.notifyItemInserted(messagesList.lastIndex)
+        scrollToBottom()
         lifecycleScope.launch {
-            val result = repository.sendMessage(request)
+            val result = repository.sendMessage(
+                SendMessageRequest(content, roomId, targetUser, replyId, clientId = clientId)
+            )
             result.onSuccess {
                 loadMessages()
             }.onFailure { e ->
+                val index = messagesList.indexOfFirst { it.clientId == clientId }
+                if (index >= 0) {
+                    messagesList[index] = messagesList[index].copy(time = "发送失败，长按重试", deliveryStatus = "failed")
+                    adapter.notifyItemChanged(index)
+                }
                 Toast.makeText(this@ChatActivity, "发送失败: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
@@ -330,7 +394,8 @@ class ChatActivity : AppCompatActivity() {
                             filename.endsWith(".webp", ignoreCase = true)
 
                     val formattedMsg = if (isImage) {
-                        "[img:$url]"
+                        val thumbnailUrl = resp.thumbnailUrl
+                        if (thumbnailUrl.isNullOrBlank()) "[img:$url]" else "[img:$url|$thumbnailUrl]"
                     } else {
                         "[file:$downloadUrl|$filename]"
                     }
@@ -450,6 +515,13 @@ class ChatActivity : AppCompatActivity() {
                     }
 
                     if (isMsgForCurrentChat) {
+                        val pendingIndex = messagesList.indexOfFirst {
+                            !data.clientId.isNullOrBlank() && it.clientId == data.clientId
+                        }
+                        if (pendingIndex >= 0) {
+                            messagesList.removeAt(pendingIndex)
+                            adapter.notifyItemRemoved(pendingIndex)
+                        }
                         if (messagesList.none { it.id == data.id }) {
                             val newMessage = Message(
                                 id = data.id ?: 0,
@@ -461,7 +533,11 @@ class ChatActivity : AppCompatActivity() {
                                 reply = data.replyTo?.toString(),
                                 roomId = data.roomId ?: 0,
                                 receiver = data.receiver,
-                                canRecall = data.canRecall && data.name == me
+                                canRecall = data.canRecall && data.name == me,
+                                canEdit = data.canEdit && data.name == me,
+                                readCount = data.readCount,
+                                clientId = data.clientId,
+                                deliveryStatus = "sent"
                             )
                             messagesList.add(newMessage)
                             adapter.notifyItemInserted(messagesList.size - 1)
@@ -476,6 +552,26 @@ class ChatActivity : AppCompatActivity() {
                     val oldMsg = messagesList[index]
                     messagesList[index] = oldMsg.copy(isRecalled = 1)
                     adapter.notifyItemChanged(index)
+                }
+            }
+            "message_edited" -> {
+                val index = messagesList.indexOfFirst { it.id == msg.msgId }
+                if (index >= 0 && msg.content != null) {
+                    messagesList[index] = messagesList[index].copy(
+                        content = msg.content,
+                        edited = true,
+                        editedAt = msg.editedAt
+                    )
+                    adapter.notifyItemChanged(index)
+                }
+            }
+            "messages_read" -> {
+                val upToId = msg.upToId ?: return
+                messagesList.forEachIndexed { index, message ->
+                    if (message.name == me && message.id in 1..upToId) {
+                        messagesList[index] = message.copy(readCount = message.readCount + 1)
+                        adapter.notifyItemChanged(index)
+                    }
                 }
             }
             "typing" -> {
@@ -510,6 +606,9 @@ class ChatActivity : AppCompatActivity() {
         options.add("回复 (引用)")
         options.add("转发消息")
         options.add("翻译消息")
+        if (message.id > 0) options.add("收藏消息")
+        if (message.name == myUsername && message.canEdit) options.add("编辑消息")
+        if (message.deliveryStatus == "failed") options.add("重新发送")
         
         val isImageMessage = message.content.contains("[img:")
         if (isImageMessage) {
@@ -556,10 +655,122 @@ class ChatActivity : AppCompatActivity() {
                     Toast.makeText(this, "未找到可收藏的表情图片", Toast.LENGTH_SHORT).show()
                 }
             }
+            "收藏消息" -> favoriteMessage(message.id)
+            "编辑消息" -> editMessage(message)
+            "重新发送" -> {
+                val index = messagesList.indexOfFirst { it.id == message.id }
+                if (index >= 0) {
+                    messagesList.removeAt(index)
+                    adapter.notifyItemRemoved(index)
+                }
+                sendPreparedMessage(message.content, message.reply?.toIntOrNull())
+            }
             "撤回消息" -> {
                 recallMessage(message.id)
             }
         }
+    }
+
+    private fun favoriteMessage(msgId: Int) {
+        lifecycleScope.launch {
+            repository.favoriteMessage(msgId).onSuccess {
+                Toast.makeText(this@ChatActivity, "已收藏消息", Toast.LENGTH_SHORT).show()
+            }.onFailure { e ->
+                Toast.makeText(this@ChatActivity, "收藏失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun showMessageSearchDialog() {
+        val input = android.widget.EditText(this).apply { hint = "输入关键词" }
+        AlertDialog.Builder(this)
+            .setTitle("搜索聊天记录")
+            .setView(input)
+            .setNegativeButton("取消", null)
+            .setPositiveButton("搜索") { _, _ ->
+                val query = input.text.toString().trim()
+                if (query.isEmpty()) return@setPositiveButton
+                lifecycleScope.launch {
+                    repository.searchMessages(query, roomId, targetUser).onSuccess { results ->
+                        showMessageResultDialog("搜索结果", results)
+                    }.onFailure { e ->
+                        Toast.makeText(this@ChatActivity, "搜索失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            .show()
+    }
+
+    private fun showFavoriteMessages() {
+        lifecycleScope.launch {
+            repository.getFavoriteMessages().onSuccess { favorites ->
+                val current = favorites.filter { message ->
+                    if (targetUser != null) {
+                        (message.name == targetUser || message.receiver == targetUser) && message.roomId == 0
+                    } else {
+                        message.receiver == null && message.roomId == roomId
+                    }
+                }
+                showMessageResultDialog("收藏的消息", current)
+            }.onFailure { e ->
+                Toast.makeText(this@ChatActivity, "加载收藏失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun showMessageResultDialog(title: String, results: List<Message>) {
+        if (results.isEmpty()) {
+            Toast.makeText(this, "没有找到消息", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val labels = results.map {
+            val preview = it.content.replace('\n', ' ').take(80)
+            "${it.nickname ?: it.name}: $preview"
+        }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setItems(labels) { _, which ->
+                val selected = results[which]
+                val index = messagesList.indexOfFirst { it.id == selected.id }
+                if (index >= 0) {
+                    binding.recyclerView.smoothScrollToPosition(index)
+                    adapter.highlightItem(index)
+                } else {
+                    AlertDialog.Builder(this)
+                        .setTitle(selected.nickname ?: selected.name)
+                        .setMessage(selected.content)
+                        .setPositiveButton("确定", null)
+                        .show()
+                }
+            }
+            .show()
+    }
+
+    private fun editMessage(message: Message) {
+        val input = android.widget.EditText(this).apply {
+            setText(message.content)
+            setSelection(text.length)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("编辑消息（发送后2分钟内）")
+            .setView(input)
+            .setNegativeButton("取消", null)
+            .setPositiveButton("保存") { _, _ ->
+                val content = input.text.toString().trim()
+                if (content.isEmpty()) return@setPositiveButton
+                lifecycleScope.launch {
+                    repository.editMessage(message.id, content).onSuccess {
+                        val index = messagesList.indexOfFirst { it.id == message.id }
+                        if (index >= 0) {
+                            messagesList[index] = messagesList[index].copy(content = content, edited = true)
+                            adapter.notifyItemChanged(index)
+                        }
+                    }.onFailure { e ->
+                        Toast.makeText(this@ChatActivity, "编辑失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            .show()
     }
 
     /**

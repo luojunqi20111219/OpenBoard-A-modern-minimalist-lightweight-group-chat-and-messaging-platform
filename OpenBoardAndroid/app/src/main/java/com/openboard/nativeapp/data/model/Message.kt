@@ -20,5 +20,19 @@ data class Message(
     @SerializedName("can_recall")
     val canRecall: Boolean = false,
     @SerializedName("is_recalled")
-    val isRecalled: Int = 0
+    val isRecalled: Int = 0,
+    @SerializedName("client_id")
+    val clientId: String? = null,
+    @SerializedName("edited_at")
+    val editedAt: String? = null,
+    val edited: Boolean = false,
+    @SerializedName("edit_count")
+    val editCount: Int = 0,
+    @SerializedName("can_edit")
+    val canEdit: Boolean = false,
+    @SerializedName("edit_expires_in")
+    val editExpiresIn: Int = 0,
+    @SerializedName("read_count")
+    val readCount: Int = 0,
+    val deliveryStatus: String? = null
 )

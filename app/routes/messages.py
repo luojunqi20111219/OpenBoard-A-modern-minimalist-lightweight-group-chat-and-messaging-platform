@@ -2,12 +2,16 @@ import os
 import re
 import uuid
 import html
+import datetime
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, BackgroundTasks, Query
 from fastapi.responses import FileResponse
 from app.config import Config
 from app.database import get_db
-from app.models import MessageData, ForwardMessageData, FavoriteEmojiData
+from app.models import (
+    MessageData, ForwardMessageData, FavoriteEmojiData, MessageEditData,
+    MessageReadData, ConversationSettingData,
+)
 from app.auth import get_current_user
 from app.routes.groups import can_view_group
 from app.websocket import manager
@@ -15,8 +19,10 @@ from app.websocket import manager
 router = APIRouter(prefix="/api")
 
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
-ALLOWED_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif', 'pdf', 'docx', 'txt', 'zip', 'apk'}
+ALLOWED_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'pdf', 'docx', 'txt', 'zip', 'apk'}
+IMAGE_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'}
 MESSAGE_RECALL_WINDOW_SECONDS = 2 * 60
+MESSAGE_EDIT_WINDOW_SECONDS = 2 * 60
 
 
 def serialize_message(row, current_user):
@@ -33,7 +39,30 @@ def serialize_message(row, current_user):
         if is_owner and within_window and not is_recalled
         else 0
     )
+    message['can_edit'] = not is_recalled and is_owner and within_window
+    message['edit_expires_in'] = (
+        max(0, MESSAGE_EDIT_WINDOW_SECONDS - int(age_seconds))
+        if is_owner and within_window and not is_recalled
+        else 0
+    )
+    message['edited'] = bool(message.get('edited_at'))
+    message['read_count'] = int(message.get('read_count') or 0)
     return message
+
+
+def ensure_message_visible(message, current_user, db):
+    if message['receiver']:
+        if current_user['role'] != 1 and current_user['username'] not in {
+            message['name'], message['receiver']
+        }:
+            raise HTTPException(status_code=403, detail="无权查看该消息")
+        return
+    if message['room_id'] > 0:
+        group = db.execute("SELECT * FROM groups WHERE id=?", (message['room_id'],)).fetchone()
+        if not group or not can_view_group(
+            group, current_user['username'], current_user['id'], current_user['role'], db
+        ):
+            raise HTTPException(status_code=403, detail="无权查看该消息")
 
 # XSS protection using bleach (safe fallback to standard html.escape)
 try:
@@ -53,10 +82,13 @@ def allowed_file(filename: str) -> bool:
 
 @router.get("/messages")
 async def get_messages(
-    request: Request, 
-    room_id: int = 0, 
-    target_user: Optional[str] = None, 
-    current_user = Depends(get_current_user), 
+    request: Request,
+    room_id: int = 0,
+    target_user: Optional[str] = None,
+    before_id: Optional[int] = Query(default=None, ge=1),
+    after_id: Optional[int] = Query(default=None, ge=0),
+    limit: int = Query(default=50, ge=1, le=50),
+    current_user = Depends(get_current_user),
     db = Depends(get_db)
 ):
     blocked_list = [u.strip() for u in (current_user['blocked_users'] or '').split(',') if u.strip()]
@@ -70,31 +102,59 @@ async def get_messages(
         if not group:
             raise HTTPException(status_code=404, detail="群聊不存在")
         if not can_view_group(
-            group, current_user['username'], current_user['id'], current_user['role']
+            group, current_user['username'], current_user['id'], current_user['role'], db
         ):
             raise HTTPException(status_code=403, detail="无权查看该群聊")
 
+    if before_id and after_id is not None:
+        raise HTTPException(status_code=400, detail="before_id 与 after_id 不能同时使用")
+
+    cursor_sql = ""
+    cursor_params = []
+    if before_id:
+        cursor_sql = " AND m.id < ?"
+        cursor_params.append(before_id)
+    elif after_id is not None:
+        cursor_sql = " AND m.id > ?"
+        cursor_params.append(after_id)
+    order = "ASC" if after_id is not None else "DESC"
+    select_sql = """
+        SELECT m.id, m.content, m.created_at as time, m.room_id, m.receiver,
+               m.reply AS reply_to, m.edited_at, m.edit_count, m.client_id,
+               u.nickname, COALESCE(u.username, m.name) as name, u.avatar,
+               (strftime('%s', 'now') - strftime('%s', m.created_at)) as age_seconds,
+               (SELECT COUNT(*) FROM message_reads mr WHERE mr.msg_id=m.id) AS read_count
+        FROM messages m LEFT JOIN users u ON m.name = u.username
+    """
     if target_user:
         my_name = current_user['username']
-        rows = db.execute("""
-            SELECT m.id, m.content, m.created_at as time, u.nickname, u.username as name, u.avatar,
-                   (strftime('%s', 'now') - strftime('%s', m.created_at)) as age_seconds
-            FROM messages m LEFT JOIN users u ON m.name = u.username 
-            WHERE (m.name = ? AND m.receiver = ?) OR (m.name = ? AND m.receiver = ?) 
-            ORDER BY m.id ASC LIMIT 100
-        """, (my_name, target_user, target_user, my_name)).fetchall()
+        rows = db.execute(
+            select_sql + """
+            WHERE ((m.name = ? AND m.receiver = ?) OR (m.name = ? AND m.receiver = ?))
+            """ + cursor_sql + f" ORDER BY m.id {order} LIMIT ?",
+            [my_name, target_user, target_user, my_name] + cursor_params + [limit + 1],
+        ).fetchall()
     else:
-        rows = db.execute("""
-            SELECT m.id, m.content, m.created_at as time, u.nickname, u.username as name, u.avatar,
-                   (strftime('%s', 'now') - strftime('%s', m.created_at)) as age_seconds
-            FROM messages m LEFT JOIN users u ON m.name = u.username 
-            WHERE m.room_id = ? AND m.receiver IS NULL 
-            ORDER BY m.id ASC LIMIT 100
-        """, (room_id,)).fetchall()
-        
+        rows = db.execute(
+            select_sql + " WHERE m.room_id = ? AND m.receiver IS NULL" + cursor_sql
+            + f" ORDER BY m.id {order} LIMIT ?",
+            [room_id] + cursor_params + [limit + 1],
+        ).fetchall()
+
+    has_more = len(rows) > limit
+    rows = list(rows[:limit])
+    if order == "DESC":
+        rows.reverse()
+    visible_rows = [row for row in rows if row['name'] not in blocked_list]
     return {
         "status": "success",
-        "data": [serialize_message(r, current_user) for r in rows if r['name'] not in blocked_list]
+        "data": [serialize_message(row, current_user) for row in visible_rows],
+        "pagination": {
+            "limit": limit,
+            "has_more": has_more,
+            "next_before_id": visible_rows[0]['id'] if has_more and visible_rows else None,
+            "last_id": visible_rows[-1]['id'] if visible_rows else (after_id or 0),
+        },
     }
 
 @router.post("/messages")
@@ -104,6 +164,14 @@ async def post_message(
     current_user = Depends(get_current_user), 
     db = Depends(get_db)
 ):
+    if data.client_id:
+        existing = db.execute(
+            "SELECT id FROM messages WHERE name=? AND client_id=?",
+            (current_user['username'], data.client_id),
+        ).fetchone()
+        if existing:
+            return {"status": "success", "id": existing['id'], "duplicate": True}
+
     # 1. Clean message to prevent XSS injection
     clean_content = sanitize_xss(data.content)
     if not clean_content.strip():
@@ -131,13 +199,21 @@ async def post_message(
         if not group:
             raise HTTPException(status_code=404, detail="群聊不存在")
         if not can_view_group(
-            group, current_user['username'], current_user['id'], current_user['role']
+            group, current_user['username'], current_user['id'], current_user['role'], db
         ):
             raise HTTPException(status_code=403, detail="无权在该群聊发送消息")
         if group:
             if group['is_frozen']:
                 raise HTTPException(status_code=403, detail="此群聊已被管理员冻结，全员禁言")
             if group['owner_id'] != current_user['id'] and current_user['role'] != 1:
+                membership = db.execute(
+                    "SELECT muted_until FROM group_members WHERE group_id=? AND username=?",
+                    (data.room_id, current_user['username']),
+                ).fetchone()
+                if membership and membership['muted_until'] and db.execute(
+                    "SELECT datetime(?) > CURRENT_TIMESTAMP AS active", (membership['muted_until'],)
+                ).fetchone()['active']:
+                    raise HTTPException(status_code=403, detail="您当前处于群聊禁言状态")
                 if group['speak_mode'] == 1:
                     w_list = [u.strip() for u in (group['white_speak'] or '').split(',') if u.strip()]
                     if current_user['username'] not in w_list:
@@ -150,13 +226,13 @@ async def post_message(
     # 4. Insert message
     if data.reply_to:
         cursor = db.execute(
-            "INSERT INTO messages (name, content, room_id, receiver, reply) VALUES (?, ?, ?, ?, ?)", 
-            (current_user['username'], clean_content, data.room_id, data.receiver, data.reply_to)
+            "INSERT INTO messages (name, content, room_id, receiver, reply, client_id) VALUES (?, ?, ?, ?, ?, ?)",
+            (current_user['username'], clean_content, data.room_id, data.receiver, data.reply_to, data.client_id)
         )
     else:
         cursor = db.execute(
-            "INSERT INTO messages (name, content, room_id, receiver) VALUES (?, ?, ?, ?)", 
-            (current_user['username'], clean_content, data.room_id, data.receiver)
+            "INSERT INTO messages (name, content, room_id, receiver, client_id) VALUES (?, ?, ?, ?, ?)",
+            (current_user['username'], clean_content, data.room_id, data.receiver, data.client_id)
         )
     msg_id = cursor.lastrowid
     db.commit()
@@ -177,6 +253,12 @@ async def post_message(
             "avatar": sender_info['avatar'] if sender_info else current_user['avatar'],
             "room_id": data.room_id,
             "receiver": data.receiver,
+            "client_id": data.client_id,
+            "edited_at": None,
+            "edit_count": 0,
+            "read_count": 0,
+            "can_edit": True,
+            "edit_expires_in": MESSAGE_EDIT_WINDOW_SECONDS,
             "can_recall": True,
             "recall_expires_in": MESSAGE_RECALL_WINDOW_SECONDS
         }
@@ -255,8 +337,18 @@ async def post_message(
                     data.room_id,
                     None
                 )
-    
-    return {"status": "success"}
+
+    return {
+        "status": "success",
+        "id": msg_id,
+        "data": {
+            "id": msg_id,
+            "client_id": data.client_id,
+            "content": clean_content,
+            "room_id": data.room_id,
+            "receiver": data.receiver,
+        },
+    }
 
 @router.post("/messages/{msg_id}/forward")
 async def forward_message(
@@ -283,17 +375,17 @@ async def forward_message(
     elif source['room_id'] > 0:
         source_group = db.execute("SELECT * FROM groups WHERE id=?", (source['room_id'],)).fetchone()
         if not source_group or not can_view_group(
-            source_group, current_user['username'], current_user['id'], current_user['role']
+            source_group, current_user['username'], current_user['id'], current_user['role'], db
         ):
             raise HTTPException(status_code=403, detail="无权转发该群聊消息")
 
-    await post_message(
+    result = await post_message(
         MessageData(content=source['content'], room_id=data.room_id, receiver=data.receiver),
         background_tasks,
         current_user,
         db,
     )
-    return {"status": "success"}
+    return {"status": "success", "id": result.get("id")}
 
 
 @router.delete("/messages/{msg_id}")
@@ -331,6 +423,275 @@ async def recall_message(msg_id: int, current_user = Depends(get_current_user), 
     
     return {"status": "success"}
 
+
+@router.put("/messages/{msg_id}")
+async def edit_message(
+    msg_id: int,
+    data: MessageEditData,
+    current_user = Depends(get_current_user),
+    db = Depends(get_db),
+):
+    message = db.execute(
+        """
+        SELECT *, (strftime('%s', 'now') - strftime('%s', created_at)) AS age_seconds
+        FROM messages WHERE id=?
+        """,
+        (msg_id,),
+    ).fetchone()
+    if not message:
+        raise HTTPException(status_code=404, detail="消息不存在")
+    if message['name'] != current_user['username']:
+        raise HTTPException(status_code=403, detail="只能编辑自己发送的消息")
+    if message['content'] == '[system_recalled]':
+        raise HTTPException(status_code=409, detail="已撤回的消息不能编辑")
+    if message['age_seconds'] is None or message['age_seconds'] >= MESSAGE_EDIT_WINDOW_SECONDS:
+        raise HTTPException(status_code=403, detail="只能编辑2分钟内的消息")
+
+    clean_content = sanitize_xss(data.content)
+    if not clean_content.strip():
+        raise HTTPException(status_code=400, detail="消息内容不能为空")
+    if clean_content == message['content']:
+        return {"status": "success", "unchanged": True}
+
+    db.execute(
+        "INSERT INTO message_edits (msg_id, editor, old_content) VALUES (?, ?, ?)",
+        (msg_id, current_user['username'], message['content']),
+    )
+    db.execute(
+        "UPDATE messages SET content=?, edited_at=CURRENT_TIMESTAMP, edit_count=edit_count+1 WHERE id=?",
+        (clean_content, msg_id),
+    )
+    db.commit()
+    await manager.broadcast({
+        "type": "message_edited",
+        "msg_id": msg_id,
+        "content": clean_content,
+        "edited_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "room_id": message['room_id'],
+        "receiver": message['receiver'],
+    }, room_id=message['room_id'], receiver=message['receiver'], sender=message['name'])
+    return {"status": "success", "content": clean_content}
+
+
+@router.post("/messages/read")
+async def mark_messages_read(
+    data: MessageReadData,
+    current_user = Depends(get_current_user),
+    db = Depends(get_db),
+):
+    if data.target_user:
+        rows = db.execute(
+            """
+            SELECT id FROM messages
+            WHERE id<=? AND name!=? AND
+                  ((name=? AND receiver=?) OR (name=? AND receiver=?))
+            """,
+            (
+                data.up_to_id, current_user['username'], current_user['username'], data.target_user,
+                data.target_user, current_user['username'],
+            ),
+        ).fetchall()
+        conversation_key = f"user:{data.target_user}"
+    else:
+        if data.room_id > 0:
+            group = db.execute("SELECT * FROM groups WHERE id=?", (data.room_id,)).fetchone()
+            if not group or not can_view_group(
+                group, current_user['username'], current_user['id'], current_user['role'], db
+            ):
+                raise HTTPException(status_code=403, detail="无权查看该群聊")
+        rows = db.execute(
+            "SELECT id FROM messages WHERE id<=? AND room_id=? AND receiver IS NULL AND name!=?",
+            (data.up_to_id, data.room_id, current_user['username']),
+        ).fetchall()
+        conversation_key = f"room:{data.room_id}"
+
+    db.execute(
+        """
+        INSERT INTO conversation_settings (username, conversation_key, last_read_id)
+        VALUES (?, ?, ?)
+        ON CONFLICT(username, conversation_key) DO UPDATE SET
+            last_read_id=MAX(last_read_id, excluded.last_read_id), updated_at=CURRENT_TIMESTAMP
+        """,
+        (current_user['username'], conversation_key, data.up_to_id),
+    )
+    if current_user.get('read_receipts_enabled', 1):
+        db.executemany(
+            "INSERT OR IGNORE INTO message_reads (msg_id, user, read_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
+            [(row['id'], current_user['username']) for row in rows],
+        )
+    db.commit()
+    await manager.broadcast({
+        "type": "messages_read",
+        "reader": current_user['username'],
+        "up_to_id": data.up_to_id,
+        "room_id": data.room_id,
+        "receiver": data.target_user,
+    }, room_id=data.room_id, receiver=data.target_user, sender=current_user['username'])
+    return {"status": "success", "read_count": len(rows)}
+
+
+@router.get("/messages/{msg_id}/reads")
+async def get_message_reads(msg_id: int, current_user = Depends(get_current_user), db = Depends(get_db)):
+    message = db.execute("SELECT * FROM messages WHERE id=?", (msg_id,)).fetchone()
+    if not message:
+        raise HTTPException(status_code=404, detail="消息不存在")
+    ensure_message_visible(message, current_user, db)
+    rows = db.execute(
+        """
+        SELECT mr.user AS username, COALESCE(u.nickname, mr.user) AS nickname,
+               u.avatar, mr.read_at
+        FROM message_reads mr
+        LEFT JOIN users u ON u.username=mr.user
+        WHERE mr.msg_id=? AND COALESCE(u.read_receipts_enabled, 1)=1
+        ORDER BY mr.read_at ASC
+        """,
+        (msg_id,),
+    ).fetchall()
+    return {"status": "success", "data": [dict(row) for row in rows]}
+
+
+@router.get("/messages/search")
+async def search_messages(
+    q: str = Query(default="", max_length=200),
+    room_id: Optional[int] = Query(default=None, ge=0),
+    target_user: Optional[str] = Query(default=None, max_length=64),
+    kind: Optional[str] = Query(default=None, pattern="^(text|image|file)$"),
+    date_from: Optional[str] = Query(default=None, max_length=10),
+    date_to: Optional[str] = Query(default=None, max_length=10),
+    before_id: Optional[int] = Query(default=None, ge=1),
+    limit: int = Query(default=30, ge=1, le=50),
+    current_user = Depends(get_current_user),
+    db = Depends(get_db),
+):
+    clauses = ["m.content!='[system_recalled]'", "(m.receiver IS NULL OR m.name=? OR m.receiver=?)"]
+    params = [current_user['username'], current_user['username']]
+    if q.strip():
+        clauses.append("m.content LIKE ? ESCAPE '\\'")
+        escaped = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        params.append(f"%{escaped}%")
+    if room_id is not None:
+        clauses.extend(["m.room_id=?", "m.receiver IS NULL"])
+        params.append(room_id)
+    if target_user:
+        clauses.append("((m.name=? AND m.receiver=?) OR (m.name=? AND m.receiver=?))")
+        params.extend([current_user['username'], target_user, target_user, current_user['username']])
+    if kind == "image":
+        clauses.append("m.content LIKE '[img:%'")
+    elif kind == "file":
+        clauses.append("m.content LIKE '[file:%'")
+    elif kind == "text":
+        clauses.extend(["m.content NOT LIKE '[img:%'", "m.content NOT LIKE '[file:%'"])
+    if date_from:
+        clauses.append("date(m.created_at)>=date(?)")
+        params.append(date_from)
+    if date_to:
+        clauses.append("date(m.created_at)<=date(?)")
+        params.append(date_to)
+    if before_id:
+        clauses.append("m.id<?")
+        params.append(before_id)
+
+    rows = db.execute(
+        """
+        SELECT m.*, m.created_at AS time, m.reply AS reply_to,
+               u.nickname, u.avatar,
+               (strftime('%s', 'now') - strftime('%s', m.created_at)) AS age_seconds,
+               (SELECT COUNT(*) FROM message_reads mr WHERE mr.msg_id=m.id) AS read_count
+        FROM messages m LEFT JOIN users u ON u.username=m.name
+        WHERE """ + " AND ".join(clauses) + " ORDER BY m.id DESC LIMIT ?",
+        params + [limit * 4],
+    ).fetchall()
+    result = []
+    for row in rows:
+        try:
+            ensure_message_visible(row, current_user, db)
+        except HTTPException:
+            continue
+        result.append(serialize_message(row, current_user))
+        if len(result) >= limit:
+            break
+    return {
+        "status": "success",
+        "data": result,
+        "pagination": {"has_more": len(result) == limit, "next_before_id": result[-1]['id'] if result else None},
+    }
+
+
+@router.get("/favorites/messages")
+async def get_favorite_messages(current_user = Depends(get_current_user), db = Depends(get_db)):
+    rows = db.execute(
+        """
+        SELECT m.*, m.created_at AS time, m.reply AS reply_to, u.nickname, u.avatar,
+               (strftime('%s', 'now') - strftime('%s', m.created_at)) AS age_seconds,
+               (SELECT COUNT(*) FROM message_reads mr WHERE mr.msg_id=m.id) AS read_count,
+               mf.created_at AS favorited_at
+        FROM message_favorites mf JOIN messages m ON m.id=mf.msg_id
+        LEFT JOIN users u ON u.username=m.name
+        WHERE mf.username=? ORDER BY mf.id DESC LIMIT 100
+        """,
+        (current_user['username'],),
+    ).fetchall()
+    result = []
+    for row in rows:
+        try:
+            ensure_message_visible(row, current_user, db)
+        except HTTPException:
+            continue
+        result.append(serialize_message(row, current_user))
+    return {"status": "success", "data": result}
+
+
+@router.post("/favorites/messages/{msg_id}")
+async def favorite_message(msg_id: int, current_user = Depends(get_current_user), db = Depends(get_db)):
+    message = db.execute("SELECT * FROM messages WHERE id=?", (msg_id,)).fetchone()
+    if not message:
+        raise HTTPException(status_code=404, detail="消息不存在")
+    ensure_message_visible(message, current_user, db)
+    db.execute(
+        "INSERT OR IGNORE INTO message_favorites (username, msg_id) VALUES (?, ?)",
+        (current_user['username'], msg_id),
+    )
+    db.commit()
+    return {"status": "success"}
+
+
+@router.delete("/favorites/messages/{msg_id}")
+async def unfavorite_message(msg_id: int, current_user = Depends(get_current_user), db = Depends(get_db)):
+    db.execute(
+        "DELETE FROM message_favorites WHERE username=? AND msg_id=?",
+        (current_user['username'], msg_id),
+    )
+    db.commit()
+    return {"status": "success"}
+
+
+@router.get("/conversation-settings")
+async def get_conversation_settings(current_user = Depends(get_current_user), db = Depends(get_db)):
+    rows = db.execute(
+        "SELECT conversation_key, is_pinned, is_muted, last_read_id FROM conversation_settings WHERE username=?",
+        (current_user['username'],),
+    ).fetchall()
+    return {"status": "success", "data": [dict(row) for row in rows]}
+
+
+@router.put("/conversation-settings")
+async def update_conversation_setting(
+    data: ConversationSettingData,
+    current_user = Depends(get_current_user),
+    db = Depends(get_db),
+):
+    db.execute(
+        """
+        INSERT INTO conversation_settings (username, conversation_key, is_pinned, is_muted)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(username, conversation_key) DO UPDATE SET
+            is_pinned=excluded.is_pinned, is_muted=excluded.is_muted, updated_at=CURRENT_TIMESTAMP
+        """,
+        (current_user['username'], data.conversation_key, int(data.is_pinned), int(data.is_muted)),
+    )
+    db.commit()
+    return {"status": "success"}
+
 @router.post("/upload")
 async def upload_file(file: UploadFile = File(...), current_user = Depends(get_current_user)):
     original_filename = os.path.basename(file.filename or "file")[:255]
@@ -358,10 +719,27 @@ async def upload_file(file: UploadFile = File(...), current_user = Depends(get_c
         raise
     finally:
         await file.close()
-        
+
+    thumbnail_url = None
+    if ext in IMAGE_EXTENSIONS:
+        try:
+            from PIL import Image, ImageOps
+            thumbnail_name = f"{uuid.uuid4().hex}.thumb.jpg"
+            thumbnail_path = os.path.join(Config.UPLOAD_DIR, thumbnail_name)
+            with Image.open(filepath) as image:
+                image = ImageOps.exif_transpose(image)
+                if image.mode not in ("RGB", "L"):
+                    image = image.convert("RGB")
+                image.thumbnail((480, 480), Image.Resampling.LANCZOS)
+                image.save(thumbnail_path, "JPEG", quality=76, optimize=True)
+            thumbnail_url = f"/uploads/{thumbnail_name}"
+        except Exception:
+            thumbnail_url = None
+
     return {
         "status": "success", 
         "url": f"/uploads/{secure_filename}", 
+        "thumbnail_url": thumbnail_url,
         "filename": display_filename,
         "download_url": f"/api/download/{secure_filename}?name={display_filename}"
     }

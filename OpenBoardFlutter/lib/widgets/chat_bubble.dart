@@ -57,7 +57,8 @@ class ChatBubble extends StatelessWidget {
     Widget contentWidget;
 
     if (isImg) {
-      String imgUrl = message.content.substring(5, message.content.length - 1);
+      final imageParts = message.content.substring(5, message.content.length - 1).split('|');
+      String imgUrl = imageParts.length > 1 ? imageParts[1] : imageParts[0];
       if (!imgUrl.startsWith('http') && !imgUrl.startsWith('data:image')) {
         imgUrl = '$serverUrl${imgUrl.startsWith('/') ? '' : '/'}$imgUrl';
       }
@@ -275,11 +276,11 @@ class ChatBubble extends StatelessWidget {
             child: Column(
               crossAxisAlignment: isSelf ? CrossAxisAlignment.end : CrossAxisAlignment.start,
               children: [
-                if (!isSelf)
+                if (!isSelf || message.receiver == null)
                   Padding(
                     padding: const EdgeInsets.only(left: 4.0, bottom: 2.0),
                     child: Text(
-                      '${message.nickname} (@${message.name})',
+                      '${message.nickname.isEmpty ? message.name : message.nickname} (@${message.name})',
                       style: TextStyle(fontSize: 11.0, color: Colors.grey.shade600),
                     ),
                   ),
@@ -307,7 +308,14 @@ class ChatBubble extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.only(top: 2.0, left: 4.0, right: 4.0),
                   child: Text(
-                    message.time,
+                    [
+                      message.time,
+                      if (message.edited) '已编辑',
+                      if (isSelf && message.deliveryStatus == 'sending') '发送中',
+                      if (isSelf && message.deliveryStatus == 'failed') '发送失败',
+                      if (isSelf && message.id != null && message.id! > 0)
+                        message.readCount > 0 ? '${message.readCount}人已读' : '未读',
+                    ].where((item) => item.isNotEmpty).join(' · '),
                     style: TextStyle(fontSize: 10.0, color: Colors.grey.shade500),
                   ),
                 ),

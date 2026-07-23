@@ -10,7 +10,9 @@ data class UploadResponse(
     val url: String? = null,
     val filename: String? = null,
     @SerializedName("download_url")
-    val downloadUrl: String? = null
+    val downloadUrl: String? = null,
+    @SerializedName("thumbnail_url")
+    val thumbnailUrl: String? = null
 )
 
 /**

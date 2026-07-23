@@ -141,11 +141,14 @@ class ChatAdapter(
                 }
             }
             imgMatch != null -> {
-                val url = imgMatch.groupValues[1]
+                val imageParts = imgMatch.groupValues[1].split("|", limit = 2)
+                val originalUrl = imageParts[0]
+                val displayUrl = imageParts.getOrElse(1) { originalUrl }
                 tvContent.visibility = View.GONE
                 ivImageNormal.visibility = View.VISIBLE
 
-                val fullUrl = if (url.startsWith("http")) url else RetrofitClient.getBaseUrl() + url.removePrefix("/")
+                val fullUrl = if (originalUrl.startsWith("http")) originalUrl else RetrofitClient.getBaseUrl() + originalUrl.removePrefix("/")
+                val fullDisplayUrl = if (displayUrl.startsWith("http")) displayUrl else RetrofitClient.getBaseUrl() + displayUrl.removePrefix("/")
                 ivImageNormal.setOnClickListener {
                     try {
                         val dialog = android.app.Dialog(context, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
@@ -184,8 +187,8 @@ class ChatAdapter(
                         }
                         root.addView(btnSave)
 
-                        if (url.startsWith("data:image")) {
-                            val base64Data = url.substringAfter("base64,")
+                        if (originalUrl.startsWith("data:image")) {
+                            val base64Data = originalUrl.substringAfter("base64,")
                             val bytes = Base64.decode(base64Data, Base64.DEFAULT)
                             val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                             imageView.setImageBitmap(bmp)
@@ -235,9 +238,9 @@ class ChatAdapter(
                     true
                 }
 
-                if (url.startsWith("data:image")) {
+                if (displayUrl.startsWith("data:image")) {
                     try {
-                        val base64Data = url.substringAfter("base64,")
+                        val base64Data = displayUrl.substringAfter("base64,")
                         val bytes = Base64.decode(base64Data, Base64.DEFAULT)
                         val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                         ivImageNormal.setImageBitmap(bmp)
@@ -245,7 +248,7 @@ class ChatAdapter(
                         ivImageNormal.setImageResource(R.drawable.ic_attach)
                     }
                 } else {
-                    ivImageNormal.load(fullUrl) {
+                    ivImageNormal.load(fullDisplayUrl) {
                         placeholder(R.drawable.ic_attach)
                         error(R.drawable.ic_attach)
                         listener(
@@ -317,7 +320,9 @@ class ChatAdapter(
         fun bind(msg: Message, position: Int) {
             b.tvContent.background = ThemeManager.buildBubbleSelf(b.root.context)
             bindMessageContent(msg, msg.content, msg.isRecalled == 1, b.tvContent, b.ivImage, 0xFF212121.toInt())
-            b.tvTime.text = msg.time ?: ""
+            b.tvNameSelf.visibility = if (msg.receiver == null) View.VISIBLE else View.GONE
+            b.tvNameSelf.text = "${msg.nickname ?: msg.name} (@${msg.name})"
+            b.tvTime.text = messageStatusText(msg, true)
             bindAvatar(msg.avatar, b.ivAvatar)
 
             b.ivAvatar.setOnClickListener {
@@ -354,17 +359,17 @@ class ChatAdapter(
     inner class OtherViewHolder(private val b: ItemMessageOtherBinding) : RecyclerView.ViewHolder(b.root) {
         fun bind(msg: Message, position: Int) {
             b.tvName.setTextColor(ThemeManager.getPrimaryColor(b.root.context))
-            if (msg.roomId > 0) {
+            if (msg.receiver == null) {
                 b.tvName.visibility = View.VISIBLE
                 b.ivAvatar.visibility = View.VISIBLE
-                b.tvName.text = msg.nickname ?: msg.name
+                b.tvName.text = "${msg.nickname ?: msg.name} (@${msg.name})"
                 bindAvatar(msg.avatar, b.ivAvatar)
             } else {
                 b.tvName.visibility = View.GONE
                 b.ivAvatar.visibility = View.GONE
             }
             bindMessageContent(msg, msg.content, msg.isRecalled == 1, b.tvContent, b.ivImage, 0xFF212121.toInt())
-            b.tvTime.text = msg.time ?: ""
+            b.tvTime.text = messageStatusText(msg, false)
 
             b.ivAvatar.setOnClickListener {
                 onAvatarClick?.invoke(msg)
@@ -395,6 +400,18 @@ class ChatAdapter(
                 true
             }
         }
+    }
+
+    private fun messageStatusText(msg: Message, isSelf: Boolean): String {
+        val parts = mutableListOf<String>()
+        if (!msg.time.isNullOrBlank()) parts.add(msg.time)
+        if (msg.edited || msg.editedAt != null) parts.add("已编辑")
+        if (isSelf && msg.deliveryStatus == "sending") parts.add("发送中")
+        if (isSelf && msg.deliveryStatus == "failed") parts.add("发送失败")
+        if (isSelf && msg.id > 0) {
+            parts.add(if (msg.readCount > 0) "${msg.readCount}人已读" else "未读")
+        }
+        return parts.joinToString(" · ")
     }
 
     private fun setupTextSelection(tvContent: TextView, msg: Message, isSelf: Boolean) {

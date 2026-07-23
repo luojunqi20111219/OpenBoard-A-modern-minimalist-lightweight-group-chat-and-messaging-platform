@@ -34,6 +34,8 @@ class _ChatScreenState extends State<ChatScreen> {
   final ScrollController _scrollController = ScrollController();
   final TextEditingController _textController = TextEditingController();
   bool _isLoadingHistory = false;
+  bool _hasMoreHistory = true;
+  int? _oldestMessageId;
   bool _isOtherTyping = false;
   Timer? _typingTimer;
   Timer? _sendTypingThrottle;
@@ -55,6 +57,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     _loadHistory();
+    _scrollController.addListener(_handleHistoryScroll);
     _subscribeToEvents();
     _loadFavoriteEmojis();
   }
@@ -91,7 +94,11 @@ class _ChatScreenState extends State<ChatScreen> {
                   _messages.add(msg);
                 }
               } else {
-                _messages.add(msg);
+                final pendingIndex = _messages.indexWhere(
+                  (item) => msg.clientId != null && item.clientId == msg.clientId,
+                );
+                if (pendingIndex >= 0) _messages.removeAt(pendingIndex);
+                if (!_messages.any((item) => item.id == msg.id)) _messages.add(msg);
               }
             });
             _scrollToBottom();
@@ -122,21 +129,49 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Future<void> _loadHistory() async {
+  Future<void> _loadHistory({bool older = false}) async {
+    if (_isLoadingHistory || (older && !_hasMoreHistory)) return;
+    final oldExtent = _scrollController.hasClients ? _scrollController.position.maxScrollExtent : 0.0;
     setState(() {
       _isLoadingHistory = true;
     });
-    final history = await ApiService().fetchHistory(
+    final page = await ApiService().fetchHistoryPage(
       roomId: widget.relationId,
       targetUser: widget.targetUser,
+      beforeId: older ? _oldestMessageId : null,
     );
     if (mounted) {
       setState(() {
-        _messages.clear();
-        _messages.addAll(history);
+        _hasMoreHistory = page.hasMore;
+        _oldestMessageId = page.nextBeforeId ?? (page.messages.isNotEmpty ? page.messages.first.id : null);
+        if (older) {
+          _messages.insertAll(
+            0,
+            page.messages.where((incoming) => !_messages.any((message) => message.id == incoming.id)),
+          );
+        } else {
+          _messages.clear();
+          _messages.addAll(page.messages);
+        }
         _isLoadingHistory = false;
       });
-      _scrollToBottom();
+      if (older) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (_scrollController.hasClients) {
+            _scrollController.jumpTo(_scrollController.position.maxScrollExtent - oldExtent);
+          }
+        });
+      } else {
+        _scrollToBottom();
+      }
+      final readable = _messages.where((message) => message.id != null && message.id! > 0);
+      if (readable.isNotEmpty) {
+        ApiService().markMessagesRead(
+          readable.last.id!,
+          roomId: widget.relationId,
+          targetUser: widget.targetUser,
+        );
+      }
     }
   }
 
@@ -169,6 +204,21 @@ class _ChatScreenState extends State<ChatScreen> {
 
     _textController.clear();
     ApiService().sendTypingStatus(false, targetUser: widget.targetUser);
+    final clientId = '${ApiService().currentUsername}-${DateTime.now().microsecondsSinceEpoch}';
+    final pending = Message(
+      id: -DateTime.now().millisecondsSinceEpoch,
+      name: ApiService().currentUsername,
+      nickname: ApiService().currentNickname,
+      avatar: ApiService().currentAvatar,
+      content: text,
+      time: '发送中',
+      roomId: widget.relationId,
+      receiver: widget.targetUser,
+      clientId: clientId,
+      deliveryStatus: 'sending',
+    );
+    setState(() => _messages.add(pending));
+    _scrollToBottom();
 
     try {
       // In OpenBoard, posting message goes to the database and WS broadcasts it
@@ -176,6 +226,7 @@ class _ChatScreenState extends State<ChatScreen> {
         'room_id': widget.relationId,
         'receiver': widget.targetUser,
         'content': text,
+        'client_id': clientId,
       };
 
       final serverUrl = ApiService().serverUrl;
@@ -193,10 +244,24 @@ class _ChatScreenState extends State<ChatScreen> {
       if (res.statusCode == 200) {
         // Message sent successfully, WebSocket broadcast will push it to our view
       } else {
+        final index = _messages.indexWhere((message) => message.clientId == clientId);
+        if (index >= 0 && mounted) {
+          setState(() => _messages[index] = _messages[index].copyWith(
+            time: '发送失败，长按重试',
+            deliveryStatus: 'failed',
+          ));
+        }
         final body = jsonDecode(res.body);
         _showError(body['detail'] ?? '消息发送失败');
       }
     } catch (e) {
+      final index = _messages.indexWhere((message) => message.clientId == clientId);
+      if (index >= 0 && mounted) {
+        setState(() => _messages[index] = _messages[index].copyWith(
+          time: '发送失败，长按重试',
+          deliveryStatus: 'failed',
+        ));
+      }
       _showError('网络连接失败，消息未发送');
     }
   }
@@ -378,6 +443,25 @@ class _ChatScreenState extends State<ChatScreen> {
                     _showForwardDialog(msg);
                   },
                 ),
+              if (msg.id != null && msg.id! > 0)
+                ListTile(
+                  leading: const Icon(Icons.bookmark_add_outlined),
+                  title: const Text('收藏消息'),
+                  onTap: () async {
+                    Navigator.pop(context);
+                    final success = await ApiService().favoriteMessage(msg.id!);
+                    if (!success && mounted) _showError('收藏失败');
+                  },
+                ),
+              if (isMyMsg && msg.canEdit && msg.id != null)
+                ListTile(
+                  leading: const Icon(Icons.edit_outlined),
+                  title: const Text('编辑消息'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _showEditMessageDialog(msg);
+                  },
+                ),
               if (isMyMsg && msg.canRecall && msg.id != null) ...[
                 ListTile(
                   leading: const Icon(Icons.undo, color: Colors.red),
@@ -396,6 +480,41 @@ class _ChatScreenState extends State<ChatScreen> {
         );
       },
     );
+  }
+
+  Future<void> _showEditMessageDialog(Message msg) async {
+    final controller = TextEditingController(text: msg.content);
+    final content = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('编辑消息（发送后2分钟内）'),
+        content: TextField(controller: controller, autofocus: true, maxLines: 5),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('取消')),
+          TextButton(onPressed: () => Navigator.pop(dialogContext, controller.text.trim()), child: const Text('保存')),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (content == null || content.isEmpty || msg.id == null) return;
+    final success = await ApiService().editMessage(msg.id!, content);
+    if (!success || !mounted) {
+      if (mounted) _showError('编辑失败（消息可能已超过2分钟）');
+      return;
+    }
+    final index = _messages.indexWhere((message) => message.id == msg.id);
+    if (index >= 0) {
+      setState(() => _messages[index] = _messages[index].copyWith(content: content, edited: true));
+    }
+  }
+
+  void _handleHistoryScroll() {
+    if (_scrollController.hasClients &&
+        _scrollController.position.pixels <= 40 &&
+        _hasMoreHistory &&
+        !_isLoadingHistory) {
+      _loadHistory(older: true);
+    }
   }
 
   Future<void> _showForwardDialog(Message msg) async {
@@ -463,6 +582,53 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  Future<void> _showMessageSearch() async {
+    final controller = TextEditingController();
+    final query = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('搜索聊天记录'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: '关键词'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('取消')),
+          TextButton(onPressed: () => Navigator.pop(dialogContext, controller.text.trim()), child: const Text('搜索')),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (query == null || query.isEmpty) return;
+    final results = await ApiService().searchMessages(
+      query,
+      roomId: widget.relationId,
+      targetUser: widget.targetUser,
+    );
+    if (!mounted) return;
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('搜索结果'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: results.isEmpty
+              ? const Text('没有找到消息')
+              : ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: results.length,
+                  itemBuilder: (_, index) => ListTile(
+                    title: Text(results[index].nickname.isEmpty ? results[index].name : results[index].nickname),
+                    subtitle: Text(results[index].content, maxLines: 2, overflow: TextOverflow.ellipsis),
+                  ),
+                ),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('关闭'))],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -487,6 +653,11 @@ class _ChatScreenState extends State<ChatScreen> {
         backgroundColor: Colors.blue.shade800,
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.search, color: Colors.white),
+            tooltip: '搜索聊天记录',
+            onPressed: _showMessageSearch,
+          ),
           if (widget.targetUser != null && widget.targetUser != 'filehelper')
             IconButton(
               icon: const Icon(Icons.person_remove, color: Colors.white),
@@ -495,7 +666,7 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.white),
-            onPressed: _loadHistory,
+            onPressed: () => _loadHistory(),
           ),
         ],
       ),

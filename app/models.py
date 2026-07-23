@@ -7,6 +7,7 @@ class LoginData(BaseModel):
     remember_me: bool = True
     device_id: Optional[str] = Field(default=None, max_length=128)
     device_name: Optional[str] = Field(default=None, max_length=120)
+    otp: Optional[str] = Field(default=None, min_length=6, max_length=8)
 
 class RegisterData(BaseModel):
     username: str = Field(min_length=1, max_length=64, pattern=r"^[\w.-]+$")
@@ -25,6 +26,20 @@ class MessageData(BaseModel):
     room_id: int = Field(default=0, ge=0)
     receiver: Optional[str] = Field(default=None, max_length=64)
     reply_to: Optional[int] = None
+    client_id: Optional[str] = Field(default=None, min_length=8, max_length=64, pattern=r"^[A-Za-z0-9._-]+$")
+
+class MessageEditData(BaseModel):
+    content: str = Field(min_length=1, max_length=10000)
+
+class MessageReadData(BaseModel):
+    room_id: int = Field(default=0, ge=0)
+    target_user: Optional[str] = Field(default=None, max_length=64)
+    up_to_id: int = Field(ge=1)
+
+class ConversationSettingData(BaseModel):
+    conversation_key: str = Field(min_length=3, max_length=140, pattern=r"^(room:\d+|user:[\w.-]+)$")
+    is_pinned: bool = False
+    is_muted: bool = False
 
 class ForwardMessageData(BaseModel):
     room_id: int = Field(default=0, ge=0)
@@ -55,6 +70,26 @@ class GroupPermissionUpdate(BaseModel):
 class GroupAvatarUpdate(BaseModel):
     avatar: str = Field(max_length=12000000)
 
+class GroupAdvancedUpdate(BaseModel):
+    announcement: str = Field(default="", max_length=2000)
+    member_only: bool = False
+    join_approval: bool = False
+
+class GroupInviteData(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+
+class GroupRequestActionData(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+    action: str = Field(pattern=r"^(accept|reject)$")
+
+class GroupInviteActionData(BaseModel):
+    invite_id: int = Field(ge=1)
+    action: str = Field(pattern=r"^(accept|reject)$")
+
+class GroupMemberUpdateData(BaseModel):
+    role: Optional[str] = Field(default=None, pattern=r"^(member|admin)$")
+    muted_until: Optional[str] = Field(default=None, max_length=32)
+
 class AdminAction(BaseModel):
     user_id: Optional[int] = None
     msg_id: Optional[int] = None
@@ -76,6 +111,19 @@ class WebDeviceData(BaseModel):
     device_name: Optional[str] = Field(default=None, max_length=120)
 
 class DeviceLogoutData(BaseModel):
+    password: str = Field(min_length=1, max_length=128)
+
+class SecurityPreferencesData(BaseModel):
+    read_receipts_enabled: bool = True
+
+class TwoFactorConfirmData(BaseModel):
+    code: str = Field(min_length=6, max_length=8)
+
+class TwoFactorDisableData(BaseModel):
+    password: str = Field(min_length=1, max_length=128)
+    code: str = Field(min_length=6, max_length=8)
+
+class LogoutAllData(BaseModel):
     password: str = Field(min_length=1, max_length=128)
 
 class FavoriteEmojiData(BaseModel):
