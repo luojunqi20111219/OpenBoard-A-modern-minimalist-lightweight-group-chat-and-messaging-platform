@@ -2,6 +2,7 @@ name: Build iOS Client
 
 on:
   push:
+    branches: [ "main" ]
     tags: [ "v*" ]
   workflow_dispatch: # Allows manual trigger from GitHub UI
 
