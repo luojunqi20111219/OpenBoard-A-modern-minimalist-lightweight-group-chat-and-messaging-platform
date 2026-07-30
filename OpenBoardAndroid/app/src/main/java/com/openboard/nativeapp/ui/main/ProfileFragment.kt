@@ -82,6 +82,16 @@ class ProfileFragment : Fragment() {
             themePickerLauncher.launch(Intent(requireContext(), ThemePickerActivity::class.java))
         }
 
+        // 登录设备与账号安全管理
+        binding.btnDevices.setOnClickListener {
+            showDevicesDialog()
+        }
+
+        // 休闲小游戏中心
+        binding.btnGame.setOnClickListener {
+            startActivity(Intent(requireContext(), com.openboard.nativeapp.ui.game.GameWebActivity::class.java))
+        }
+
         // 我的二维码名片点击
         binding.btnQrCode.setOnClickListener {
             showMyQrCodeDialog()
@@ -380,6 +390,88 @@ class ProfileFragment : Fragment() {
                 .show()
         } catch (e: Exception) {
             Toast.makeText(requireContext(), "生成二维码失败", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun showDevicesDialog() {
+        binding.progressBar.visibility = View.VISIBLE
+        lifecycleScope.launch {
+            val result = repository.getUserDevices()
+            binding.progressBar.visibility = View.GONE
+            result.onSuccess { devices ->
+                if (devices.isEmpty()) {
+                    Toast.makeText(requireContext(), "暂无活跃登录设备", Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+                val items = devices.map { d ->
+                    val name = d["device_name"] as? String ?: "未知设备"
+                    val isCurrent = d["is_current"] as? Boolean ?: false
+                    val lastLogin = d["last_login"] as? String ?: ""
+                    "$name ${if (isCurrent) "(当前设备)" else ""}\n上次登录: $lastLogin"
+                }.toTypedArray()
+
+                AlertDialog.Builder(requireContext())
+                    .setTitle("📱 已登录设备列表 (点击可下线)")
+                    .setItems(items) { _, which ->
+                        val selectedDevice = devices[which]
+                        val deviceId = selectedDevice["device_id"] as? String ?: return@setItems
+                        val isCurrent = selectedDevice["is_current"] as? Boolean ?: false
+
+                        if (isCurrent) {
+                            Toast.makeText(requireContext(), "无法下线当前设备，请使用退出登录", Toast.LENGTH_SHORT).show()
+                            return@setItems
+                        }
+
+                        AlertDialog.Builder(requireContext())
+                            .setTitle("确认下线设备")
+                            .setMessage("确定要下线该设备吗？下线后该设备需重新登录。")
+                            .setPositiveButton("确定下线") { _, _ ->
+                                binding.progressBar.visibility = View.VISIBLE
+                                lifecycleScope.launch {
+                                    val res = repository.logoutDevice(deviceId)
+                                    binding.progressBar.visibility = View.GONE
+                                    res.onSuccess {
+                                        Toast.makeText(requireContext(), "设备已强行下线", Toast.LENGTH_SHORT).show()
+                                        showDevicesDialog()
+                                    }.onFailure { e ->
+                                        Toast.makeText(requireContext(), "下线失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
+                            .setNegativeButton("取消", null)
+                            .show()
+                    }
+                    .setNeutralButton("注销所有其他设备") { _, _ ->
+                        val input = EditText(requireContext()).apply {
+                            hint = "请输入登录密码进行验证"
+                            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+                        }
+                        AlertDialog.Builder(requireContext())
+                            .setTitle("安全验证")
+                            .setView(input)
+                            .setPositiveButton("一键下线其他所有设备") { _, _ ->
+                                val pwd = input.text.toString().trim()
+                                if (pwd.isNotEmpty()) {
+                                    binding.progressBar.visibility = View.VISIBLE
+                                    lifecycleScope.launch {
+                                        val res = repository.logoutAllDevices(pwd)
+                                        binding.progressBar.visibility = View.GONE
+                                        res.onSuccess {
+                                            Toast.makeText(requireContext(), "其他所有设备已强制下线", Toast.LENGTH_SHORT).show()
+                                        }.onFailure { e ->
+                                            Toast.makeText(requireContext(), "操作失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                }
+                            }
+                            .setNegativeButton("取消", null)
+                            .show()
+                    }
+                    .setNegativeButton("关闭", null)
+                    .show()
+            }.onFailure { e ->
+                Toast.makeText(requireContext(), "获取设备列表失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 

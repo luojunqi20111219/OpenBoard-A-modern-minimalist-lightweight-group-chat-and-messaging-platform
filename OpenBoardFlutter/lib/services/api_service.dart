@@ -704,4 +704,48 @@ class ApiService {
     } catch (_) {}
     return false;
   }
+
+  Future<List<Map<String, dynamic>>> fetchLoginDevices() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$_serverUrl/api/user/devices'),
+        headers: {'Authorization': _token},
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['status'] == 'success') {
+          return List<Map<String, dynamic>>.from(data['data']);
+        }
+      }
+    } catch (e) {
+      print('Fetch devices error: $e');
+    }
+    return [];
+  }
+
+  Future<bool> logoutDevice(String deviceId) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$_serverUrl/api/user/devices/$deviceId/logout'),
+        headers: {'Authorization': _token},
+      );
+      return response.statusCode == 200;
+    } catch (_) {}
+    return false;
+  }
+
+  Future<bool> logoutAllDevices(String password) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$_serverUrl/api/user/logout-all'),
+        headers: {
+          'Authorization': _token,
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({'password': password}),
+      );
+      return response.statusCode == 200;
+    } catch (_) {}
+    return false;
+  }
 }

@@ -14,6 +14,7 @@ import camera from '@ohos.multimedia.camera';
 import { scanBarcode, scanCore } from '@kit.ScanKit';
 import { RGBLuminanceSource, BinaryBitmap, HybridBinarizer, MultiFormatReader, DecodeHintType, BarcodeFormat } from '@ohos/zxing';
 import image from '@ohos.multimedia.image';
+import web_webview from '@ohos.web.webview';
 
 interface Message {
   id?: number;
@@ -229,6 +230,11 @@ struct Index {
 
   @State nicknameModalVisible: boolean = false;
   @State newNicknameVal: string = "";
+
+  @State devicesModalVisible: boolean = false;
+  @State activeDevicesList: Record<string, string | boolean>[] = [];
+  @State gameCenterVisible: boolean = false;
+  private webviewController: web_webview.WebviewController = new web_webview.WebviewController();
 
   @State changePasswordModalVisible: boolean = false;
   @State oldPasswordInput: string = "";
@@ -631,6 +637,57 @@ struct Index {
           this.loadRelations();
         } else {
           promptAction.showToast({ message: "头像更新失败" });
+        }
+      }
+    );
+  }
+
+  fetchDevicesApi() {
+    let httpRequest = http.createHttp();
+    httpRequest.request(
+      `${this.serverUrl}/api/user/devices`,
+      {
+        method: http.RequestMethod.GET,
+        header: {
+          'Authorization': this.token
+        }
+      },
+      (err: BusinessError, data: http.HttpResponse) => {
+        if (!err && data.responseCode === 200) {
+          try {
+            let res: Record<string, Object> = JSON.parse(data.result as string);
+            if (res.status === 'success' && res.data) {
+              this.activeDevicesList = res.data as Record<string, string | boolean>[];
+              this.devicesModalVisible = true;
+            } else {
+              promptAction.showToast({ message: "暂无设备列表" });
+            }
+          } catch (e) {
+            promptAction.showToast({ message: "解析设备列表失败" });
+          }
+        } else {
+          promptAction.showToast({ message: "获取设备失败" });
+        }
+      }
+    );
+  }
+
+  logoutDeviceApi(deviceId: string) {
+    let httpRequest = http.createHttp();
+    httpRequest.request(
+      `${this.serverUrl}/api/user/devices/${deviceId}/logout`,
+      {
+        method: http.RequestMethod.POST,
+        header: {
+          'Authorization': this.token
+        }
+      },
+      (err: BusinessError, data: http.HttpResponse) => {
+        if (!err && data.responseCode === 200) {
+          promptAction.showToast({ message: "该设备已强行下线" });
+          this.fetchDevicesApi();
+        } else {
+          promptAction.showToast({ message: "下线操作失败" });
         }
       }
     );
@@ -2568,6 +2625,36 @@ struct Index {
                     .backgroundColor(Color.White)
                     .borderRadius(8)
 
+                    // Account Devices & Security option
+                    Row() {
+                      Text("📱 登录设备与账号安全")
+                        .fontSize(15)
+                        .fontColor(Color.Black)
+                        .layoutWeight(1)
+                    }
+                    .width("100%")
+                    .padding(16)
+                    .backgroundColor(Color.White)
+                    .borderRadius(8)
+                    .onClick(() => {
+                      this.fetchDevicesApi();
+                    })
+
+                    // Mini Game option
+                    Row() {
+                      Text("🎮 休闲小游戏")
+                        .fontSize(15)
+                        .fontColor(Color.Black)
+                        .layoutWeight(1)
+                    }
+                    .width("100%")
+                    .padding(16)
+                    .backgroundColor(Color.White)
+                    .borderRadius(8)
+                    .onClick(() => {
+                      this.gameCenterVisible = true;
+                    })
+
                     // Change Password option
                     Row() {
                       Text("🔐 修改安全账户密码")
@@ -3759,6 +3846,118 @@ struct Index {
         .backgroundColor("#80000000")
         .justifyContent(FlexAlign.Center)
         .alignItems(HorizontalAlign.Center)
+      }
+
+      // --- OVERLAY MODAL: DEVICE MANAGEMENT ---
+      if (this.devicesModalVisible) {
+        Column() {
+          Column({ space: 15 }) {
+            Text("📱 已登录设备与账号安全")
+              .fontSize(16)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(Color.Black)
+            
+            Text("以下是您当前账号已登录的设备列表：")
+              .fontSize(12)
+              .fontColor(Color.Gray)
+
+            List({ space: 8 }) {
+              ForEach(this.activeDevicesList, (item: Record<string, string | boolean>) => {
+                ListItem() {
+                  Row() {
+                    Column({ space: 4 }) {
+                      Text(`${item['device_name'] || '未知设备'} ${item['is_current'] ? '(当前设备)' : ''}`)
+                        .fontSize(14)
+                        .fontWeight(FontWeight.Bold)
+                        .fontColor(Color.Black)
+                      Text(`上次活跃: ${item['last_login'] || ''}`)
+                        .fontSize(11)
+                        .fontColor(Color.Gray)
+                    }
+                    .alignItems(HorizontalAlign.Start)
+                    .layoutWeight(1)
+
+                    if (!item['is_current']) {
+                      Button("下线")
+                        .fontSize(12)
+                        .height(30)
+                        .backgroundColor(Color.Red)
+                        .onClick(() => {
+                          this.logoutDeviceApi(item['device_id'] as string);
+                        })
+                    }
+                  }
+                  .width("100%")
+                  .padding(10)
+                  .backgroundColor("#F5F5F5")
+                  .borderRadius(6)
+                }
+              })
+            }
+            .height(200)
+            .width("100%")
+
+            Row({ space: 10 }) {
+              Button("关闭")
+                .layoutWeight(1)
+                .height(40)
+                .backgroundColor(Color.Gray)
+                .onClick(() => {
+                  this.devicesModalVisible = false;
+                })
+            }
+          }
+          .width("85%")
+          .padding(20)
+          .backgroundColor(Color.White)
+          .borderRadius(12)
+        }
+        .width("100%")
+        .height("100%")
+        .backgroundColor("#80000000")
+        .justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Center)
+      }
+
+      // --- OVERLAY MODAL: MINI GAME CENTER ---
+      if (this.gameCenterVisible) {
+        Column() {
+          Row() {
+            Text("‹ 返回")
+              .fontSize(16)
+              .fontColor(Color.White)
+              .onClick(() => {
+                this.gameCenterVisible = false;
+              })
+
+            Text("🎮 休闲小游戏")
+              .fontSize(18)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(Color.White)
+              .layoutWeight(1)
+              .textAlign(TextAlign.Center)
+
+            Text("刷新")
+              .fontSize(14)
+              .fontColor(Color.White)
+              .onClick(() => {
+                this.webviewController.refresh();
+              })
+          }
+          .width("100%")
+          .height(50)
+          .padding({ left: 16, right: 16 })
+          .backgroundColor(this.themeColor)
+
+          Web({ src: `${this.serverUrl}/game/`, controller: this.webviewController })
+            .width("100%")
+            .layoutWeight(1)
+            .javaScriptAccess(true)
+            .domStorageAccess(true)
+        }
+        .width("100%")
+        .height("100%")
+        .backgroundColor(Color.White)
       }
 
       // --- OVERLAY MODAL: EDIT AVATAR ---

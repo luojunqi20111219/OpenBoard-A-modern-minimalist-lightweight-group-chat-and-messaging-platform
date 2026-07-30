@@ -74,6 +74,11 @@
             android:windowSoftInputMode="adjustResize" />
 
         <activity
+            android:name=".ui.game.GameWebActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize" />
+
+        <activity
             android:name="com.journeyapps.barcodescanner.CaptureActivity"
             android:screenOrientation="portrait"
             tools:replace="android:screenOrientation"

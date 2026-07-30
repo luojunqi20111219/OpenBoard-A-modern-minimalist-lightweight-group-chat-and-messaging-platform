@@ -175,6 +175,18 @@ class ChatRepository {
     suspend fun deleteAccount(): Result<Unit> =
         apiCallVoid { api.deleteAccount() }
 
+    suspend fun getUserDevices(): Result<List<Map<String, Any>>> =
+        apiCallWrapped { api.getUserDevices() }
+
+    suspend fun logoutDevice(deviceId: String): Result<Unit> =
+        apiCallVoid { api.logoutDevice(deviceId) }
+
+    suspend fun logoutAllDevices(password: String): Result<Unit> =
+        apiCallVoid { api.logoutAllDevices(mapOf("password" to password)) }
+
+    suspend fun getLoginHistory(): Result<List<Map<String, Any>>> =
+        apiCallWrapped { api.getLoginHistory() }
+
     suspend fun getNotifications(): Result<ApiResponse<List<Notification>>> =
         apiCallEnvelope { api.getNotifications() }
 

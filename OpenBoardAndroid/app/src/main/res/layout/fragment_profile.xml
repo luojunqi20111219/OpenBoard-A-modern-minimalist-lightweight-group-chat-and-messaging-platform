@@ -164,6 +164,28 @@
                     android:layout_marginBottom="12dp"
                     android:layout_marginTop="8dp"/>
 
+                <!-- Login Devices & Security Management Button -->
+                <Button
+                    android:id="@+id/btn_devices"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:text="📱 登录设备与账号安全"
+                    android:textAllCaps="false"
+                    android:textSize="15sp"
+                    android:layout_marginBottom="12dp"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"/>
+
+                <!-- Mini Game Center Button -->
+                <Button
+                    android:id="@+id/btn_game"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:text="🎮 休闲小游戏"
+                    android:textAllCaps="false"
+                    android:textSize="15sp"
+                    android:layout_marginBottom="12dp"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"/>
+
                 <!-- My QR Code Button -->
                 <Button
                     android:id="@+id/btn_qr_code"

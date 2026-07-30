@@ -112,6 +112,18 @@ interface ApiService {
     @POST("api/user/push_token")
     fun uploadPushToken(@Body data: Map<String, String>): Call<ApiResponse<Any>>
 
+    @GET("api/user/devices")
+    fun getUserDevices(): Call<ApiResponse<List<Map<String, Any>>>>
+
+    @POST("api/user/devices/{device_id}/logout")
+    fun logoutDevice(@Path("device_id") deviceId: String): Call<ApiResponse<Any>>
+
+    @POST("api/user/logout-all")
+    fun logoutAllDevices(@Body data: Map<String, String>): Call<ApiResponse<Any>>
+
+    @GET("api/user/login-history")
+    fun getLoginHistory(): Call<ApiResponse<List<Map<String, Any>>>>
+
     @GET("api/favorites/emojis")
     fun getFavoriteEmojis(): Call<ApiResponse<List<String>>>
 

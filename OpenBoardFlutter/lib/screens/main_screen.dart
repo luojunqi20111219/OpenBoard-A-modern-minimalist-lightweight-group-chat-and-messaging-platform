@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/relation.dart';
 import '../services/api_service.dart';
 import 'chat_screen.dart';
@@ -104,6 +105,112 @@ class _MainScreenState extends State<MainScreen> {
       return 0;
     });
     return sortedList;
+  }
+
+  void _openGameCenter() async {
+    final gameUrl = Uri.parse('${ApiService().serverUrl.replaceAll(RegExp(r'/$'), '')}/game/');
+    if (!await launchUrl(gameUrl, mode: LaunchMode.inAppWebView)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('无法打开小游戏中心'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  void _showDevicesDialog() async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+    final devices = await ApiService().fetchLoginDevices();
+    if (mounted) Navigator.pop(context); // hide loading
+
+    if (!mounted) return;
+    if (devices.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('暂无活跃设备数据')),
+      );
+      return;
+    }
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('📱 登录设备与账号安全'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.separated(
+            shrinkWrap: true,
+            itemCount: devices.length,
+            separatorBuilder: (context, index) => const Divider(height: 1),
+            itemBuilder: (context, index) {
+              final d = devices[index];
+              final name = d['device_name']?.toString() ?? '未知设备';
+              final isCurrent = d['is_current'] == true;
+              final deviceId = d['device_id']?.toString() ?? '';
+              final lastLogin = d['last_login']?.toString() ?? '';
+
+              return ListTile(
+                leading: Icon(
+                  isCurrent ? Icons.phone_android : Icons.laptop,
+                  color: isCurrent ? Colors.green : Colors.blue,
+                ),
+                title: Text(
+                  '$name ${isCurrent ? "(当前设备)" : ""}',
+                  style: TextStyle(
+                    fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+                  ),
+                ),
+                subtitle: Text('上次活跃: $lastLogin', style: const TextStyle(fontSize: 12)),
+                trailing: isCurrent
+                    ? null
+                    : IconButton(
+                        icon: const Icon(Icons.exit_to_app, color: Colors.red),
+                        tooltip: '下线设备',
+                        onPressed: () async {
+                          Navigator.pop(dialogContext);
+                          final confirm = await showDialog<bool>(
+                            context: context,
+                            builder: (c) => AlertDialog(
+                              title: const Text('强制下线设备'),
+                              content: Text('确定要下线设备 "$name" 吗？'),
+                              actions: [
+                                TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('取消')),
+                                TextButton(
+                                  onPressed: () => Navigator.pop(c, true),
+                                  style: TextButton.styleFrom(foregroundColor: Colors.red),
+                                  child: const Text('确定下线'),
+                                ),
+                              ],
+                            ),
+                          );
+                          if (confirm == true) {
+                            final success = await ApiService().logoutDevice(deviceId);
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(success ? '已成功下线该设备' : '下线失败'),
+                                  backgroundColor: success ? Colors.green : Colors.red,
+                                ),
+                              );
+                            }
+                          }
+                        },
+                      ),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _logout() async {
@@ -846,6 +953,20 @@ class _MainScreenState extends State<MainScreen> {
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             child: Column(
               children: [
+                ListTile(
+                  leading: const Icon(Icons.devices, color: Colors.purple),
+                  title: const Text('登录设备与账号安全'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: _showDevicesDialog,
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.sports_esports, color: Colors.teal),
+                  title: const Text('🎮 休闲小游戏'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: _openGameCenter,
+                ),
+                const Divider(height: 1),
                 ListTile(
                   leading: const Icon(Icons.qr_code, color: Colors.blue),
                   title: const Text('我的二维码名片'),
