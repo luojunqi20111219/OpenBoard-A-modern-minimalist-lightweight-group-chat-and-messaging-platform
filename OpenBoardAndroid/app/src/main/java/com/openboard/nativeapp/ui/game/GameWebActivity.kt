@@ -101,7 +101,7 @@ class GameWebActivity : AppCompatActivity() {
             }
         }
 
-        val gameUrl = RetrofitClient.getBaseUrl().trimEnd('/') + "/game/"
+        val gameUrl = "file:///android_asset/game/index.html"
         webView.loadUrl(gameUrl)
 
         layout.addView(webView, android.widget.LinearLayout.LayoutParams(

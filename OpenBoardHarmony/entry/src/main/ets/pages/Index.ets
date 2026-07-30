@@ -3949,10 +3949,11 @@ struct Index {
           .padding({ left: 16, right: 16 })
           .backgroundColor(this.themeColor)
 
-          Web({ src: `${this.serverUrl}/game/`, controller: this.webviewController })
+          Web({ src: $rawfile('game/index.html'), controller: this.webviewController })
             .width("100%")
             .layoutWeight(1)
             .javaScriptAccess(true)
+            .fileAccess(true)
             .domStorageAccess(true)
         }
         .width("100%")
