@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>游戏中心 · GameHub</title>
+<style>
+:root{--bg1:#0f0c29;--bg2:#302b63;--bg3:#24243e;--glass:rgba(255,255,255,.08);--glass-b:rgba(255,255,255,.16);--ink:#eef6ff;--ink-dim:#9db4c8;--c1:#4fc3f7;--c2:#b388ff;--c3:#ffd54f;--c4:#69f0ae;--c5:#ff8a65;--warn:#ff5252}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{font-family:'PingFang SC','Microsoft YaHei','Segoe UI',sans-serif;background:linear-gradient(135deg,var(--bg1),var(--bg2),var(--bg3));background-attachment:fixed;color:var(--ink);min-height:100vh;overflow-x:hidden}
+.orb{position:fixed;border-radius:50%;filter:blur(100px);opacity:.3;z-index:0;pointer-events:none;animation:drift 16s ease-in-out infinite}
+.orb.a{width:380px;height:380px;background:var(--c1);top:-100px;left:-80px}
+.orb.b{width:460px;height:460px;background:var(--c2);bottom:-160px;right:-120px;animation-delay:5s}
+.orb.c{width:300px;height:300px;background:var(--c3);top:40%;right:10%;animation-delay:8s;opacity:.15}
+@keyframes drift{0%,100%{transform:translate(0,0)}50%{transform:translate(40px,30px)}}
+.wrap{position:relative;z-index:1;max-width:600px;margin:0 auto;padding:24px 16px 60px}
+.header{text-align:center;margin-bottom:20px}
+.header h1{font-size:34px;font-weight:800;letter-spacing:2px;background:linear-gradient(90deg,var(--c1),var(--c2),var(--c3));-webkit-background-clip:text;background-clip:text;color:transparent;margin-bottom:6px}
+.header p{color:var(--ink-dim);font-size:14px;letter-spacing:4px}
+.stats{display:flex;gap:12px;margin-bottom:20px}
+.stat{flex:1;background:var(--glass);border:1px solid var(--glass-b);border-radius:14px;padding:14px;text-align:center;backdrop-filter:blur(10px)}
+.stat .v{font-size:24px;font-weight:800;color:var(--c3)}
+.stat .l{font-size:11px;color:var(--ink-dim);margin-top:4px;letter-spacing:1px}
+.st{font-size:14px;letter-spacing:2px;margin:24px 0 14px;padding-left:4px;display:flex;align-items:center;gap:8px}
+.st .bd{font-size:11px;background:var(--glass);border:1px solid var(--glass-b);padding:2px 10px;border-radius:20px;color:var(--ink-dim);letter-spacing:1px}
+.st.orig{color:var(--c1)}.st.lib{color:var(--c4)}.st.online{color:var(--c5)}.st.feat{color:var(--c3)}
+.g2{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+.card{position:relative;border-radius:20px;overflow:hidden;cursor:pointer;border:1px solid var(--glass-b);background:var(--glass);backdrop-filter:blur(10px);transition:transform .2s;aspect-ratio:1}
+.card:active{transform:scale(.95)}
+.card .bg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:64px;opacity:.25}
+.card .info{position:absolute;left:0;right:0;bottom:0;padding:14px;background:linear-gradient(transparent,rgba(0,0,0,.5))}
+.card .info h3{font-size:16px;font-weight:700;margin-bottom:3px}
+.card .info p{font-size:11px;color:var(--ink-dim)}
+.card .tg{position:absolute;top:10px;right:10px;background:rgba(0,0,0,.4);padding:3px 10px;border-radius:20px;font-size:10px;letter-spacing:1px}
+.card .pl{position:absolute;top:10px;left:10px;width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;font-size:14px;opacity:.8}
+.cb{display:flex;gap:6px;margin-bottom:14px;overflow-x:auto;padding-bottom:4px;scrollbar-width:none}
+.cb::-webkit-scrollbar{display:none}
+.cfb{background:var(--glass);border:1px solid var(--glass-b);color:var(--ink-dim);padding:6px 14px;border-radius:20px;font-size:12px;white-space:nowrap;cursor:pointer;backdrop-filter:blur(8px);transition:.15s;flex-shrink:0}
+.cfb.on{background:rgba(105,240,174,.25);border-color:var(--c4);color:var(--c4)}
+.sbox{margin-bottom:14px}
+.sbox input{width:100%;background:var(--glass);border:1px solid var(--glass-b);border-radius:12px;padding:11px 16px;color:var(--ink);font-size:14px;backdrop-filter:blur(8px);outline:none}
+.sbox input::placeholder{color:var(--ink-dim)}
+.lgr{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.lcd{border-radius:14px;overflow:hidden;cursor:pointer;border:1px solid var(--glass-b);background:var(--glass);backdrop-filter:blur(8px);transition:transform .15s;display:flex;flex-direction:column;position:relative}
+.lcd:active{transform:scale(.96)}
+.lcd .cvr{width:100%;aspect-ratio:16/10;background:linear-gradient(135deg,rgba(79,195,247,.2),rgba(179,136,255,.15));display:flex;align-items:center;justify-content:center;font-size:38px;overflow:hidden}
+.lcd .cvr img{width:100%;height:100%;object-fit:cover}
+.lcd .ifo{padding:10px 12px}
+.lcd .nm{font-size:13px;font-weight:700;margin-bottom:3px;display:flex;align-items:center;gap:4px}
+.lcd .ds{font-size:11px;color:var(--ink-dim);line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.wb{background:rgba(255,82,82,.1);border:1px solid rgba(255,82,82,.3);border-radius:12px;padding:12px 14px;margin-bottom:14px;font-size:12px;color:#ffabab;line-height:1.6}
+.wb b{color:var(--warn)}
+.ogr{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.ocd{border-radius:14px;overflow:hidden;cursor:pointer;border:1px solid rgba(255,138,101,.3);background:linear-gradient(145deg,rgba(255,138,101,.12),rgba(255,138,101,.03));backdrop-filter:blur(8px);transition:transform .15s;display:flex;flex-direction:column}
+.ocd:active{transform:scale(.96)}
+.ocd .ov{width:100%;aspect-ratio:16/10;background:rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;font-size:38px}
+.ocd .ov img{width:100%;height:100%;object-fit:cover}
+.ocd .ifo{padding:10px 12px}
+.ocd .nm{font-size:13px;font-weight:700;margin-bottom:3px;display:flex;align-items:center;gap:4px}
+.ocd .ds{font-size:11px;color:var(--ink-dim);line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.ft{text-align:center;margin-top:40px;color:var(--ink-dim);font-size:12px;letter-spacing:1px}
+.em{text-align:center;color:var(--ink-dim);font-size:13px;padding:30px}
+.mo{position:fixed;inset:0;background:rgba(5,12,20,.92);z-index:100;display:none;flex-direction:column}
+.mo.show{display:flex}
+.mbar{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:rgba(0,0,0,.5);backdrop-filter:blur(10px);flex-shrink:0}
+.mbar .mt{font-size:15px;font-weight:700}
+.mbar .mb{background:var(--glass);border:1px solid var(--glass-b);color:var(--ink);padding:6px 14px;border-radius:10px;font-size:13px;cursor:pointer}
+.mif{flex:1;border:none;width:100%}
+.mw{padding:8px 16px;background:rgba(255,82,82,.15);font-size:11px;color:#ffabab;text-align:center;flex-shrink:0}
+</style>
+</head>
+<body>
+<div class="orb a"></div><div class="orb b"></div><div class="orb c"></div>
+<div class="wrap">
+<div class="header"><h1>🎮 游戏中心</h1><p>GAME HUB</p></div>
+<div class="stats">
+<div class="stat"><div class="v" id="gtotal">57</div><div class="l">游戏总数</div></div>
+<div class="stat"><div class="v" id="gPlayed">0</div><div class="l">已玩局数</div></div>
+<div class="stat"><div class="v" id="gStars">0</div><div class="l">成就积分</div></div>
+</div>
+
+<div class="st feat">🏆 精选推荐</div>
+<div class="g2">
+<div class="card" onclick="go('sudoku')"><div class="bg">🔢</div><div class="pl">&#9654;</div><div class="tg">自制</div><div class="info"><h3>数独之旅</h3><p>100关闯关 · 难度递增 · 星级评分</p></div></div>
+<div class="card" onclick="gl('neon-shooter')"><div class="bg">&#9992;</div><div class="pl">&#9654;</div><div class="tg">本地</div><div class="info"><h3>霓虹战机</h3><p>极速星海射击 · Canvas 精品</p></div></div>
+<div class="card" onclick="po(1)"><div class="bg">&#129672;</div><div class="pl">&#9654;</div><div class="tg">在线</div><div class="info"><h3>火柴人跑酷</h3><p>流畅跑酷 · 第三方提供</p></div></div>
+<div class="card" onclick="po(4)"><div class="bg">&#128073;&#127995;</div><div class="pl">&#9654;</div><div class="tg">在线</div><div class="info"><h3>怪物幸存者</h3><p>Roguelite 生存 · 第三方</p></div></div>
+</div>
+
+<div class="st orig">&#10024; 自制游戏 <span class="bd">4 款</span></div>
+<div class="g2">
+<div class="card" onclick="go('sudoku')"><div class="bg">&#128258;</div><div class="pl">&#9654;</div><div class="tg">闯关</div><div class="info"><h3>数独之旅</h3><p>100关挑战 · 难度递增 · 星级评分</p></div></div>
+<div class="card" onclick="go('2048')"><div class="bg">&#127919;</div><div class="pl">&#9654;</div><div class="tg">经典</div><div class="info"><h3>2048</h3><p>合并数字 · 挑战最高分</p></div></div>
+<div class="card" onclick="go('memory')"><div class="bg">&#127923;</div><div class="pl">&#9654;</div><div class="tg">益智</div><div class="info"><h3>记忆翻牌</h3><p>考验记忆力 · 三种难度</p></div></div>
+<div class="card" onclick="go('snake')"><div class="bg">&#128013;</div><div class="pl">&#9654;</div><div class="tg">休闲</div><div class="info"><h3>贪吃蛇</h3><p>经典怀旧 · 突破纪录</p></div></div>
+</div>
+
+<div class="st lib">&#128218; 本地游戏库 <span class="bd">53 款 · 服务器稳定</span></div>
+<div class="sbox"><input type="text" id="sch" placeholder="&#128269; 搜索游戏名称..."></div>
+<div class="cb" id="fb"></div>
+<div class="lgr" id="lgr"></div>
+
+<div class="st online">&#127760; 在线游戏 <span class="bd">30 款 · 第三方提供</span></div>
+<div class="wb">&#9888;&#65039; <b>注意：</b>以下游戏由第三方服务器提供，<b>可能连不上或加载缓慢</b>。如打不开请回到上方<b>本地游戏库</b>，那些全部存在你自己的服务器上，<b>永远稳定</b>。</div>
+<div class="ogr" id="ogr"></div>
+
+<div class="ft">游戏进度自动保存在本地 · 随时随地畅玩</div>
+</div>
+
+<div class="mo" id="mo">
+<div class="mbar"><button class="mb" onclick="cm()">&#139; 返回</button><span class="mt" id="mt">游戏</span><button class="mb" onclick="of()">&#8599; 全屏</button></div>
+<div class="mw" id="mw"></div>
+<iframe class="mif" id="mif" src="about:blank"></iframe>
+</div>
+
+<script>
+var LIB = [{"dir": "neon-shooter", "name": "霓虹战机", "icon": "✈️", "cat": "射击", "desc": "驾驶霓虹战机在星海中穿梭，击落敌机，收集能量升级武器。画面炫酷，操作流畅的 Canvas 射击精品。", "image": "library/neon-shooter/screenshot.png", "has_ss": false}, {"dir": "neon-rider", "name": "霓虹狂飙", "icon": "🏍️", "cat": "竞速", "desc": "在合成波风格的霓虹公路上狂飙，躲避障碍，超越极限速度。复古赛博朋克美学。", "image": "library/neon-rider/screenshot.png", "has_ss": false}, {"dir": "neon-breaker", "name": "霓虹弹击", "icon": "⚡", "cat": "弹珠", "desc": "霓虹风格的打砖块游戏，弹球击碎所有砖块即可过关，有无尽模式挑战高分。", "image": "library/neon-breaker/screenshot.png", "has_ss": false}, {"dir": "01-Candy-Crush-Game", "name": "糖果消消乐", "icon": "🍬", "cat": "消除", "desc": "经典三消游戏，交换相邻糖果使三个或以上相同糖果连成一线消除，闯关挑战。", "image": "library/01-Candy-Crush-Game/screenshot.png", "has_ss": false}, {"dir": "02-Pac-Man-Game", "name": "吃豆人", "icon": "👻", "cat": "经典", "desc": "怀旧吃豆人游戏，在迷宫中吃光所有豆子，躲避四只幽灵的追击。吃大力丸可反击。", "image": "library/02-Pac-Man-Game/screenshot.png", "has_ss": false}, {"dir": "03-Chess-Game", "name": "国际象棋", "icon": "♟️", "cat": "棋类", "desc": "完整规则的国际象棋，支持人机对战。锻炼逻辑思维和战略规划能力。", "image": "library/03-Chess-Game/screenshot.png", "has_ss": false}, {"dir": "04-Doodle-Jump-Game", "name": "涂鸦跳跃", "icon": "🦘", "cat": "动作", "desc": "控制可爱的涂鸦角色不断向上跳跃，踩平台攀升，躲避怪物和黑洞。", "image": "library/04-Doodle-Jump-Game/screenshot.png", "has_ss": false}, {"dir": "05-Solitaire-Game", "name": "纸牌接龙", "icon": "🃏", "cat": "卡牌", "desc": "经典 Windows 纸牌接龙，将所有牌按花色从 A 到 K 排列到基础堆即可获胜。", "image": "library/05-Solitaire-Game/screenshot.png", "has_ss": false}, {"dir": "06-Sudoku-Game", "name": "数独", "icon": "🔢", "cat": "益智", "desc": "经典数独益智游戏，在 9×9 格子中填入 1-9 数字，每行每列每宫不重复。", "image": "library/06-Sudoku-Game/screenshot.png", "has_ss": false}, {"dir": "07-Crossy-Road-Game", "name": "过马路", "icon": "🐔", "cat": "动作", "desc": "控制小鸡穿越马路、河流和铁路，躲避车辆，一步步向前推进。", "image": "library/07-Crossy-Road-Game/screenshot.png", "has_ss": false}, {"dir": "08-Rock-Paper-Scissors", "name": "石头剪刀布", "icon": "✊", "cat": "休闲", "desc": "石头剪刀布游戏，和电脑对战，看谁能猜到对方的心思。", "image": "library/08-Rock-Paper-Scissors/screenshot.png", "has_ss": false}, {"dir": "09-Flappy-Bird-Game", "name": "像素鸟", "icon": "🐤", "cat": "动作", "desc": "曾经风靡全球的像素鸟，点击屏幕让小鸟穿过管道缝隙，简单但极度上瘾。", "image": "library/09-Flappy-Bird-Game/screenshot.png", "has_ss": false}, {"dir": "10-2048-Game", "name": "2048", "icon": "🎯", "cat": "数字", "desc": "滑动数字方块，相同数字合并，目标是合成 2048。策略性十足的益智经典。", "image": "library/10-2048-Game/screenshot.png", "has_ss": false}, {"dir": "11-Wordle-Game", "name": "猜单词", "icon": "🔤", "cat": "文字", "desc": "猜英文单词游戏，六次机会猜出五字母单词，颜色提示字母位置。", "image": "library/11-Wordle-Game/screenshot.png", "has_ss": false}, {"dir": "12-Hangman-Game", "name": "吊死鬼", "icon": "🎯", "cat": "文字", "desc": "猜单词游戏，每次猜错一个字母，吊死鬼图就多画一笔，猜对全部字母获胜。", "image": "library/12-Hangman-Game/screenshot.png", "has_ss": true}, {"dir": "13-Tower-Blocks", "name": "叠方块", "icon": "🏗️", "cat": "休闲", "desc": "叠方块建高塔，精准对齐每一层，偏移的部分会被切掉，塔越高越难。", "image": "library/13-Tower-Blocks/screenshot.png", "has_ss": false}, {"dir": "14-Archery-Game", "name": "射箭", "icon": "🏹", "cat": "体育", "desc": "射箭游戏，考虑风力影响，瞄准靶心射出箭矢，挑战精准度。", "image": "library/14-Archery-Game/screenshot.png", "has_ss": true}, {"dir": "15-Tic-Tac-Toe", "name": "井字棋", "icon": "#️⃣", "cat": "棋类", "desc": "经典井字棋，三子连线获胜。可人机对战或双人对战。", "image": "library/15-Tic-Tac-Toe/screenshot.png", "has_ss": false}, {"dir": "16-Minesweeper-Game", "name": "扫雷", "icon": "💣", "cat": "益智", "desc": "Windows 经典扫雷，根据数字推理地雷位置，揭开所有安全格获胜。", "image": "library/16-Minesweeper-Game/screenshot.png", "has_ss": true}, {"dir": "17-Speed-Typing-Game", "name": "快速打字", "icon": "⌨️", "cat": "文字", "desc": "快速打字游戏，在规定时间内正确输入尽可能多的单词，提升打字速度。", "image": "library/17-Speed-Typing-Game/screenshot.png", "has_ss": true}, {"dir": "18-Breakout-Game", "name": "打砖块", "icon": "🧱", "cat": "经典", "desc": "经典打砖块，控制底部挡板反弹小球，击碎上方所有砖块即可过关。", "image": "library/18-Breakout-Game/screenshot.png", "has_ss": true}, {"dir": "19-Ping-Pong-Game", "name": "乒乓对战", "icon": "🏓", "cat": "体育", "desc": "乒乓球对战游戏，控制球拍接球回击，先得规定分数者获胜。", "image": "library/19-Ping-Pong-Game/screenshot.png", "has_ss": true}, {"dir": "20-Tetris-Game", "name": "俄罗斯方块", "icon": "🟦", "cat": "经典", "desc": "永恒经典俄罗斯方块，旋转下落方块填满整行消除，堆到顶部游戏结束。", "image": "library/20-Tetris-Game/screenshot.png", "has_ss": true}, {"dir": "21-Tilting-Maze-Game", "name": "倾斜迷宫", "icon": "🌀", "cat": "益智", "desc": "倾斜迷宫游戏，通过倾斜控制小球在迷宫中滚动，到达终点即可过关。", "image": "library/21-Tilting-Maze-Game/screenshot.png", "has_ss": true}, {"dir": "22-Memory-Card-Game", "name": "记忆卡片", "icon": "🃏", "cat": "益智", "desc": "记忆翻牌游戏，翻开两张相同图案的卡片配对，考验记忆力和专注力。", "image": "library/22-Memory-Card-Game/screenshot.png", "has_ss": true}, {"dir": "23-Type-Number-Guessing-Game", "name": "猜数字", "icon": "🔮", "cat": "益智", "desc": "猜数字游戏，系统给出大小提示，用最少次数猜出目标数字。", "image": "library/23-Type-Number-Guessing-Game/screenshot.png", "has_ss": true}, {"dir": "24-Snake-Game", "name": "贪吃蛇", "icon": "🐍", "cat": "经典", "desc": "经典贪吃蛇，控制蛇吃食物变长，撞墙或撞到自己游戏结束。", "image": "library/24-Snake-Game/screenshot.png", "has_ss": true}, {"dir": "25-Connect-Four-Game", "name": "四子棋", "icon": "🔴", "cat": "棋类", "desc": "四子棋，在 7×6 棋盘中轮流落子，率先四子连线者获胜。", "image": "library/25-Connect-Four-Game/screenshot.png", "has_ss": true}, {"dir": "26-Insect-Catch-Game", "name": "抓虫子", "icon": "🐛", "cat": "休闲", "desc": "抓虫子游戏，快速点击屏幕上的虫子，在限定时间内抓住尽可能多的虫子。", "image": "library/26-Insect-Catch-Game/screenshot.png", "has_ss": true}, {"dir": "27-Typing-Game", "name": "打字练习", "icon": "⌨️", "cat": "文字", "desc": "打字练习游戏，屏幕落下的单词打完即消除，提升打字准确度和速度。", "image": "library/27-Typing-Game/screenshot.png", "has_ss": true}, {"dir": "28-Dice-Roll-Simulator", "name": "掷骰子", "icon": "🎲", "cat": "休闲", "desc": "掷骰子模拟器，可选择骰子数量，随机投掷，适合桌游辅助工具。", "image": "library/28-Dice-Roll-Simulator/screenshot.png", "has_ss": true}, {"dir": "29-Shape-Clicker-Game", "name": "形状点击", "icon": "⭕", "cat": "休闲", "desc": "形状点击游戏，快速点击屏幕上出现的形状，测试反应速度。", "image": "library/29-Shape-Clicker-Game/screenshot.png", "has_ss": true}, {"dir": "30-Typing-Game", "name": "打字高手", "icon": "⌨️", "cat": "文字", "desc": "打字高手挑战，更难的打字游戏，单词更长速度更快，挑战极限。", "image": "library/30-Typing-Game/screenshot.png", "has_ss": true}, {"dir": "31-Speak-Number-Guessing-Game", "name": "语音猜数", "icon": "🎤", "cat": "益智", "desc": "语音猜数游戏，用语音说出猜测的数字，系统给出大小提示。", "image": "library/31-Speak-Number-Guessing-Game/screenshot.png", "has_ss": true}, {"dir": "32-Fruit-Slicer-Game", "name": "切水果", "icon": "🍉", "cat": "动作", "desc": "切水果游戏，划动屏幕切飞来的水果，避开炸弹，连击得分更高。", "image": "library/32-Fruit-Slicer-Game/screenshot.png", "has_ss": true}, {"dir": "33-Quiz-Game", "name": "知识问答", "icon": "❓", "cat": "益智", "desc": "知识问答游戏，多选题挑战，涵盖历史、地理、科学等多个领域。", "image": "library/33-Quiz-Game/screenshot.png", "has_ss": true}, {"dir": "34-Emoji-Catcher-Game", "name": "表情捕捉", "icon": "😎", "cat": "休闲", "desc": "表情捕捉游戏，快速接住下落的表情符号，避开障碍物。", "image": "library/34-Emoji-Catcher-Game/screenshot.png", "has_ss": true}, {"dir": "35-Whack-A-Mole-Game", "name": "打地鼠", "icon": "🔨", "cat": "休闲", "desc": "经典打地鼠游戏，地鼠冒头时快速点击敲打，反应越快得分越高。", "image": "library/35-Whack-A-Mole-Game/screenshot.png", "has_ss": true}, {"dir": "36-Simon-Says-Game", "name": "西蒙记忆", "icon": "🟢", "cat": "益智", "desc": "西蒙记忆游戏，记住灯光亮起的顺序并重复，每轮增加一个，考验记忆力。", "image": "library/36-Simon-Says-Game/screenshot.png", "has_ss": true}, {"dir": "37-Sliding-Puzzle-Game", "name": "滑块拼图", "icon": "🧩", "cat": "益智", "desc": "滑块拼图游戏，移动数字方块按顺序排列，经典 15 数字华容道。", "image": "library/37-Sliding-Puzzle-Game/screenshot.png", "has_ss": true}, {"dir": "bitlife", "name": "人生模拟器", "icon": "👶", "cat": "模拟", "desc": "人生模拟器，从出生到死亡，每个阶段做出选择，体验不同的人生轨迹。", "image": "library/bitlife/screenshot.png", "has_ss": true}, {"dir": "black-hole-square", "name": "黑洞方块", "icon": "⚫", "cat": "益智", "desc": "控制黑洞吞噬比自己小的方块，越吃越大，最终吞噬整个地图。", "image": "library/black-hole-square/screenshot.png", "has_ss": true}, {"dir": "chromaincident", "name": "色彩 Incident", "icon": "🌈", "cat": "益智", "desc": "JS13k 参赛作品，色彩主题的益智游戏，小巧精致的创意之作。", "image": "library/chromaincident/screenshot.png", "has_ss": true}, {"dir": "evil-glitch", "name": "邪恶故障", "icon": "👾", "cat": "射击", "desc": "JS13k 参赛作品，复古风格的射击游戏，对抗邪恶的故障敌人。", "image": "library/evil-glitch/screenshot.png", "has_ss": true}, {"dir": "konnekt", "name": "连线消除", "icon": "🔗", "cat": "消除", "desc": "JS13k 参赛作品，连线益智游戏，用最少的线连接所有节点。", "image": "library/konnekt/screenshot.png", "has_ss": true}, {"dir": "retrohaunt", "name": "复古幽灵", "icon": "👻", "cat": "冒险", "desc": "复古幽灵冒险游戏，在像素世界中探索，解开谜题逃离幽灵的追击。", "image": "library/retrohaunt/screenshot.png", "has_ss": true}, {"dir": "xx142-b2exe", "name": "代码探险", "icon": "💾", "cat": "冒险", "desc": "JS13k 参赛作品，代码风格的冒险游戏，在程序世界中探索前进。", "image": "library/xx142-b2exe/screenshot.png", "has_ss": true}, {"dir": "tomalbran-bounce", "name": "弹球", "icon": "⚽", "cat": "经典", "desc": "弹球游戏，控制弹球在平台间跳跃，收集星星到达终点。", "image": "library/tomalbran-bounce/screenshot.png", "has_ss": true}, {"dir": "tomalbran-defender", "name": "太空防守", "icon": "🛡️", "cat": "射击", "desc": "太空防守游戏，操控飞船射击来袭的外星入侵者，保护基地。", "image": "library/tomalbran-defender/screenshot.png", "has_ss": false}, {"dir": "tomalbran-pacman", "name": "吃豆人", "icon": "🟡", "cat": "经典", "desc": "吃豆人游戏，经典迷宫吃豆躲避幽灵，大力丸反击模式。", "image": "library/tomalbran-pacman/screenshot.png", "has_ss": false}, {"dir": "tomalbran-snake", "name": "贪吃蛇", "icon": "🐍", "cat": "经典", "desc": "贪吃蛇游戏，经典玩法，控制蛇吃食物变长，挑战最长记录。", "image": "library/tomalbran-snake/screenshot.png", "has_ss": false}, {"dir": "tomalbran-spider", "name": "蜘蛛纸牌", "icon": "🕷️", "cat": "卡牌", "desc": "蜘蛛纸牌游戏，将牌按花色从 K 到 A 排列消除，经典 Windows 纸牌。", "image": "library/tomalbran-spider/screenshot.png", "has_ss": false}, {"dir": "tomalbran-tetris", "name": "俄罗斯方块", "icon": "🟦", "cat": "经典", "desc": "俄罗斯方块游戏，经典方块消除，旋转移动填满整行得分。", "image": "library/tomalbran-tetris/screenshot.png", "has_ss": false}]
+var OGS = [{"title": "Love Tester", "name": "爱情测试仪", "icon": "💕", "desc": "输入你和你暗恋的人的名字，测试你们的匹配度！", "embed": "https://www.onlinegames.io/games/2021/3/love-tester/index.html", "image": "https://www.onlinegames.io/media/posts/152/responsive/love-tester-xs.jpg", "tags": "1-player,2d,free,fun,funny,girl,html5,kids,love,mobile"}, {"title": "Stickman Parkour", "name": "火柴人跑酷", "icon": "🤸", "desc": "控制火柴人在屋顶间跳跃翻滚，体验跑酷快感。", "embed": "https://cloud.onlinegames.io/games/2024/construct/219/stickman-parkour/index-og.html", "image": "https://www.onlinegames.io/media/posts/871/responsive/stickman-parkour-OG-xs.jpg", "tags": "1-player,2d,action,adventure,arcade,free,fun,mobile,parkour,physics,running,stickman"}, {"title": "Get On Top", "name": "压制对手", "icon": "🤼", "desc": "双人对战，把对手按在地上就赢！", "embed": "https://www.onlinegames.io/games/2024/code/6/get-on-top/index.html", "image": "https://www.onlinegames.io/media/posts/697/responsive/Get-on-Top-xs.jpg", "tags": "2-player,2d,action,arcade,battle,combat,crazy,free,fun,html5,physics,stickman"}, {"title": "Tile Match", "name": "瓷砖消除", "icon": "🀄", "desc": "宁静益智消除，匹配相同瓷砖。", "embed": "https://cloud.onlinegames.io/games/2025/unity/tile-match/index-og.html", "image": "https://www.onlinegames.io/media/posts/939/responsive/tile-match-xs.jpg", "tags": "1-player,2d,brain,cozy,free,logic,mouse,puzzle,strategy"}, {"title": "Monster Survivors", "name": "怪物幸存者", "icon": "👹", "desc": "Roguelite 生存，击败怪物活到最后。", "embed": "https://cloud.onlinegames.io/games/2025/unity/monster-survivors/index-og.html", "image": "https://www.onlinegames.io/media/posts/942/responsive/Monster-survivors-xs.jpg", "tags": "1-player,2d,action,battle,combat,fantasy,free,rpg,survival,weapon"}, {"title": "Drunken Duel", "name": "醉汉决斗", "icon": "🍻", "desc": "双人决斗，喝醉了也要打赢！", "embed": "https://www.onlinegames.io/games/2024/code/2/drunken-duel/index.html", "image": "https://www.onlinegames.io/media/posts/698/responsive/Drunken-Duel-xs.jpg", "tags": "2-player,2d,action,arcade,battle,combat,free,fun,funny,html5,physics,stickman"}, {"title": "Stickman Destruction", "name": "火柴人毁灭", "icon": "💥", "desc": "控制火柴人制造破坏，解压神器。", "embed": "https://www.onlinegames.io/games/2021/unity3/stickman-destruction/index.html", "image": "https://www.onlinegames.io/media/posts/233/responsive/Stickman-Destruction-xs.jpg", "tags": "1-player,2d,crash,crazy,destroy,free,fun,funny,mobile,physics,simulator,stickman"}, {"title": "Cake Match Puzzle", "name": "蛋糕匹配", "icon": "🎂", "desc": "三消益智，匹配美味蛋糕闯关。", "embed": "https://cloud.onlinegames.io/games/2024/unity3/cake-match-puzzle/index-og.html", "image": "https://www.onlinegames.io/media/posts/908/responsive/55-xs.jpg", "tags": "1-player,2d,brain,cozy,cute,food,free,html5,logic,mobile,organizing,puzzle,restaurant"}, {"title": "Golf Bit", "name": "迷你高尔夫", "icon": "⛳", "desc": "8 位风格高尔夫，一杆进洞的快感。", "embed": "https://cloud.onlinegames.io/games/2026/construct/328/golf-bit/game.html", "image": "https://www.onlinegames.io/media/posts/1289/responsive/golf-bit-xs.webp", "tags": "1-player,2d,arcade,avoid,ball,crazy,free,fun,html5,mobile,mouse,physics,skill,sports"}, {"title": "Block Blast", "name": "方块爆破", "icon": "💥", "desc": "经典方块消除，策略性满分。", "embed": "https://cloud.onlinegames.io/games/2024/unity3/block-blast/index-og.html", "image": "https://www.onlinegames.io/media/posts/876/responsive/block-blast-xs.jpg", "tags": "1-player,2d,arcade,block,brain,color,cozy,free,fun,logic,puzzle"}, {"title": "Basket Hoop", "name": "投篮挑战", "icon": "🏀", "desc": "篮球投篮，精准投射挑战高分。", "embed": "https://cloud.onlinegames.io/games/2024/construct/311/basket-hoop/index-og.html", "image": "https://www.onlinegames.io/media/posts/843/responsive/Basket-Hoop-xs.jpg", "tags": "1-player,2d,ball,basketball,endless,free,html5,mobile,mouse,physics,skill,sports"}, {"title": "Love Tester Story", "name": "恋爱测试故事", "icon": "❤️", "desc": "互动恋爱测试，多结局故事。", "embed": "https://cloud.onlinegames.io/games/2024/construct/225/love-tester-story/index-og.html", "image": "https://www.onlinegames.io/media/posts/816/responsive/Love-Tester-Story-xs.jpg", "tags": "1-player,2d,free,fun,funny,girl,html5,love,mobile"}, {"title": "Geometry Vector", "name": "几何矢量", "icon": "📐", "desc": "几何风格街机射击。", "embed": "https://cloud.onlinegames.io/games/2026/construct/329/geometry-vector/game.html", "image": "https://www.onlinegames.io/media/posts/1246/responsive/geometry-vector-xs.webp", "tags": "1-player,2d,arcade,avoid,clicker,color,crazy,free,html5,mouse,music,physics,skill"}, {"title": "Kick The Dummy", "name": "Kick The Dummy", "icon": "🎮", "desc": "Sometimes, the stress of daily life overwhelms you, and you ...", "embed": "https://www.onlinegames.io/games/2022/construct/153/kick-the-dummy/index.html", "image": "https://www.onlinegames.io/media/posts/414/responsive/Kick-The-Dummy-Game-xs.jpg", "tags": "1-player,2d,clicker,crazy,destroy,free,fun,funny,mobile,mouse,physics,sandbox"}, {"title": "Poop Clicker", "name": "点击便便", "icon": "💩", "desc": "魔性点击放置，越点越上瘾。", "embed": "https://www.onlinegames.io/games/2024/construct/292/poop-clicker/index.html", "image": "https://www.onlinegames.io/media/posts/742/responsive/Poop-Clicker-xs.jpg", "tags": "1-player,2d,clicker,crazy,free,funny,html5,idle,mobile,mouse"}, {"title": "Car Football", "name": "汽车足球", "icon": "⚽", "desc": "开汽车踢足球，疯狂又有趣。", "embed": "https://www.onlinegames.io/games/2023/construct/198/car-football/index.html", "image": "https://www.onlinegames.io/media/posts/405/responsive/Car-Football-xs.jpg", "tags": "2-player,2d,arena,ball,car,crazy,driving,free,fun,physics,soccer,sports,world-cup"}, {"title": "Monster Truck Mountain Climb", "name": "Monster Truck Mountain Climb", "icon": "🎮", "desc": "Get ready for a bumpy ride in Monster Truck Mountain Climb! ...", "embed": "https://cloud.onlinegames.io/games/2021/2/monster-truck-mountain-climb/index-og.html", "image": "https://www.onlinegames.io/media/posts/924/responsive/monster-truck-mountain-climb-xs.jpg", "tags": "1-player,2d,car,crazy,free,racing,truck"}, {"title": "Crazy Stickman Physics", "name": "火柴人物理", "icon": "🕺", "desc": "物理引擎火柴人，搞笑又魔性。", "embed": "https://www.onlinegames.io/games/2023/construct/185/crazy-stickman-physics/index.html", "image": "https://www.onlinegames.io/media/posts/715/responsive/Crazy-Stickman-Physics-xs.jpg", "tags": "1-player,2d,crash,crazy,destroy,free,html5,mobile,mouse,physics,stickman"}, {"title": "Solitaire", "name": "纸牌接龙", "icon": "🃏", "desc": "经典 Windows 纸牌接龙。", "embed": "https://cloud.onlinegames.io/games/2025/html/solitaire/index-og.html", "image": "https://www.onlinegames.io/media/posts/1007/responsive/solitaire-xs.jpg", "tags": "1-player,2d,board,card,free,logic,mobile,mouse,solitaire"}, {"title": "Hero Dragon Power", "name": "龙之力英雄", "icon": "🐉", "desc": "驾驭巨龙征服世界。", "embed": "https://www.onlinegames.io/games/2023/unity/hero-dragon-power/index.html", "image": "https://www.onlinegames.io/media/posts/365/responsive/Hero-Dragon-Power-Game-xs.jpg", "tags": "1-player,2d,action,adventure,combat,dragon,free,hero,parkour,unity"}, {"title": "Perfect First Date", "name": "完美初次约会", "icon": "💘", "desc": "模拟约会场景，做出最佳选择。", "embed": "https://www.onlinegames.io/games/2021/3/perfect-first-date/index.html", "image": "https://www.onlinegames.io/media/posts/532/responsive/Perfect-First-Date-xs.jpg", "tags": "2d,dress-up,fashion,free,girl,love,makeup,mobile,mouse"}, {"title": "Find It", "name": "找茬达人", "icon": "🔍", "desc": "找出隐藏物品，考验眼力。", "embed": "https://cloud.onlinegames.io/games/2025/unity/find-it/index-og.html", "image": "https://www.onlinegames.io/media/posts/940/responsive/Find-It-xs.jpg", "tags": "1-player,2d,brain,cozy,free,logic,mouse,puzzle"}, {"title": "Pyramid Solitaire", "name": "金字塔纸牌", "icon": "🔺", "desc": "金字塔纸牌消除，更有策略。", "embed": "https://cloud.onlinegames.io/games/2025/html/solitaire/index-og.html#pyramid", "image": "https://www.onlinegames.io/media/posts/1006/responsive/pyramid-Solitaire-xs.jpg", "tags": "1-player,2d,board,card,free,logic,mobile,mouse,solitaire"}, {"title": "Jungle Mart", "name": "Jungle Mart", "icon": "🎮", "desc": "Jungle Mart is an online simulator game where you play in th...", "embed": "https://cloud.onlinegames.io/games/2026/construct/339/jungle-mart/game.html", "image": "https://www.onlinegames.io/media/posts/1247/responsive/jungle-mart-xs.webp", "tags": "1-player,2d,animal,cozy,cute,farming,free,fun,html5,idle,kids,mobile,mouse,organizing,simulator,tycoon"}, {"title": "Neon Racer", "name": "霓虹赛车", "icon": "🏎️", "desc": "霓虹风格赛车，合成波美学。", "embed": "https://www.onlinegames.io/games/2021/4/neon-racer/index.html", "image": "https://www.onlinegames.io/media/posts/173/responsive/Neon-Racer-2-xs.jpg", "tags": "1-player,2d,bike,driving,free,html5,mobile,physics,racing,trial"}, {"title": "Fun Party Makeup", "name": "Fun Party Makeup", "icon": "🎮", "desc": "Birthday or bachelorette?  Engagement or baby shower?  For a...", "embed": "https://www.onlinegames.io/games/2021/4/fun-party-makeup/index.html", "image": "https://www.onlinegames.io/media/posts/723/responsive/Fun-Party-Makeup-xs.jpg", "tags": "1-player,2d,dress-up,fashion,free,girl,html5,kids,makeup,mobile,mouse"}, {"title": "Basketball Slam Dunk", "name": "Basketball Slam Dunk", "icon": "🎮", "desc": "The countdown has begun!  Basketball Slam Dunk is a retro-st...", "embed": "https://www.onlinegames.io/games/2021/unity2/basketball-slam-dunk/index.html", "image": "https://www.onlinegames.io/media/posts/200/responsive/Basketball-Slam-Dunk-xs.jpg", "tags": "2-player,2d,arcade,arena,ball,basketball,free,fun,pixel,sports"}, {"title": "Futuristic Racer", "name": "Futuristic Racer", "icon": "🎮", "desc": "Futuristic Racer\nFuturistic Racer is a free online racing ga...", "embed": "https://cloud.onlinegames.io/games/2021/2/futuristic-racer/index-og.html", "image": "https://www.onlinegames.io/media/posts/1051/responsive/futuristic_racer_game-xs.webp", "tags": "2d,car,crash,driving,free,fun,racing,rally,space,speed"}, {"title": "Princess Influencer Salon", "name": "Princess Influencer Salon", "icon": "🎮", "desc": "We are dedicating today entirely to skincare and fashion!  P...", "embed": "https://www.onlinegames.io/games/2021/3/princess-influencer-salon/index.html", "image": "https://www.onlinegames.io/media/posts/485/responsive/Princess-Influencer-Salon-xs.jpg", "tags": "2d,dress-up,fashion,free,girl,kids,makeup,mobile,mouse,princess"}, {"title": "Draw the Car Path", "name": "Draw the Car Path", "icon": "🎮", "desc": "Draw the Car Path is an online puzzle game where you guide c...", "embed": "https://cloud.onlinegames.io/games/2021/4/draw-the-car-path/index-og.html", "image": "https://www.onlinegames.io/media/posts/936/responsive/draw-the-car-path-xs.jpg", "tags": "1-player,2d,brain,car,drawing,free,html5,kids,logic,mobile,mouse,physics,puzzle"}]
+
+function go(g){location.href='games/'+g+'.html'}
+function gl(d){location.href='library/'+d+'/index.html'}
+try{var d=JSON.parse(localStorage.getItem('gamehub_stats')||'{}');if(d.played)document.getElementById('gPlayed').textContent=d.played;if(d.stars)document.getElementById('gStars').textContent=d.stars;}catch(e){}
+
+var cf='全部';
+var cs=['全部'].concat(Array.from(new Set(LIB.map(function(g){return g.cat}))));
+var fb=document.getElementById('fb');
+cs.forEach(function(c){
+  var b=document.createElement('button');
+  b.className='cfb'+(c==='全部'?' on':'');
+  b.textContent=c;
+  b.onclick=function(){cf=c;document.querySelectorAll('.cfb').forEach(function(x){x.classList.remove('on')});b.classList.add('on');rl()};
+  fb.appendChild(b);
+});
+
+function rl(){
+  var q=(document.getElementById('sch').value||'').toLowerCase();
+  var g=document.getElementById('lgr');
+  var f=LIB.filter(function(g){
+    if(cf!=='全部'&&g.cat!==cf)return false;
+    if(q&&g.name.toLowerCase().indexOf(q)===-1&&g.cat.toLowerCase().indexOf(q)===-1)return false;
+    return true;
+  });
+  if(!f.length){g.innerHTML='<div class="em">没有找到匹配的游戏</div>';return}
+  g.innerHTML=f.map(function(g){
+    var ss='screenshots/'+g.dir+'.png';
+    var cv=g.has_ss?'<div class="cvr"><img src="'+ss+'" loading="lazy"></div>':'<div class="cvr">'+g.icon+'</div>';
+    return '<div class="lcd" onclick="gl(\''+g.dir+'\')">'+cv+'<div class="ifo"><div class="nm">'+g.icon+' '+g.name+'</div><div class="ds">'+g.desc+'</div></div></div>'
+  }).join('');
+}
+document.getElementById('sch').addEventListener('input',rl);
+rl();
+
+document.getElementById('ogr').innerHTML=OGS.map(function(g,i){
+  var ov=g.image?'<div class="ov"><img src="'+g.image+'" loading="lazy"></div>':'<div class="ov">'+g.icon+'</div>';
+  return '<div class="ocd" onclick="po('+i+')">'+ov+'<div class="ifo"><div class="nm">'+g.icon+' '+g.name+'</div><div class="ds">'+g.desc+'</div></div></div>'
+}).join('');
+
+function po(i){
+  var g=OGS[i];
+  document.getElementById('mt').textContent=g.icon+' '+g.name;
+  document.getElementById('mw').textContent='⚠️ 此游戏由第三方服务器提供，如加载失败请返回本地游戏库';
+  document.getElementById('mif').src=g.embed;
+  document.getElementById('mo').classList.add('show');
+}
+function cm(){
+  document.getElementById('mo').classList.remove('show');
+  document.getElementById('mif').src='about:blank';
+}
+function of(){
+  var f=document.getElementById('mif');
+  if(f.src&&f.src!=='about:blank')window.open(f.src,'_blank');
+}
+</script>
+</body>
+</html>

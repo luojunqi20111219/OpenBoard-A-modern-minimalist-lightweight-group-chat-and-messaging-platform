@@ -46,6 +46,10 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # Mount Uploads directory for static access
 app.mount("/uploads", StaticFiles(directory=Config.UPLOAD_DIR), name="uploads")
 
+# Mount Game directory if present
+if os.path.exists("game"):
+    app.mount("/game", StaticFiles(directory="game", html=True), name="game")
+
 # Include Modular API Routers
 app.include_router(auth.router)
 app.include_router(messages.router)
