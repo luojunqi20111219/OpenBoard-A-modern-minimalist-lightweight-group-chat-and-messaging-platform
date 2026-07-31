@@ -33,3 +33,18 @@ data class BlockUserResponse(
     @SerializedName("is_blocked")
     val isBlocked: Boolean = false
 )
+
+/**
+ * 检查软件更新 API 响应结果模型
+ */
+data class UpdateResponse(
+    val status: String? = null,
+    val current: String? = null,
+    val latest: String? = null,
+    @SerializedName("has_update")
+    val hasUpdate: Boolean = false,
+    @SerializedName("download_url")
+    val downloadUrl: String? = null,
+    val url: String? = null,
+    val body: String? = null
+)

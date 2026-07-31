@@ -69,28 +69,6 @@ class OpenBoardApp : Application(), ImageLoaderFactory {
 
         // 创建通知渠道
         createNotificationChannels()
-
-        // 初始化并请求华为推送 Token
-        initHmsPush()
-    }
-
-    /**
-     * 异步请求华为推送 Token
-     */
-    fun initHmsPush() {
-        kotlin.concurrent.thread {
-            try {
-                val appId = "117953867"
-                android.util.Log.i("OpenBoardApp", "Requesting HMS Push Token for App ID: $appId")
-                val token = com.huawei.hms.aaid.HmsInstanceId.getInstance(this).getToken(appId, "HCM")
-                android.util.Log.i("OpenBoardApp", "HMS Push Token obtained successfully: $token")
-                if (!token.isNullOrEmpty()) {
-                    SessionManager.uploadPushToken(token)
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("OpenBoardApp", "Failed to obtain HMS Push Token: ${e.message}", e)
-            }
-        }
     }
 
     /**

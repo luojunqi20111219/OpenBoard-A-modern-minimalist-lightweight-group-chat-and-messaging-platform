@@ -25,11 +25,9 @@ class Config:
     JWT_SECRET = _load_jwt_secret()
     JWT_ALGORITHM = "HS256"
     JWT_EXP_MINUTES = 60 * 24 * 7  # 7 days
-    CURRENT_VERSION = "v7.7.0"
+    CURRENT_VERSION = "v8.0.0"
     REPO_URL = "luojunqi20111219/OpenBoard-A-modern-minimalist-lightweight-group-chat-and-messaging-platform"
     ALLOWED_ADMINS = ["官方账号", "Forest_siri", "Forest_Brian_Birch"]  # Legacy fallback for backwards compatibility
-    HMS_APP_ID = os.getenv("HMS_APP_ID", "117953867")
-    HMS_CLIENT_SECRET = os.getenv("HMS_CLIENT_SECRET", "")
 
 
 # Ensure upload directory exists

@@ -65,9 +65,6 @@ object SessionManager {
         set(value) {
             prefs.edit().putString(KEY_TOKEN, value).apply()
             RetrofitClient.setToken(value)
-            if (!value.isNullOrEmpty()) {
-                hmsPushToken?.let { uploadPushToken(it) }
-            }
         }
 
     var userId: Int
@@ -198,36 +195,6 @@ object SessionManager {
             val json = gson.toJson(value)
             prefs.edit().putString(KEY_BLOCKED_USERS, json).apply()
         }
-
-    var hmsPushToken: String?
-        get() = prefs.getString(KEY_HMS_TOKEN, null)
-        set(value) = prefs.edit().putString(KEY_HMS_TOKEN, value).apply()
-
-    fun uploadPushToken(token: String) {
-        hmsPushToken = token
-        val userToken = this.token
-        if (userToken.isNullOrEmpty()) {
-            return
-        }
-        val apiService = RetrofitClient.getApiService()
-        val deviceId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID) ?: "unknown_device"
-        apiService.uploadPushToken(mapOf(
-            "push_token" to token,
-            "device_id" to deviceId
-        )).enqueue(object : retrofit2.Callback<ApiResponse<Any>> {
-            override fun onResponse(call: retrofit2.Call<ApiResponse<Any>>, response: retrofit2.Response<ApiResponse<Any>>) {
-                if (response.isSuccessful) {
-                    android.util.Log.i("SessionManager", "HMS Push Token and Device ID uploaded successfully to server")
-                } else {
-                    android.util.Log.e("SessionManager", "Failed to upload HMS Push Token: ${response.code()}")
-                }
-            }
-            override fun onFailure(call: retrofit2.Call<ApiResponse<Any>>, t: Throwable) {
-                android.util.Log.e("SessionManager", "Error uploading HMS Push Token", t)
-            }
-        })
-    }
-
     fun isPinned(id: Int, targetUser: String?): Boolean {
         val key = if (targetUser != null) "pinned_user_${targetUser}" else "pinned_group_${id}"
         if (!prefs.contains(key)) {
@@ -252,14 +219,10 @@ object SessionManager {
 
     fun clear() {
         val savedServerUrl = serverUrl
-        val savedHmsToken = hmsPushToken
         prefs.edit().clear().apply()
         RetrofitClient.setToken(null)
         if (savedServerUrl != null) {
             serverUrl = savedServerUrl
-        }
-        if (savedHmsToken != null) {
-            hmsPushToken = savedHmsToken
         }
     }
 }

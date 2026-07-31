@@ -92,8 +92,8 @@ class MainActivity : AppCompatActivity() {
 
         loadFragment(ChatListFragment())
 
-        // 自动拉取并上传最新华为推送 Token
-        (application as? OpenBoardApp)?.initHmsPush()
+        // 每次打开应用自动检查更新
+        com.openboard.nativeapp.data.update.UpdateManager.checkUpdate(this, isAutoCheck = true)
 
         // 处理推送通知点击后的跳转
         val pushRoomIdStr = intent.getStringExtra("room_id") ?: intent.getIntExtra("room_id", 0).toString()

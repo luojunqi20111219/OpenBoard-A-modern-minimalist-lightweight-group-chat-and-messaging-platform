@@ -92,6 +92,11 @@ class ProfileFragment : Fragment() {
             startActivity(Intent(requireContext(), com.openboard.nativeapp.ui.game.GameWebActivity::class.java))
         }
 
+        // 检查系统软件更新
+        binding.btnCheckUpdate.setOnClickListener {
+            com.openboard.nativeapp.data.update.UpdateManager.checkUpdate(requireContext(), isAutoCheck = false)
+        }
+
         // 我的二维码名片点击
         binding.btnQrCode.setOnClickListener {
             showMyQrCodeDialog()

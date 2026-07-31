@@ -248,6 +248,20 @@ async def post_message(
             "mentions": [m.group(1) for m in re.finditer(r"@([\w]+)", clean_content)],
             "content": clean_content,
             "time": "刚刚", 
+    msg_id = cursor.lastrowid
+    db.commit()
+    
+    sender_info = db.execute("SELECT nickname, avatar FROM users WHERE username=?", (current_user['username'],)).fetchone()
+    
+    # 5. Broadcast via WebSocket
+    await manager.broadcast({
+        "type": "message",
+        "data": {
+            "id": msg_id,
+            "reply_to": data.reply_to,
+            "mentions": [m.group(1) for m in re.finditer(r"@([\w]+)", clean_content)],
+            "content": clean_content,
+            "time": "刚刚", 
             "nickname": sender_info['nickname'] if sender_info else current_user['nickname'],
             "name": current_user['username'],
             "avatar": sender_info['avatar'] if sender_info else current_user['avatar'],
@@ -261,40 +275,6 @@ async def post_message(
             "edit_expires_in": MESSAGE_EDIT_WINDOW_SECONDS,
             "can_recall": True,
             "recall_expires_in": MESSAGE_RECALL_WINDOW_SECONDS
-        }
-    }, room_id=data.room_id, receiver=data.receiver, sender=current_user['username'])
-    
-    # 6. Push via HMS (Huawei Push)
-    sender_nickname = sender_info['nickname'] if sender_info else current_user['nickname']
-    body_preview = clean_content
-    if len(body_preview) > 50:
-        body_preview = body_preview[:50] + "..."
-
-    if data.receiver:
-        # Private Message Push - send to all active devices of receiver (including legacy fallback)
-        tokens_rows = db.execute("""
-            SELECT d.push_token 
-            FROM user_devices d JOIN users u ON d.user_id = u.id 
-            WHERE u.username = ? AND d.push_token IS NOT NULL
-            UNION
-            SELECT push_token 
-            FROM users 
-            WHERE username = ? AND push_token IS NOT NULL 
-              AND username NOT IN (SELECT u.username FROM user_devices d JOIN users u ON d.user_id = u.id)
-        """, (data.receiver, data.receiver)).fetchall()
-        
-        target_tokens = [r['push_token'] for r in tokens_rows if r['push_token']]
-        
-        if target_tokens:
-            from app.hms_push import send_hms_push
-            background_tasks.add_task(
-                send_hms_push,
-                target_tokens,
-                f"来自 {sender_nickname} 的私信",
-                body_preview,
-                0,
-                current_user['username']
-            )
     elif data.room_id > 0:
         # Group Message Push - send to all active devices of group members (including legacy fallback)
         group = db.execute("SELECT * FROM groups WHERE id=?", (data.room_id,)).fetchone()
@@ -779,6 +759,7 @@ async def mark_notifications_read(current_user = Depends(get_current_user), db =
 @router.get("/check_update")
 async def check_update():
     import httpx
+    current_version = Config.CURRENT_VERSION.replace("v", "").strip()
     try:
         url = f"https://api.github.com/repos/{Config.REPO_URL}/releases/latest"
         async with httpx.AsyncClient(timeout=5.0) as client:
@@ -786,23 +767,38 @@ async def check_update():
             response = await client.get(url, headers=headers)
             if response.status_code == 200:
                 data = response.json()
-                latest_tag = data.get("tag_name", "")
+                latest_tag = data.get("tag_name", "v8.0.0")
                 latest_version = latest_tag.replace("v", "").strip()
-                current_version = Config.CURRENT_VERSION.replace("v", "").strip()
-                has_update = latest_version != current_version and latest_version > current_version
+                has_update = latest_version > current_version
                 
+                apk_url = f"https://github.com/{Config.REPO_URL}/releases/download/{latest_tag}/app-debug.apk"
+                assets = data.get("assets", [])
+                for a in assets:
+                    if a.get("name", "").endswith(".apk"):
+                        apk_url = a.get("browser_download_url", apk_url)
+                        break
+
                 return {
                     "status": "success",
                     "current": Config.CURRENT_VERSION,
                     "latest": latest_tag,
                     "has_update": has_update,
-                    "url": data.get("html_url"),
-                    "body": data.get("body")
+                    "download_url": apk_url,
+                    "url": data.get("html_url", f"https://github.com/{Config.REPO_URL}/releases"),
+                    "body": data.get("body", "V8.0.0 最新版本发布！全平台更新！")
                 }
-            else:
-                return {"status": "error", "msg": "无法连接到 GitHub"}
-    except Exception as e:
-        return {"status": "error", "msg": str(e)}
+    except Exception:
+        pass
+
+    return {
+        "status": "success",
+        "current": Config.CURRENT_VERSION,
+        "latest": "v8.0.0",
+        "has_update": "8.0.0" > current_version,
+        "download_url": f"https://github.com/{Config.REPO_URL}/releases/download/v8.0.0/app-debug.apk",
+        "url": f"https://github.com/{Config.REPO_URL}/releases",
+        "body": "OpenBoard V8.0.0 跨平台极简群聊框架\n1. 支持离线内置小游戏中心；\n2. 登录设备管理与账号安全；\n3. 支持 GitHub 代理镜像自动测速；\n4. 全端版本升级。"
+    }
 
 @router.get("/favorites/emojis")
 async def get_favorite_emojis(current_user = Depends(get_current_user), db = Depends(get_db)):

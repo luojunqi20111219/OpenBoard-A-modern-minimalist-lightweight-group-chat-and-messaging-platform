@@ -464,19 +464,6 @@ async def logout_device(
     )
     db.commit()
 
-    if device["push_token"]:
-        try:
-            from app.hms_push import send_hms_push
-            asyncio.create_task(send_hms_push(
-                [device["push_token"]],
-                "安全通知",
-                "此设备已从登录设备管理中退出。",
-                0,
-                "logout",
-            ))
-        except Exception:
-            pass
-
     await manager.close_user_connections(current_user["username"])
     return {"status": "success", "msg": "设备已退出登录"}
 
@@ -635,20 +622,6 @@ async def register_push_token(request: Request, data: PushTokenData, current_use
     if len(devices) > 10:
         old_devices = devices[10:]
         for d in old_devices:
-            # Send HMS force logout notification
-            if d['push_token']:
-                try:
-                    from app.hms_push import send_hms_push
-                    import asyncio
-                    asyncio.create_task(send_hms_push(
-                        [d['push_token']], 
-                        "安全通知", 
-                        "您的账号已在其他设备登录，当前设备已被下线。", 
-                        0, 
-                        "logout"
-                    ))
-                except Exception:
-                    pass
             # Delete from database
             revoke_token(db, d['token'], current_user['id'], d['device_id'])
             db.execute("DELETE FROM user_devices WHERE id = ?", (d['id'],))
