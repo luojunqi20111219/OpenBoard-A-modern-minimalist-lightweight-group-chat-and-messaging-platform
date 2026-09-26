@@ -1,0 +1,65 @@
+#:schema node_modules/wrangler/config-schema.json
+name = "openboard"
+compatibility_date = "2024-11-27"
+pages_build_output_dir = "public"
+
+# ---------------------------------------------------------------------------
+# D1 数据库（原 SQLite board.db）
+#
+# 创建：npx wrangler d1 create openboard-db
+# 然后把返回的 database_id 填进下面的 database_id 字段
+# （或直接跑 `npm run setup`，会自动创建 D1 / R2 / KV 并回写本文件）
+# ---------------------------------------------------------------------------
+[[d1_databases]]
+binding = "DB"
+database_name = "openboard-db"
+database_id = "REPLACE_WITH_YOUR_D1_ID"
+
+# ---------------------------------------------------------------------------
+# KV —— 登录限流计数 + 在线状态快照
+#
+# ⚠️ KV 是最终一致存储，绝不可用于用户账号 / 会话 / 封禁状态（会造成安全问题）。
+#    它只承担"偶尔漏一次也无所谓"的数据：限流计数、可陈旧的在线快照。
+#    业务数据一律走 D1，文件走 R2。
+#
+# 创建：npx wrangler kv namespace create openboard-kv
+# ---------------------------------------------------------------------------
+[[kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "REPLACE_WITH_YOUR_KV_ID"
+
+# ---------------------------------------------------------------------------
+# R2 存储（原本地 uploads/ 目录）
+# ---------------------------------------------------------------------------
+[[r2_buckets]]
+binding = "UPLOADS"
+bucket_name = "openboard-uploads"
+
+# ---------------------------------------------------------------------------
+# Durable Object — WebSocket 实时广播中枢（原内存 ConnectionManager）
+#
+# ⚠️ Pages Functions 无法直接导出 DO 类（wrangler 会报 "not exported in your
+# entrypoint"），DO 必须部署在独立 Worker 中，Pages 再通过 script_name 引用。
+#
+# 因此部署顺序是：
+#   1) npx wrangler deploy --config wrangler.do.toml     # 部署 ChatHub DO
+#   2) npx wrangler pages deploy public                  # 部署前端 + API
+# ---------------------------------------------------------------------------
+[[durable_objects.bindings]]
+name = "CHAT_HUB"
+class_name = "ChatHub"
+script_name = "openboard-chat-hub"
+
+# ---------------------------------------------------------------------------
+# 环境变量 / 密钥
+# 生产环境请用 `npx wrangler pages secret put JWT_SECRET` 写入，别把真密钥写这里
+# ---------------------------------------------------------------------------
+[vars]
+# 留空则自动使用内置默认值（仅适合本地开发）
+JWT_SECRET = ""
+CURRENT_VERSION = "v8.0.0"
+# 逗号分隔的管理员用户名
+ALLOWED_ADMINS = "官方账号,Forest_siri,Forest_Brian_Birch"
+MAX_CONNECTIONS_PER_USER = "4"
+# 是否允许免鉴权读取 R2 中的上传文件（图片直链需要），设 false 则强制登录
+PUBLIC_UPLOADS = "true"

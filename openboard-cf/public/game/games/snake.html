@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>贪吃蛇 · 游戏中心</title>
+<style>
+:root{--bg1:#0a1a0e;--bg2:#1a3a2a;--bg3:#0f3460;--glass:rgba(255,255,255,.08);--glass-b:rgba(255,255,255,.16);--ink:#eef6ff;--ink-dim:#9db4c8;--good:#69f0ae;--accent:#4fc3f7}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{font-family:'PingFang SC','Microsoft YaHei',sans-serif;background:linear-gradient(135deg,var(--bg1),var(--bg2),var(--bg3));background-attachment:fixed;color:var(--ink);min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:18px 14px;overflow:hidden}
+.orb{position:fixed;border-radius:50%;filter:blur(90px);opacity:.25;z-index:0;pointer-events:none}
+.orb.a{width:320px;height:320px;background:#69f0ae;top:-80px;left:-80px}
+.orb.b{width:380px;height:380px;background:#4fc3f7;bottom:-120px;right:-100px}
+.topbar{position:relative;z-index:1;width:100%;max-width:440px;display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.back{background:var(--glass);border:1px solid var(--glass-b);color:var(--ink);width:42px;height:42px;border-radius:12px;font-size:20px;cursor:pointer;backdrop-filter:blur(8px)}
+.title{font-size:26px;font-weight:800;background:linear-gradient(90deg,#69f0ae,#4fc3f7);-webkit-background-clip:text;background-clip:text;color:transparent}
+.scores{position:relative;z-index:1;display:flex;gap:10px;margin-bottom:12px}
+.score{background:var(--glass);border:1px solid var(--glass-b);border-radius:12px;padding:8px 20px;text-align:center;backdrop-filter:blur(8px);min-width:90px}
+.score .l{font-size:11px;color:var(--ink-dim);letter-spacing:1px}
+.score .v{font-size:22px;font-weight:800}
+.canvas-wrap{position:relative;z-index:1;background:var(--glass);border:1px solid var(--glass-b);border-radius:18px;padding:10px;backdrop-filter:blur(10px);box-shadow:0 16px 40px rgba(0,0,0,.35)}
+canvas{display:block;border-radius:12px;background:#0a1a0e;touch-action:none}
+.controls{position:relative;z-index:1;margin-top:16px;display:grid;grid-template-columns:repeat(3,56px);grid-template-rows:repeat(3,56px);gap:6px;justify-content:center}
+.cbtn{background:var(--glass);border:1px solid var(--glass-b);color:var(--ink);border-radius:14px;font-size:24px;cursor:pointer;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(8px);user-select:none}
+.cbtn:active{transform:scale(.9);background:rgba(79,195,247,.3)}
+.cbtn.empty{visibility:hidden}
+.btns{position:relative;z-index:1;display:flex;gap:10px;margin-top:14px}
+.btn{flex:1;background:var(--glass);border:1px solid var(--glass-b);color:var(--ink);border-radius:12px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;backdrop-filter:blur(8px)}
+.btn:active{transform:scale(.96)}
+.btn.pri{background:linear-gradient(90deg,#69f0ae,#4fc3f7);border:none;color:#0a1a0e}
+.tip{position:relative;z-index:1;color:var(--ink-dim);font-size:12px;margin-top:10px;letter-spacing:1px}
+.mask{position:fixed;inset:0;background:rgba(5,12,20,.75);backdrop-filter:blur(6px);z-index:50;display:none;align-items:center;justify-content:center;padding:20px}
+.mask.show{display:flex}
+.dlg{background:linear-gradient(160deg,#1c3048,#141f30);border:1px solid var(--glass-b);border-radius:22px;padding:28px 24px;width:100%;max-width:320px;text-align:center;animation:pop .3s}
+@keyframes pop{from{transform:scale(.7);opacity:0}to{transform:scale(1);opacity:1}}
+.dlg h2{font-size:22px;margin-bottom:8px}
+.dlg p{color:var(--ink-dim);font-size:14px;margin-bottom:16px}
+.dlg .btn{width:100%;margin-top:8px}
+</style>
+</head>
+<body>
+<div class="orb a"></div><div class="orb b"></div>
+<div class="topbar">
+  <button class="back" onclick="history.back()">‹</button>
+  <div class="title">🐍 贪吃蛇</div>
+  <div style="width:42px"></div>
+</div>
+<div class="scores">
+  <div class="score"><div class="l">当前</div><div class="v" id="score">0</div></div>
+  <div class="score"><div class="l">最高</div><div class="v" id="best">0</div></div>
+</div>
+<div class="canvas-wrap"><canvas id="cv" width="320" height="320"></canvas></div>
+<div class="controls">
+  <div class="cbtn empty"></div>
+  <button class="cbtn" data-d="up">▲</button>
+  <div class="cbtn empty"></div>
+  <button class="cbtn" data-d="left">◀</button>
+  <div class="cbtn empty"></div>
+  <button class="cbtn" data-d="right">▶</button>
+  <div class="cbtn empty"></div>
+  <button class="cbtn" data-d="down">▼</button>
+  <div class="cbtn empty"></div>
+</div>
+<div class="btns">
+  <button class="btn pri" onclick="newGame()">🔄 新游戏</button>
+  <button class="btn" onclick="togglePause()" id="pBtn">⏸ 暂停</button>
+</div>
+<div class="tip">方向键或滑动屏幕控制 · 吃食物变长</div>
+<div class="mask" id="over"><div class="dlg">
+  <h2>💔 游戏结束</h2>
+  <p id="overText"></p>
+  <button class="btn pri" onclick="newGame()">再来一局</button>
+  <button class="btn" onclick="history.back()">返回游戏中心</button>
+</div></div>
+<script>
+'use strict';
+const cv=document.getElementById('cv'),ctx=cv.getContext('2d');
+const G=20,N=cv.width/G;
+let snake,dir,nextDir,food,score,best,tid,paused,started;
+best=+localStorage.getItem('snake_best')||0;
+document.getElementById('best').textContent=best;
+function newGame(){
+  snake=[{x:8,y:8},{x:7,y:8},{x:6,y:8}];
+  dir={x:1,y:0};nextDir={x:1,y:0};
+  score=0;paused=false;started=false;
+  document.getElementById('score').textContent=0;
+  document.getElementById('over').classList.remove('show');
+  document.getElementById('pBtn').textContent='⏸ 暂停';
+  placeFood();draw();
+  clearInterval(tid);
+}
+function placeFood(){do{food={x:Math.random()*N|0,y:Math.random()*N|0}}while(snake.some(s=>s.x===food.x&&s.y===food.y))}
+function startLoop(){clearInterval(tid);tid=setInterval(tick,140)}
+function tick(){
+  if(paused)return;
+  dir=nextDir;
+  const head={x:snake[0].x+dir.x,y:snake[0].y+dir.y};
+  if(head.x<0||head.x>=N||head.y<0||head.y>=N||snake.some(s=>s.x===head.x&&s.y===head.y)){
+    clearInterval(tid);saveStats();
+    if(score>best){best=score;localStorage.setItem('snake_best',best);document.getElementById('best').textContent=best}
+    document.getElementById('overText').textContent='最终长度：'+snake.length+' · 得分：'+score;
+    document.getElementById('over').classList.add('show');
+    return;
+  }
+  snake.unshift(head);
+  if(head.x===food.x&&head.y===food.y){score+=10;document.getElementById('score').textContent=score;placeFood()}
+  else snake.pop();
+  draw();
+}
+function draw(){
+  ctx.fillStyle='#0a1a0e';ctx.fillRect(0,0,cv.width,cv.height);
+  // 网格
+  ctx.strokeStyle='rgba(255,255,255,.03)';ctx.lineWidth=1;
+  for(let i=1;i<N;i++){ctx.beginPath();ctx.moveTo(i*G,0);ctx.lineTo(i*G,cv.height);ctx.stroke();ctx.beginPath();ctx.moveTo(0,i*G);ctx.lineTo(cv.width,i*G);ctx.stroke()}
+  // 食物
+  ctx.fillStyle='#ff5252';ctx.beginPath();
+  ctx.arc(food.x*G+G/2,food.y*G+G/2,G/2-2,0,Math.PI*2);ctx.fill();
+  // 蛇
+  snake.forEach((s,i)=>{
+    if(i===0)ctx.fillStyle='#69f0ae';
+    else ctx.fillStyle=`hsl(${140-i*3},70%,${55-i*0.5}%)`;
+    ctx.fillRect(s.x*G+1,s.y*G+1,G-2,G-2);
+  });
+}
+function setDir(d){
+  const m={up:{x:0,y:-1},down:{x:0,y:1},left:{x:-1,y:0},right:{x:1,y:0}};
+  const n=m[d];if(!n)return;
+  if(n.x===-dir.x&&n.y===-dir.y)return;// 不能反向
+  nextDir=n;
+  if(!started){started=true;startLoop()}
+}
+function togglePause(){if(!started)return;paused=!paused;document.getElementById('pBtn').textContent=paused?'▶ 继续':'⏸ 暂停'}
+function saveStats(){try{const d=JSON.parse(localStorage.getItem('gamehub_stats')||'{}');d.played=(d.played||0)+1;d.stars=(d.stars||0)+score;localStorage.setItem('gamehub_stats',JSON.stringify(d))}catch(e){}}
+document.addEventListener('keydown',e=>{const m={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right',w:'up',s:'down',a:'left',d:'right'};if(m[e.key]){e.preventDefault();setDir(m[e.key])}});
+document.querySelectorAll('.cbtn[data-d]').forEach(b=>b.addEventListener('click',()=>setDir(b.dataset.d)));
+let tx,ty;
+cv.addEventListener('touchstart',e=>{tx=e.touches[0].clientX;ty=e.touches[0].clientY},{passive:true});
+cv.addEventListener('touchend',e=>{const dx=e.changedTouches[0].clientX-tx,dy=e.changedTouches[0].clientY-ty;if(Math.abs(dx)<20&&Math.abs(dy)<20)return;if(Math.abs(dx)>Math.abs(dy))setDir(dx>0?'right':'left');else setDir(dy>0?'down':'up')},{passive:true});
+newGame();
+</script>
+</body>
+</html>

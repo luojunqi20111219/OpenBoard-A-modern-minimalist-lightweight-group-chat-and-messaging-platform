@@ -1,0 +1,1221 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>霓虹弹击：无尽爆发 (Neon Breaker: Infinite Burst)</title>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome for Icons -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    
+    <style>
+        :root {
+            --neon-blue: #00f0ff;
+            --neon-pink: #ff007f;
+            --neon-purple: #a855f7;
+            --neon-yellow: #ffdf00;
+            --bg-dark: #03010b;
+            --panel-bg: rgba(6, 3, 18, 0.8);
+            --border-glow: rgba(0, 240, 255, 0.25);
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: var(--bg-dark);
+            font-family: 'Rajdhani', sans-serif;
+            color: #fff;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        canvas {
+            display: block;
+            background-color: #03010f;
+            box-shadow: 0 0 35px rgba(0, 240, 255, 0.15);
+            border-radius: 16px;
+            border: 1px solid rgba(255, 0, 127, 0.15);
+        }
+
+        /* HUD Overlay */
+        .hud {
+            position: absolute;
+            top: 25px;
+            left: 25px;
+            right: 25px;
+            display: flex;
+            justify-content: space-between;
+            pointer-events: none;
+            font-family: 'Orbitron', sans-serif;
+            z-index: 10;
+        }
+
+        .hud-item {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-glow);
+            padding: 10px 20px;
+            border-radius: 12px;
+            backdrop-filter: blur(8px);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            box-shadow: 0 0 15px rgba(0, 240, 255, 0.15);
+        }
+
+        .hud-score {
+            color: var(--neon-blue);
+            font-weight: 700;
+            font-size: 20px;
+            text-shadow: 0 0 8px rgba(0, 240, 255, 0.5);
+        }
+
+        .hud-balls {
+            color: var(--neon-pink);
+            font-weight: 700;
+            font-size: 20px;
+            text-shadow: 0 0 8px rgba(255, 0, 127, 0.5);
+        }
+
+        /* Screens Overlay */
+        .screen-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(3, 1, 10, 0.88);
+            backdrop-filter: blur(12px);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            transition: opacity 0.5s;
+            border-radius: 16px;
+        }
+
+        .hidden {
+            display: none !important;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .menu-panel {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-glow);
+            border-radius: 24px;
+            padding: 40px;
+            width: 90%;
+            max-width: 440px;
+            text-align: center;
+            box-shadow: 0 0 35px rgba(0, 240, 255, 0.2);
+            animation: panelFadeIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        @keyframes panelFadeIn {
+            from { transform: scale(0.9); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+
+        .title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 38px;
+            font-weight: 900;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, var(--neon-blue) 0%, var(--neon-purple) 50%, var(--neon-pink) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            filter: drop-shadow(0 0 10px rgba(0, 240, 255, 0.4));
+            letter-spacing: 1px;
+        }
+
+        .subtitle {
+            font-size: 15px;
+            color: var(--text-muted, #a7b3d8);
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            margin-bottom: 35px;
+        }
+
+        .btn {
+            width: 100%;
+            background: linear-gradient(135deg, #0085f0, #0078d7);
+            border: 1px solid rgba(0, 240, 255, 0.4);
+            color: #fff;
+            padding: 16px;
+            border-radius: 12px;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(0, 120, 215, 0.3);
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 25px var(--neon-blue);
+            background: linear-gradient(135deg, var(--neon-blue), var(--neon-purple));
+            border-color: #fff;
+        }
+
+        .btn-settings {
+            background: transparent;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: var(--text-muted, #a7b3d8);
+            box-shadow: none;
+        }
+
+        .btn-settings:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: #fff;
+            border-color: rgba(255, 255, 255, 0.3);
+            transform: none;
+            box-shadow: none;
+        }
+
+        /* Score List */
+        .score-list {
+            margin: 20px 0;
+            padding: 0;
+            list-style: none;
+            text-align: left;
+        }
+
+        .score-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 15px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            font-size: 15px;
+        }
+
+        .score-item:last-child {
+            border-bottom: none;
+        }
+
+        .score-item .rank {
+            color: var(--neon-blue);
+            font-weight: bold;
+            margin-right: 10px;
+        }
+
+        .score-item .val {
+            color: var(--neon-pink);
+            font-family: 'Orbitron', sans-serif;
+            font-weight: 700;
+        }
+
+        /* Controls Tip */
+        .controls-tip {
+            font-size: 13px;
+            color: var(--text-muted, #6b7280);
+            margin-top: 25px;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            padding-top: 15px;
+            display: flex;
+            justify-content: space-around;
+        }
+
+        .controls-tip i {
+            margin-right: 4px;
+            color: var(--neon-blue);
+        }
+
+        /* Volume Control */
+        .volume-control {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: var(--panel-bg);
+            border: 1px solid var(--border-glow);
+            padding: 10px;
+            border-radius: 50%;
+            cursor: pointer;
+            z-index: 1000;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+        }
+
+        .volume-control:hover {
+            box-shadow: 0 0 10px var(--neon-blue);
+            transform: scale(1.1);
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <!-- Game HUD -->
+    <div class="hud">
+        <div class="hud-item">
+            <i class="fa-solid fa-gem" style="color: var(--neon-blue);"></i>
+            <span class="hud-score" id="hud-score-val">000000</span>
+        </div>
+        <div class="hud-item">
+            <i class="fa-solid fa-circle" style="color: var(--neon-pink);"></i>
+            <span class="hud-balls" id="hud-balls-val">x 1</span>
+        </div>
+    </div>
+
+    <!-- Start Screen -->
+    <div class="screen-overlay" id="start-screen">
+        <div class="menu-panel">
+            <div class="title">NEON BREAKER</div>
+            <div class="subtitle">霓虹弹击：无尽爆发</div>
+            
+            <button class="btn" id="start-btn">
+                <i class="fa-solid fa-play"></i> 开始破坏
+            </button>
+            
+            <button class="btn btn-settings" id="controls-btn">
+                <i class="fa-solid fa-gamepad"></i> 移动鼠标 / 触屏拖动 弹球
+            </button>
+
+            <div class="score-list">
+                <div style="font-weight: 700; margin-bottom: 8px; color: var(--neon-blue); text-align: center;">🏆 历史最佳战绩</div>
+                <div id="high-scores-container">
+                    <div style="text-align: center; color: var(--text-muted, #a7b3d8); font-size: 13px; padding: 10px;">暂无行车纪录，油门已备好！</div>
+                </div>
+            </div>
+
+            <div class="controls-tip">
+                <span><i class="fa-solid fa-computer-mouse"></i> 鼠标/触摸 左右移动</span>
+                <span><i class="fa-solid fa-bolt"></i> 吃到 🟢 可分身出数十个小球！</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Game Over Screen -->
+    <div class="screen-overlay hidden" id="gameover-screen">
+        <div class="menu-panel">
+            <div class="title" style="background: linear-gradient(135deg, var(--neon-pink) 0%, var(--neon-purple) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; filter: drop-shadow(0 0 10px rgba(255, 0, 127, 0.4));">GAME OVER</div>
+            <div class="subtitle" style="color: var(--neon-pink);">弹球全部丢失</div>
+
+            <div style="margin-bottom: 25px;">
+                <div style="font-size: 16px; color: var(--text-muted, #a7b3d8);">破坏得分</div>
+                <div style="font-size: 40px; font-weight: 900; font-family: 'Orbitron', sans-serif; color: var(--neon-blue); text-shadow: 0 0 10px rgba(0, 240, 255, 0.5);" id="final-score">0</div>
+                <div style="font-size: 14px; color: var(--neon-purple); margin-top: 5px;" id="new-high-score-label"></div>
+            </div>
+            
+            <button class="btn" id="restart-btn">
+                <i class="fa-solid fa-arrows-spin"></i> 重新装弹
+            </button>
+            <button class="btn btn-settings" id="back-to-menu-btn">
+                <i class="fa-solid fa-house"></i> 返回主界面
+            </button>
+        </div>
+    </div>
+
+    <!-- Audio Toggle -->
+    <div class="volume-control" id="volume-toggle" title="开启/关闭声音">
+        <i class="fa-solid fa-volume-high" id="volume-icon" style="color: var(--neon-blue); font-size: 18px;"></i>
+    </div>
+
+    <!-- Game Canvas -->
+    <canvas id="game-canvas"></canvas>
+</div>
+
+<script>
+    // ---------- 浏览器自适应设置 ----------
+    const canvas = document.getElementById("game-canvas");
+    const ctx = canvas.getContext("2d");
+
+    let boardW = Math.min(window.innerWidth * 0.95, 520);
+    let boardH = Math.min(window.innerHeight * 0.95, 750);
+    canvas.width = boardW;
+    canvas.height = boardH;
+
+    window.addEventListener("resize", () => {
+        boardW = Math.min(window.innerWidth * 0.95, 520);
+        boardH = Math.min(window.innerHeight * 0.95, 750);
+        canvas.width = boardW;
+        canvas.height = boardH;
+    });
+
+    // ---------- 音频生成系统 (Web Audio API) ----------
+    let audioEnabled = true;
+    let audioCtx = null;
+
+    function initAudio() {
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+    }
+
+    const volumeToggle = document.getElementById("volume-toggle");
+    const volumeIcon = document.getElementById("volume-icon");
+
+    volumeToggle.addEventListener("click", () => {
+        audioEnabled = !audioEnabled;
+        if (audioEnabled) {
+            volumeIcon.className = "fa-solid fa-volume-high";
+            initAudio();
+        } else {
+            volumeIcon.className = "fa-solid fa-volume-xmark";
+        }
+    });
+
+    // 各种爆破与弹跳的实时电声音效
+    function playPaddleBounce() {
+        if (!audioEnabled) return;
+        initAudio();
+        try {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(330, audioCtx.currentTime); // Mi
+            osc.frequency.exponentialRampToValueAtTime(165, audioCtx.currentTime + 0.12);
+            
+            gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.12);
+            
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.12);
+        } catch(e) {}
+    }
+
+    function playWallBounce() {
+        if (!audioEnabled) return;
+        initAudio();
+        try {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(660, audioCtx.currentTime);
+            
+            gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.005, audioCtx.currentTime + 0.05);
+            
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.05);
+        } catch(e) {}
+    }
+
+    function playBrickHit() {
+        if (!audioEnabled) return;
+        initAudio();
+        try {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(880, audioCtx.currentTime); // La
+            osc.frequency.exponentialRampToValueAtTime(1760, audioCtx.currentTime + 0.1);
+            
+            gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.005, audioCtx.currentTime + 0.1);
+            
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.1);
+        } catch(e) {}
+    }
+
+    function playPowerUpSound() {
+        if (!audioEnabled) return;
+        initAudio();
+        try {
+            const now = audioCtx.currentTime;
+            const osc1 = audioCtx.createOscillator();
+            const osc2 = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            
+            osc1.connect(gain);
+            osc2.connect(gain);
+            gain.connect(audioCtx.destination);
+            
+            osc1.type = 'triangle';
+            osc1.frequency.setValueAtTime(523.25, now); // C5
+            osc1.frequency.setValueAtTime(783.99, now + 0.08); // G5
+            
+            osc2.type = 'sine';
+            osc2.frequency.setValueAtTime(1046.50, now + 0.16); // C6
+            
+            gain.gain.setValueAtTime(0.12, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+            
+            osc1.start(now);
+            osc1.stop(now + 0.3);
+            osc2.start(now + 0.16);
+            osc2.stop(now + 0.3);
+        } catch(e) {}
+    }
+
+    // ---------- 粒子特效类 ----------
+    class ShatterParticle {
+        constructor(x, y, color) {
+            this.x = x;
+            this.y = y;
+            this.color = color;
+            this.size = Math.random() * 4 + 1.5;
+            
+            const angle = Math.random() * Math.PI * 2;
+            const speed = Math.random() * 5 + 2;
+            this.vx = Math.cos(angle) * speed;
+            this.vy = Math.sin(angle) * speed;
+            this.gravity = 0.12; // 带重力效果的抛物线碎裂
+            this.alpha = 1;
+            this.decay = Math.random() * 0.02 + 0.012;
+        }
+
+        update() {
+            this.x += this.vx;
+            this.vy += this.gravity;
+            this.y += this.vy;
+            this.alpha -= this.decay;
+        }
+
+        draw(ctx) {
+            ctx.save();
+            ctx.globalAlpha = this.alpha;
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = this.color;
+            ctx.fillStyle = this.color;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+    }
+
+    // ---------- 游戏核心变量 ----------
+    let score = 0;
+    let gameState = "start"; // start, playing, gameover
+    let screenShake = 0;
+    
+    // 挡板
+    let paddle = {
+        x: 0,
+        y: 0,
+        width: 100,
+        targetWidth: 100,
+        height: 14,
+        speed: 12,
+        color: '#00f0ff',
+        hasLaser: 0, // 激光时间
+        shootCooldown: 0
+    };
+
+    let balls = []; // 弹球数组 (多球共存)
+    let bricks = []; // 砖块数组
+    let powerUps = []; // 下落道具
+    let particles = []; // 碎裂粒子
+    let lasers = []; // 激光弹
+
+    const brickRows = 6;
+    const brickCols = 8;
+    const brickHeight = 24;
+    const brickPadding = 6;
+    const offsetTop = 90;
+    const offsetLeft = 10;
+
+    // 初始化砖块网格
+    function initBricks() {
+        bricks = [];
+        const availableW = boardW - offsetLeft * 2;
+        const totalPadding = brickPadding * (brickCols - 1);
+        const brickW = (availableW - totalPadding) / brickCols;
+
+        const colors = ['#ff007f', '#a855f7', '#00f0ff', '#ffdf00', '#38d996', '#f97316'];
+
+        for (let r = 0; r < brickRows; r++) {
+            const brickColor = colors[r % colors.length];
+            const hp = brickRows - r; // 越顶部的砖块，血量越高 (需要砸多次)
+
+            for (let c = 0; c < brickCols; c++) {
+                const brickX = c * (brickW + brickPadding) + offsetLeft;
+                const brickY = r * (brickHeight + brickPadding) + offsetTop;
+
+                bricks.push({
+                    x: brickX,
+                    y: brickY,
+                    width: brickW,
+                    height: brickHeight,
+                    color: brickColor,
+                    hp: hp,
+                    maxHp: hp,
+                    active: true
+                });
+            }
+        }
+    }
+
+    // 添加一个新球
+    function addBall(x, y, vx, vy) {
+        balls.push({
+            x: x,
+            y: y,
+            radius: 7,
+            vx: vx,
+            vy: vy,
+            color: '#ff007f',
+            speed: 5.5
+        });
+    }
+
+    // 键盘动作监听
+    const keys = {};
+    window.addEventListener("keydown", (e) => { keys[e.code] = true; });
+    window.addEventListener("keyup", (e) => { keys[e.code] = false; });
+
+    // 鼠标/手指 挡板拖拽控制
+    window.addEventListener("mousemove", (e) => {
+        if (gameState !== "playing") return;
+        const rect = canvas.getBoundingClientRect();
+        // 居中对齐鼠标
+        paddle.x = e.clientX - rect.left - paddle.width / 2;
+    });
+
+    window.addEventListener("touchmove", (e) => {
+        if (gameState !== "playing") return;
+        const rect = canvas.getBoundingClientRect();
+        if (e.touches.length > 0) {
+            paddle.x = e.touches[0].clientX - rect.left - paddle.width / 2;
+        }
+    }, { passive: true });
+
+    // 触发能量道具
+    function spawnPowerUp(x, y) {
+        const rand = Math.random();
+        let type = 'multiball'; // 🟢 默认多球分身
+        let color = '#38d996';
+        let icon = '🟢';
+
+        if (rand < 0.25) {
+            type = 'expand'; // ↔️ 加宽板
+            color = '#00f0ff';
+            icon = '↔️';
+        } else if (rand < 0.5) {
+            type = 'laser'; // ⚡ 激光挂载
+            color = '#ffdf00';
+            icon = '⚡';
+        } else if (rand < 0.7) {
+            type = 'shield'; // 🛡️ 磁悬保底防护网
+            color = '#a855f7';
+            icon = '🛡️';
+        }
+
+        powerUps.push({
+            x: x,
+            y: y,
+            size: 14,
+            vy: 2.2,
+            type: type,
+            color: color,
+            icon: icon
+        });
+    }
+
+    // 临时安全网保护罩
+    let shieldTimer = 0;
+
+    // ---------- 更新游戏状态 ----------
+    function update() {
+        if (gameState !== "playing") return;
+
+        // 1. 挡板边缘碰撞限制
+        paddle.x = Math.max(0, Math.min(boardW - paddle.width, paddle.x));
+        
+        // 2. 挡板宽度平滑过渡
+        paddle.width += (paddle.targetWidth - paddle.width) * 0.1;
+
+        // 3. 磁悬防护罩计时
+        if (shieldTimer > 0) shieldTimer--;
+
+        // 4. 键盘按键移动挡板 (辅助微调)
+        if (keys["KeyA"] || keys["ArrowLeft"]) paddle.x -= paddle.speed;
+        if (keys["KeyD"] || keys["ArrowRight"]) paddle.x += paddle.speed;
+
+        // 5. 激光射击计时器
+        if (paddle.hasLaser > 0) {
+            paddle.hasLaser--;
+            paddle.shootCooldown--;
+            if (paddle.shootCooldown <= 0) {
+                paddle.shootCooldown = 22; // 射击间隔
+                lasers.push({ x: paddle.x + 10, y: paddle.y - 5, vy: -7 });
+                lasers.push({ x: paddle.x + paddle.width - 10, y: paddle.y - 5, vy: -7 });
+            }
+        }
+
+        // 6. 更新激光子弹
+        for (let i = lasers.length - 1; i >= 0; i--) {
+            const l = lasers[i];
+            l.y += l.vy;
+            if (l.y < 0) {
+                lasers.splice(i, 1);
+                continue;
+            }
+
+            // 检测激光子弹撞击砖块
+            let hit = false;
+            for (let j = bricks.length - 1; j >= 0; j--) {
+                const b = bricks[j];
+                if (b.active && l.x > b.x && l.x < b.x + b.width && l.y > b.y && l.y < b.y + b.height) {
+                    lasers.splice(i, 1);
+                    damageBrick(b, j);
+                    hit = true;
+                    break;
+                }
+            }
+        }
+
+        // 7. 物理更新：弹球运动与碰撞
+        for (let i = balls.length - 1; i >= 0; i--) {
+            const ball = balls[i];
+            
+            // 下一帧的预期坐标
+            ball.x += ball.vx;
+            ball.y += ball.vy;
+
+            // 侧边左右反弹
+            if (ball.x - ball.radius <= 0) {
+                ball.x = ball.radius;
+                ball.vx = -ball.vx;
+                playWallBounce();
+            } else if (ball.x + ball.radius >= boardW) {
+                ball.x = boardW - ball.radius;
+                ball.vx = -ball.vx;
+                playWallBounce();
+            }
+
+            // 顶部天花板反弹
+            if (ball.y - ball.radius <= 0) {
+                ball.y = ball.radius;
+                ball.vy = -ball.vy;
+                playWallBounce();
+            }
+
+            // 保护底座安全网碰撞
+            if (shieldTimer > 0 && ball.y + ball.radius >= boardH - 12) {
+                ball.y = boardH - 12 - ball.radius;
+                ball.vy = -Math.abs(ball.vy);
+                playWallBounce();
+                screenShake = 4;
+            }
+
+            // 掉落深渊逻辑 (球丢失)
+            if (ball.y - ball.radius > boardH) {
+                balls.splice(i, 1);
+                // 检查是否所有球全部丢失
+                if (balls.length === 0) {
+                    triggerGameOver();
+                }
+                continue;
+            }
+
+            // 弹球碰撞挡板逻辑
+            if (ball.y + ball.radius >= paddle.y && ball.y - ball.radius <= paddle.y + paddle.height &&
+                ball.x + ball.radius >= paddle.x && ball.x - ball.radius <= paddle.x + paddle.width) {
+                
+                // 强制修正小球在挡板顶部，避免粘滞
+                ball.y = paddle.y - ball.radius;
+                ball.vy = -Math.abs(ball.vy);
+                playPaddleBounce();
+
+                // 物理惯性转向：撞击挡板偏左或偏右，改变水平反射角
+                const hitPoint = ball.x - (paddle.x + paddle.width / 2);
+                const normalizedHitPoint = hitPoint / (paddle.width / 2); // 范围 [-1, 1]
+                const maxReflectionAngle = Math.PI / 3; // 最大 60 度射角
+                const angle = normalizedHitPoint * maxReflectionAngle;
+
+                ball.vx = ball.speed * Math.sin(angle);
+                ball.vy = -ball.speed * Math.cos(angle);
+                
+                // 加点小速度
+                ball.speed = Math.min(10, ball.speed + 0.05); 
+                continue;
+            }
+
+            // 弹球碰撞砖块物理检测 (4边盒碰撞算法)
+            for (let j = bricks.length - 1; j >= 0; j--) {
+                const b = bricks[j];
+                if (!b.active) continue;
+
+                // 找到砖块矩形中距离圆心最近的点
+                const closestX = Math.max(b.x, Math.min(ball.x, b.x + b.width));
+                const closestY = Math.max(b.y, Math.min(ball.y, b.y + b.height));
+
+                // 计算圆心到最近点的距离
+                const distanceX = ball.x - closestX;
+                const distanceY = ball.y - closestY;
+                const distanceSquared = (distanceX * distanceX) + (distanceY * distanceY);
+
+                if (distanceSquared < (ball.radius * ball.radius)) {
+                    // 发生了碰撞！
+                    playBrickHit();
+                    
+                    // 决定反弹方向
+                    const overlapX = ball.radius - Math.abs(distanceX);
+                    const overlapY = ball.radius - Math.abs(distanceY);
+
+                    if (closestX === b.x || closestX === b.x + b.width) {
+                        // 左右侧碰撞
+                        ball.vx = -ball.vx;
+                        ball.x += ball.vx > 0 ? overlapX : -overlapX;
+                    } else {
+                        // 上下侧碰撞
+                        ball.vy = -ball.vy;
+                        ball.y += ball.vy > 0 ? overlapY : -overlapY;
+                    }
+
+                    // 砖块扣血
+                    damageBrick(b, j);
+                    break; 
+                }
+            }
+        }
+
+        // 8. 道具下落与拾取
+        for (let i = powerUps.length - 1; i >= 0; i--) {
+            const p = powerUps[i];
+            p.y += p.vy;
+
+            if (p.y > boardH + 20) {
+                powerUps.splice(i, 1);
+                continue;
+            }
+
+            // 判断与挡板碰撞
+            if (p.y + p.size >= paddle.y && p.y - p.size <= paddle.y + paddle.height &&
+                p.x + p.size >= paddle.x && p.x - p.size <= paddle.x + paddle.width) {
+                
+                playPowerUpSound();
+                
+                if (p.type === 'multiball') {
+                    // 🟢 分身出双倍弹球 (复制屏幕上所有的球)
+                    const currentLen = balls.length;
+                    for (let bIdx = 0; bIdx < currentLen; bIdx++) {
+                        const original = balls[bIdx];
+                        // 向偏左和偏右抛出两个子球
+                        addBall(original.x, original.y, original.vx - 1.5, -Math.abs(original.vy));
+                        addBall(original.x, original.y, original.vx + 1.5, -Math.abs(original.vy));
+                    }
+                    showToast("🟢 弹球分裂！铺天盖地！");
+                } else if (p.type === 'expand') {
+                    // ↔️ 板子拓宽
+                    paddle.targetWidth = 160;
+                    // 8 秒后缩回原样
+                    setTimeout(() => { paddle.targetWidth = 100; }, 8000);
+                    showToast("↔️ 挡板拓宽！防线加固！");
+                } else if (p.type === 'laser') {
+                    // ⚡ 激光发射程序
+                    paddle.hasLaser = 400; // 约 6.6 秒发射期
+                    showToast("⚡ 激活激光子弹炮！");
+                } else if (p.type === 'shield') {
+                    // 🛡️ 地盘防护悬浮底线
+                    shieldTimer = 600; // 约 10 秒
+                    showToast("🛡️ 激活底部应急隔离网！");
+                }
+
+                powerUps.splice(i, 1);
+            }
+        }
+
+        // 9. 更新爆炸碎片粒子
+        for (let i = particles.length - 1; i >= 0; i--) {
+            particles[i].update();
+            if (particles[i].alpha <= 0) {
+                particles.splice(i, 1);
+            }
+        }
+
+        // 10. 镜头抖动衰减
+        if (screenShake > 0) screenShake -= 0.5;
+
+        // 11. 全清过关重置
+        if (bricks.filter(b => b.active).length === 0) {
+            playPowerUpSound();
+            showToast("✨ 清屏通关！难度加码！");
+            initBricks();
+            // 重新发个球
+            balls.forEach(b => {
+                b.speed = Math.min(10, b.speed + 0.8);
+            });
+            if (balls.length === 0) {
+                addBall(boardW / 2, boardH - 120, 2.5, -5.5);
+            }
+        }
+
+        // 更新 HUD 数值
+        document.getElementById("hud-score-val").innerText = String(score).padStart(6, '0');
+        document.getElementById("hud-balls-val").innerText = `x ${balls.length}`;
+    }
+
+    // 砖块承伤与爆破粒子
+    function damageBrick(brick, index) {
+        brick.hp--;
+        score += 50;
+
+        // 屏幕轻微震动
+        screenShake = 3;
+
+        // 生成微小击打火花
+        for (let i = 0; i < 4; i++) {
+            particles.push(new ShatterParticle(brick.x + brick.width / 2, brick.y + brick.height / 2, brick.color));
+        }
+
+        if (brick.hp <= 0) {
+            brick.active = false;
+            score += 150;
+            screenShake = 7;
+            
+            // 产生盛大的物理喷射碎裂
+            for (let i = 0; i < 16; i++) {
+                particles.push(new ShatterParticle(brick.x + brick.width / 2, brick.y + brick.height / 2, brick.color));
+            }
+
+            // 随机爆出道具 (12% 概率)
+            if (Math.random() < 0.12) {
+                spawnPowerUp(brick.x + brick.width / 2, brick.y + brick.height);
+            }
+        }
+    }
+
+    // ---------- 2D 绘图系统 ----------
+    function draw() {
+        ctx.save();
+        
+        // 屏幕受击/爆破抖动
+        if (screenShake > 0) {
+            const dx = (Math.random() - 0.5) * screenShake;
+            const dy = (Math.random() - 0.5) * screenShake;
+            ctx.translate(dx, dy);
+        }
+
+        ctx.clearRect(0, 0, boardW, boardH);
+
+        // 1. 绘制极简宇宙网格背景
+        ctx.strokeStyle = 'rgba(255, 0, 127, 0.05)';
+        ctx.lineWidth = 1;
+        const gridSize = 40;
+        for (let x = 0; x < boardW; x += gridSize) {
+            ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, boardH); ctx.stroke();
+        }
+        for (let y = 0; y < boardH; y += gridSize) {
+            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(boardW, y); ctx.stroke();
+        }
+
+        // 2. 绘制磁悬安全隔离防护底网
+        if (shieldTimer > 0) {
+            ctx.save();
+            ctx.strokeStyle = varColor('--neon-purple');
+            ctx.shadowColor = varColor('--neon-purple');
+            ctx.shadowBlur = 15;
+            ctx.lineWidth = 4 + Math.sin(Date.now() * 0.015) * 1.5;
+            ctx.beginPath();
+            ctx.moveTo(0, boardH - 12);
+            ctx.lineTo(boardW, boardH - 12);
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        // 3. 绘制砖块网格
+        bricks.forEach(b => {
+            if (!b.active) return;
+            ctx.save();
+            ctx.fillStyle = b.color;
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = b.color;
+
+            // 绘制圆角发光砖块
+            ctx.beginPath();
+            ctx.roundRect(b.x, b.y, b.width, b.height, 4);
+            ctx.fill();
+
+            // 绘制砖块内部反光条
+            ctx.fillStyle = 'rgba(255,255,255,0.18)';
+            ctx.fillRect(b.x + 3, b.y + 3, b.width - 6, 3);
+            
+            // 绘制多血量砖块的“残余数字/发光微晶”
+            if (b.maxHp > 1) {
+                ctx.fillStyle = 'rgba(255,255,255,0.35)';
+                ctx.font = 'bold 11px Orbitron';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(b.hp, b.x + b.width/2, b.y + b.height/2);
+            }
+
+            ctx.restore();
+        });
+
+        // 4. 绘制激光弹
+        lasers.forEach(l => {
+            ctx.save();
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = varColor('--neon-yellow');
+            ctx.fillStyle = varColor('--neon-yellow');
+            ctx.fillRect(l.x - 2, l.y, 4, 12);
+            ctx.restore();
+        });
+
+        // 5. 绘制掉落的能量挂件 (Powerups)
+        powerUps.forEach(p => {
+            ctx.save();
+            ctx.shadowBlur = 12;
+            ctx.shadowColor = p.color;
+            ctx.fillStyle = p.color;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 内部发光小图标
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '10px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(p.icon, p.x, p.y);
+            ctx.restore();
+        });
+
+        // 6. 绘制碎片微粒 (Particles)
+        particles.forEach(p => p.draw(ctx));
+
+        // 7. 绘制弹球
+        balls.forEach(ball => {
+            ctx.save();
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = varColor('--neon-pink');
+            ctx.fillStyle = '#ffffff'; // 球心白色，外壳霓虹发光
+            ctx.strokeStyle = varColor('--neon-pink');
+            ctx.lineWidth = 2.5;
+            
+            ctx.beginPath();
+            ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            ctx.restore();
+        });
+
+        // 8. 绘制挡板 (画在下方中央)
+        ctx.save();
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = paddle.color;
+        ctx.fillStyle = paddle.color;
+
+        ctx.beginPath();
+        // 绘制两端稍微上翘的流线型挡板
+        ctx.roundRect(paddle.x, paddle.y, paddle.width, paddle.height, 6);
+        ctx.fill();
+
+        // 如果拥有激光挂载
+        if (paddle.hasLaser > 0) {
+            ctx.fillStyle = varColor('--neon-yellow');
+            ctx.shadowColor = varColor('--neon-yellow');
+            // 左右两侧加装金黄激光炮座
+            ctx.fillRect(paddle.x, paddle.y - 4, 6, 8);
+            ctx.fillRect(paddle.x + paddle.width - 6, paddle.y - 4, 6, 8);
+        }
+
+        ctx.restore();
+
+        ctx.restore();
+    }
+
+    // 辅助获取 CSS 变量值
+    function varColor(name) {
+        return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    }
+
+    // ---------- 游戏主循环 ----------
+    function gameLoop() {
+        update();
+        draw();
+        requestAnimationFrame(gameLoop);
+    }
+
+    // ---------- 游戏生命周期控制 ----------
+    const startScreen = document.getElementById("start-screen");
+    const gameoverScreen = document.getElementById("gameover-screen");
+
+    function startGame() {
+        initAudio();
+        score = 0;
+        
+        paddle.x = boardW / 2 - paddle.width / 2;
+        paddle.y = boardH - 65;
+        paddle.width = 100;
+        paddle.targetWidth = 100;
+        paddle.hasLaser = 0;
+        
+        shieldTimer = 0;
+        balls = [];
+        powerUps = [];
+        particles = [];
+        lasers = [];
+
+        // 发射初始主球
+        addBall(boardW / 2, boardH - 120, 2.5, -5.5);
+
+        initBricks();
+        
+        gameState = "playing";
+        startScreen.classList.add("hidden");
+        gameoverScreen.classList.add("hidden");
+
+        // 鸣笛开局
+        playPowerUpSound();
+    }
+
+    function triggerGameOver() {
+        gameState = "gameover";
+        playFailSound();
+        screenShake = 20;
+
+        document.getElementById("final-score").innerText = score;
+
+        // 纪录里程
+        const isNewRecord = saveScore(score);
+        const newRecordLabel = document.getElementById("new-high-score-label");
+        if (isNewRecord) {
+            newRecordLabel.innerText = "🏆 恭喜打破尘封的高分记录！";
+            newRecordLabel.style.display = "block";
+        } else {
+            newRecordLabel.style.display = "none";
+        }
+
+        setTimeout(() => {
+            gameoverScreen.classList.remove("hidden");
+            loadHighScoreList();
+        }, 1000);
+    }
+
+    // ---------- 历史排行榜系统 ----------
+    const HIGH_SCORES_KEY = "neon_breaker_high_scores_v1";
+
+    function getHighScores() {
+        try {
+            const list = localStorage.getItem(HIGH_SCORES_KEY);
+            return list ? JSON.parse(list) : [];
+        } catch(e) {
+            return [];
+        }
+    }
+
+    function saveScore(scoreVal) {
+        if (scoreVal <= 0) return false;
+        let list = getHighScores();
+        
+        let newRecord = false;
+        if (list.length === 0 || scoreVal > list[0]) {
+            newRecord = true;
+        }
+
+        list.push(scoreVal);
+        list.sort((a, b) => b - a);
+        list = list.slice(0, 5); // 留存前五名记录
+        
+        localStorage.setItem(HIGH_SCORES_KEY, JSON.stringify(list));
+        return newRecord;
+    }
+
+    function loadHighScoreList() {
+        const list = getHighScores();
+        const container = document.getElementById("high-scores-container");
+        if (list.length === 0) {
+            container.innerHTML = `<div style="text-align: center; color: var(--text-muted, #a7b3d8); font-size: 13px; padding: 10px;">暂无最佳破坏记录，等待起飞！</div>`;
+            return;
+        }
+        
+        let html = "";
+        list.forEach((scoreVal, index) => {
+            const medal = index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : "💎";
+            html += `
+                <div class="score-item">
+                    <span><span class="rank">${medal} 第 ${index + 1} 名</span></span>
+                    <span class="val">${scoreVal}</span>
+                </div>
+            `;
+        });
+        container.innerHTML = html;
+    }
+
+    // ---------- Toast 浮动提示 ----------
+    function showToast(msg) {
+        const toast = document.createElement("div");
+        toast.style.position = "absolute";
+        toast.style.top = "90px";
+        toast.style.left = "50%";
+        toast.style.transform = "translateX(-50%)";
+        toast.style.background = "var(--panel-bg)";
+        toast.style.border = "1px solid var(--neon-blue)";
+        toast.style.color = "var(--neon-blue)";
+        toast.style.padding = "8px 16px";
+        toast.style.borderRadius = "8px";
+        toast.style.fontSize = "14px";
+        toast.style.fontWeight = "bold";
+        toast.style.textShadow = "0 0 5px rgba(0, 240, 255, 0.4)";
+        toast.style.boxShadow = "0 0 10px rgba(0, 240, 255, 0.2)";
+        toast.style.animation = "toastAnim 1.2s forwards";
+        toast.style.pointerEvents = "none";
+        toast.style.zIndex = "1000";
+        toast.innerText = msg;
+        
+        document.getElementById("game-container").appendChild(toast);
+        
+        setTimeout(() => {
+            toast.remove();
+        }, 1200);
+    }
+
+    // 注入 Toast CSS 样式
+    const styleSheet = document.createElement("style");
+    styleSheet.innerText = `
+        @keyframes toastAnim {
+            0% { opacity: 0; transform: translate(-50%, 20px); }
+            15% { opacity: 1; transform: translate(-50%, 0); }
+            85% { opacity: 1; transform: translate(-50%, 0); }
+            100% { opacity: 0; transform: translate(-50%, -20px); }
+        }
+    `;
+    document.head.appendChild(styleSheet);
+
+    // ---------- 按钮点击逻辑 ----------
+    document.getElementById("start-btn").addEventListener("click", startGame);
+    document.getElementById("restart-btn").addEventListener("click", startGame);
+    document.getElementById("back-to-menu-btn").addEventListener("click", () => {
+        gameState = "start";
+        startScreen.classList.remove("hidden");
+        gameoverScreen.classList.add("hidden");
+        loadHighScoreList();
+    });
+
+    // 渲染初始化
+    loadHighScoreList();
+    gameLoop();
+</script>
+</body>
+</html>

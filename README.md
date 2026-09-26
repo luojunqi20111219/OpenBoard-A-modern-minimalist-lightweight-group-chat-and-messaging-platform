@@ -3,6 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python Version](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-00a67d.svg?logo=fastapi)](https://fastapi.tiangolo.com/)
+[![Cloudflare](https://img.shields.io/badge/Cloudflare-Workers%20%26%20Pages-F6821F.svg?logo=cloudflare&logoColor=white)](https://workers.cloudflare.com/)
 
 **信语 (OpenBoard)** 是一个基于 **FastAPI**、**SQLite** 以及 **WebSocket** 构建的现代化极简即时通信平台。
 
@@ -10,12 +11,16 @@
 
 🌍 **线上体验地址**：[https://liuyan.luojunqi.xyz](https://liuyan.luojunqi.xyz)
 
+> ☁️ **本项目现已提供 Cloudflare 原生版本**（`openboard-cf/`）：后端跑在 Cloudflare Workers / Pages Functions 上，
+> 数据库用 D1，文件存 R2，WebSocket 广播交给 Durable Object。**前端与 API 完全兼容**，
+> 已发布的各端客户端无需改动即可对接。详见下方 [☁️ Cloudflare 版本](#-cloudflare-版本workers--pages) 与 [部署教程](#-部署与使用教程)。
+
 ---
 
 ## 🚀 V8.0.0 更新说明
 
 1. **全端版本号升级**：安卓、鸿蒙、iOS、后端统一升级至 V8.0.0；
-2. **删除了 HMS 依赖**：彻底清理了华为推送服务依赖；
+2. **删除了 HMS 依赖**：彻底清理了华为推送服务依赖（因此部署时**不再需要**配置 `HMS_APP_ID` / `HMS_CLIENT_SECRET`）；
 3. **新增安卓检查更新与镜像测速**：自动检测更新，支持后台并发测试 GitHub 镜像延迟并自动切换；
 4. **内置跨平台离线小游戏**：无需网络即可体验；
 5. **已全端重新编译打包交付**。
@@ -45,12 +50,51 @@
 
 ---
 
+## ☁️ Cloudflare 版本 (Workers & Pages)
+
+`openboard-cf/` 是本项目的 Cloudflare 原生实现，适合不想维护服务器、希望全球边缘加速与按需付费的场景。
+
+| 原项目 | Cloudflare 版 | 说明 |
+|---|---|---|
+| FastAPI (Python) | **Hono** on Pages Functions | Python Workers 无法运行 FastAPI（pydantic-core 为 Rust 扩展） |
+| SQLite `board.db` | **D1** | SQLite 方言，表结构原样迁移 |
+| 内存 `ConnectionManager` | **Durable Object** | 原实现连接存于进程内存，边缘多节点下必然失效 |
+| 本地 `uploads/` | **R2** | Workers 无法做服务端图片处理 |
+| PyJWT | Web Crypto HMAC-SHA256 | JWT 结构不变，旧 Token 可直接平移 |
+| werkzeug 密码哈希 | PBKDF2-SHA256 | 保持同格式，旧库 `pbkdf2:` 哈希可直接用 |
+| bleach | 内置 HTML 清洗 | 等价于 `bleach.clean(text, tags=[], strip=True)` |
+| Jinja2 模板 | Pages 静态托管 | `index.html` 本就不含模板变量，零改动搬运 |
+
+**部署形态**：
+
+```
+Pages（前端 + API）                    Worker（WebSocket 中枢）
+┌─────────────────────────────┐        ┌──────────────────────┐
+│ public/index.html  静态托管  │        │  ChatHub Durable Obj │
+│ public/admin.html           │───────▶│  （全局广播 + 在线态）│
+│ functions/api/[[path]].ts   │ script │                      │
+│   → Hono 路由（D1 + R2）    │ _name  │                      │
+└─────────────────────────────┘        └──────────────────────┘
+```
+
+> ⚠️ Cloudflare 不允许 Pages Functions 直接导出 Durable Object 类，DO 必须部署在独立 Worker 中，
+> Pages 再通过 `script_name` 引用 —— 因此需要两次部署（先 DO Worker，后 Pages）。
+
+**已知差异**：
+
+1. 密码哈希使用 PBKDF2-SHA256 210000 次迭代。Workers 免费套餐单请求 CPU 上限 10ms，登录/注册可能超限 —— 建议使用付费套餐，或调低 `src/crypto.ts` 中的 `PASSWORD_ITERATIONS`。
+2. 服务端不再生成图片缩略图（原版用 Pillow），改由前端上传前压缩；如需服务端处理可接入 Cloudflare Images。
+3. 登录限流改为查 `login_history` 表统计（15 分钟内失败 5 次锁定 15 分钟），不再依赖进程内存。
+4. `/api/check_update` 直接返回服务端版本号，不再读取 GitHub Release。
+
+---
+
 ## ✨ 核心特性更新 (v6.0)
 
 ### 📱 1. 全新原生安卓客户端 (OpenBoardAndroid)
 使用 **Kotlin + MVVM** 架构与 **Material Design** 全新打造的原生 Android 应用：
 - **⚡ WebSocket 实时通讯**：极低延迟的文字、图片及文件双向实时收发，实时展示对方“正在输入中...”状态。
-- **🔔 华为推送服务 (HMS Push) 系统级集成**：即使 App 在后台或被系统深度休眠，后端也会自动调度华为推送通道，确保消息实时提醒触达。
+- **🔔 华为推送服务 (HMS Push) 系统级集成**：即使 App 在后台或被系统深度休眠，后端也会自动调度华为推送通道，确保消息实时提醒触达。（*注：v8.0.0 起已移除该依赖*）
 - **📝 长按操作气泡菜单**：支持在聊天气泡上长按呼出菜单，轻松执行“引用回复”、“复制”、“删除”或“撤回”操作。
 - **🔗 引用回复与平滑滚动定位**：点击消息中引用的历史消息内容，列表会自动平滑滚动并闪烁定位到被引用的原始消息位置。
 - **🖼️ 高清图片预览与保存**：点击聊天中的图片即可打开高清大图预览层，支持一键保存到系统相册。
@@ -80,8 +124,75 @@
 
 ## 📖 部署与使用教程
 
-### 1. 后端服务端部署 (Server)
+本项目提供两套部署方式，**按需二选一**：
+
+- **方案 A｜Cloudflare Workers & Pages**（推荐）：免运维、全球边缘加速、按量付费
+- **方案 B｜自托管 Python 服务器**：完全私有、依赖可控、支持服务端图片处理
+
+### 方案 A：部署到 Cloudflare
+
+#### A-1 准备
+
+```bash
+cd openboard-cf
+npm install
+npx wrangler login
+```
+
+#### A-2 创建 D1 与 R2
+
+```bash
+npx wrangler d1 create openboard-db        # 把返回的 database_id 填进 wrangler.toml
+npx wrangler r2 bucket create openboard-uploads
+npx wrangler d1 execute openboard-db --file=./schema.sql
+```
+
+#### A-3 部署 Durable Object Worker（必须先做）
+
+```bash
+npx wrangler deploy --config wrangler.do.toml
+```
+
+产出的 Worker 名为 `openboard-chat-hub`，需与 `wrangler.toml` 中的 `script_name` 一致。
+
+#### A-4 设置密钥并部署 Pages
+
+```bash
+npx wrangler pages secret put JWT_SECRET   # 建议：openssl rand -base64 48
+npx wrangler pages deploy public
+```
+
+#### A-5 设置管理员
+
+```bash
+npx wrangler d1 execute openboard-db \
+  --command "UPDATE users SET role=1 WHERE username='你的账号'"
+```
+
+#### A-6 迁移旧数据（可选）
+
+```bash
+python3 migrations/export_from_sqlite.py /path/to/board.db
+npx wrangler d1 execute openboard-db --file=./migrations/d1_import.sql
+# 数据量大时分片：python3 migrations/export_from_sqlite.py board.db --chunk 500
+```
+
+> ⚠️ werkzeug 3.x 默认使用 scrypt 哈希，而 Workers 的 Web Crypto 不提供 scrypt。
+> 迁移脚本会自动列出受影响账号，这些账号迁移后需由管理员重置密码（旧库若为 `pbkdf2:sha256:` 格式则可直接登录）。
+
+#### A-7 本地调试
+
+```bash
+npx wrangler d1 execute openboard-db --local --file=./schema.sql
+npx wrangler dev --config wrangler.worker.toml
+```
+
+### 方案 B：自托管 Python 服务端
+
+#### B-1 启动服务
+
 服务端基于 Python 3.8+ 运行：
+
 * **Windows 部署**：直接双击运行根目录下的 **`run.bat`**。
 * **Linux / macOS 部署**：打开终端，执行以下指令：
   ```bash
@@ -95,21 +206,23 @@
 
 ```bash
 export JWT_SECRET="替换为足够长的随机字符串"
-export HMS_APP_ID="您的华为应用 ID"
-export HMS_CLIENT_SECRET="您的华为应用密钥"
 ```
 
 未设置 `JWT_SECRET` 时，程序会在项目目录生成权限为 `0600` 的 `.openboard_jwt_secret`。该文件和 `board.db` 都不应提交到仓库。
 
-### 2. 安卓客户端编译 (Android)
+> **注**：v8.0.0 起已彻底移除华为推送（HMS）依赖，无需再配置 `HMS_APP_ID` 与 `HMS_CLIENT_SECRET`。
+
+### 安卓客户端编译 (Android)
 1. 在 Android Studio 中导入 `OpenBoardAndroid` 目录。
 2. 在 `app/src/main/java/com/openboard/nativeapp/data/api/RetrofitClient.kt` 中修改 `BASE_URL` 为您的服务端 IP/域名。
+   * 方案 A 填 Pages 域名（如 `https://openboard.pages.dev`）
+   * 方案 B 填自托管服务器地址（如 `http://192.168.1.100:5000`）
 3. 连接测试设备，编译运行即可。如需生成 release 签名安装包，可执行：
    ```bash
    ./gradlew assembleRelease
    ```
 
-### 3. C++ 桌面端编译 (Windows)
+### C++ 桌面端编译 (Windows)
 如果您需要重新编译桌面客户端，请确保系统已安装 GCC/MinGW 编译器，并运行以下编译指令：
 ```bash
 # 编译命令（需指定 webview2 依赖及 version 库）
@@ -120,14 +233,16 @@ g++ main.cpp resource.o -o OpenBoard.exe -Iwebview2_sdk/build/native/include -lu
 ---
 
 ## 📂 项目结构
+
 ```text
 OpenBoard/
 ├── OpenBoardAndroid/    # 原生 Kotlin 安卓客户端项目目录
+├── OpenBoardFlutter/    # Flutter 客户端
+├── OpenBoardHarmony/    # HarmonyOS 客户端
 ├── app/                 # 后端核心业务包
-│   ├── config.py        # 全局配置中心 (JWT密钥、HMS 推送参数)
+│   ├── config.py        # 全局配置中心 (JWT密钥)
 │   ├── database.py      # SQLite连接池用完自动回收器、数据种子化
 │   ├── auth.py          # JWT加解密与当前登录态/管理员权限拦截
-│   ├── hms_push.py      # 华为 HMS 推送服务调度模块
 │   └── routes/          # 业务路由逻辑分区 (auth、messages、friends、groups、admin)
 ├── main.cpp             # 现代 C++ WebView2 桌面客户端源码
 ├── webview2_sdk/        # Windows C++ WebView2 所需依赖 SDK
@@ -135,12 +250,22 @@ OpenBoard/
 ├── run.bat              # Windows 服务端一键自动部署脚本
 ├── run.sh               # macOS / Linux 服务端一键自动部署脚本
 ├── requirements.txt     # 依赖包清单
-└── templates/           # 精美前台网页界面模板 (Jinja2)
-    ├── index.html       # 信语网页交互主页 (支持拖拽上传、名片展示)
-    └── admin.html       # 🛡️ 信语 ROOT 系统管理后台
+├── templates/           # 精美前台网页界面模板 (Jinja2)
+│   ├── index.html       # 信语网页交互主页 (支持拖拽上传、名片展示)
+│   └── admin.html       # 🛡️ 信语 ROOT 系统管理后台
+└── openboard-cf/        # ☁️ Cloudflare Workers & Pages 版本
+    ├── public/          # Pages 静态前端（index.html / admin.html / game / static）
+    ├── functions/       # Pages Functions（API 入口 + WebSocket 路由）
+    ├── src/             # Hono 路由、D1 封装、Web Crypto、Durable Object
+    ├── do-worker/       # ChatHub Durable Object 宿主 Worker
+    ├── schema.sql       # D1 表结构
+    ├── migrations/      # 旧 SQLite 数据导出脚本
+    ├── wrangler.toml        # Pages 配置
+    ├── wrangler.do.toml     # DO Worker 配置
+    └── wrangler.worker.toml # 单 Worker 备选配置
 ```
 
 ---
 
 ## 📄 开源协议
-本项目采用 [MIT License](许可证) 开源协议。欢迎提交 PR 或 Issue。
+本项目采用 [MIT License](https://opensource.org/licenses/MIT) 开源协议。欢迎提交 PR 或 Issue。

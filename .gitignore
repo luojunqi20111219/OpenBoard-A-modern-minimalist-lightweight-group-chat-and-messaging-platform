@@ -40,3 +40,11 @@ OpenBoardHarmony/entry/.preview/
 OpenBoardHarmony/entry/build/
 OpenBoardHarmony/entry/oh_modules/
 OpenBoardHarmony/entry/local.properties
+
+# Cloudflare 版构建产物
+node_modules/
+.wrangler/
+.dev.vars
+openboard-cf/dist/
+openboard-cf/node_modules/
+openboard-cf/package-lock.json

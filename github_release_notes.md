@@ -1,5 +1,10 @@
 # Release Notes (版本发布日志)
 
+> 下方 `v5.0.0` 为历史发布记录。当前主干已到 `v8.0.0`，
+> 最新变更见 [`升级内容.md`](./升级内容.md) 与 [`code_updates_summary.md`](./code_updates_summary.md)。
+
+---
+
 ## 🏷️ 版本号：`v5.0.0`
 ## 📢 版本主题：极轻量级 C++ 桌面客户端与跨端扫码登录生态集成
 
@@ -42,7 +47,38 @@
 
 ## ⚙️ 服务器热更新与代码库同步
 - **GitHub 仓库同步**：后端及 Android 端的最新代码已全部同步推送至 GitHub 仓库。
-- **免 Git 无缝热部署**：我们已通过 SFTP 将修改后的 `auth.py`、`database.py` 以及前端网页模板直接热更新至云服务器，并完成了平滑重启，目前服务运行一切正常。
+- **部署方式**：自托管版本可通过 `run.sh` / `run.bat` 启动，或按下方「Cloudflare 部署」一节
+  部署到边缘节点（无需自备服务器）。
+
+---
+
+## ☁️ 新增部署形态：Cloudflare Workers & Pages
+
+本版本同时收录了 `openboard-cf/` —— 将后端从 FastAPI 迁移到 Cloudflare 边缘运行，
+**对外 API 完全兼容**，Android / HarmonyOS / Flutter / 网页客户端无需改动。
+
+| 原实现 | Cloudflare 版 |
+| :--- | :--- |
+| FastAPI（Python） | Hono（TypeScript） |
+| SQLite 文件 `board.db` | D1 |
+| 内存 `ConnectionManager` | Durable Object（WebSocket Hibernation） |
+| 本地 `uploads/` 目录 | R2 |
+| 进程内登录限流 | KV（+ D1 `login_history` 降级） |
+
+### 部署三行命令
+
+```bash
+npm run setup      # 创建 D1 / R2 / KV，并把 id 写回 wrangler.toml
+npm run preflight  # 本地隔离环境跑 38 项链路自检
+npm run deploy     # 部署 DO Worker → 部署 Pages
+```
+
+> ⚠️ **KV 命名空间必须先生成**（`npm run setup` 会做）。
+> 缺了它登录限流会失效，账号可被无限次暴力破解。
+> 另外 KV 只能放「容忍短暂不一致」的数据（限流计数、在线快照），
+> 用户账号 / 会话 / 封禁状态一律走 D1 —— 否则会出现「改完密码旧密码还能登录」这类漏洞。
+
+详细步骤见 [`openboard-cf/README.md`](./openboard-cf/README.md)。
 
 ---
 
