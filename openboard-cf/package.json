@@ -1,6 +1,6 @@
 {
   "name": "openboard-cf",
-  "version": "8.0.0",
+  "version": "9.0.0",
   "private": true,
   "description": "信语 OpenBoard — Cloudflare Workers & Pages 版本",
   "type": "module",

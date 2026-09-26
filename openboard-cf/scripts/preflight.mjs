@@ -28,7 +28,7 @@ const mf = new Miniflare({
   kvNamespaces: { RATE_LIMIT: 'preflight-kv' },
   durableObjects: { CHAT_HUB: { className: 'ChatHub', useSQLite: true } },
   bindings: {
-    CURRENT_VERSION: 'v8.0.0',
+    CURRENT_VERSION: 'v9.0.0',
     PUBLIC_UPLOADS: 'true',
     ALLOWED_ADMINS: '官方账号,Forest_siri,Forest_Brian_Birch',
     MAX_CONNECTIONS_PER_USER: '4',

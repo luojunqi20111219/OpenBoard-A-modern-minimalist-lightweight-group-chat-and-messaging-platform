@@ -144,5 +144,5 @@ npm run deploy        # 先部署 DO Worker，再部署 Pages
 | **服务器** | `templates/index.html` | 📝 修改 | 网页前端轻量化调整 |
 | **安卓端** | `OpenBoardAndroid/` | 📝 修改 | 重构打包脚本、界面逻辑 |
 | **文档** | `README.md` | 📝 修改 | 新增 Cloudflare 版说明，移除已废弃的 HMS 配置 |
-| **文档** | `DEVELOPER_GUIDE.md` | 📝 修改 | 升级到 v8.0.0，补全 API 清单与 Cloudflare 开发流程 |
+| **文档** | `DEVELOPER_GUIDE.md` | 📝 修改 | 升级到 v9.0.0，补全 API 清单与 Cloudflare 开发流程 |
 | **文档** | `.gitignore` | 📝 修改 | 新增 Cloudflare 版构建产物与依赖目录 |

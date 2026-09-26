@@ -57,7 +57,7 @@ script_name = "openboard-chat-hub"
 [vars]
 # 留空则自动使用内置默认值（仅适合本地开发）
 JWT_SECRET = ""
-CURRENT_VERSION = "v8.0.0"
+CURRENT_VERSION = "v9.0.0"
 # 逗号分隔的管理员用户名
 ALLOWED_ADMINS = "官方账号,Forest_siri,Forest_Brian_Birch"
 MAX_CONNECTIONS_PER_USER = "4"

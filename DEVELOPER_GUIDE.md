@@ -1,6 +1,6 @@
-# 💬 信语 (OpenBoard) 全平台多端开发者集成与开发指南 (v8.0.0)
+# 💬 信语 (OpenBoard) 全平台多端开发者集成与开发指南 (v9.0.0)
 
-本指南旨在协助全球开源开发者（包括移动端 App、小程序、桌面端 Electron、以及第三方接入开发者）快速接入并统一 **信语 (OpenBoard) v8.0.0** 的 API 接口，并提供跨平台统一的 UI 基础规范，以便实现各端一致的轻量极简用户体验。
+本指南旨在协助全球开源开发者（包括移动端 App、小程序、桌面端 Electron、以及第三方接入开发者）快速接入并统一 **信语 (OpenBoard) v9.0.0** 的 API 接口，并提供跨平台统一的 UI 基础规范，以便实现各端一致的轻量极简用户体验。
 
 > [!NOTE]
 > **服务端有两套实现，接口完全一致：**
@@ -44,7 +44,7 @@
 
 ---
 
-## 🔌 v8.0.0 接口大全 (全功能 API 规范)
+## 🔌 v9.0.0 接口大全 (全功能 API 规范)
 
 > [!IMPORTANT]
 > **接口通信规范**：
@@ -447,7 +447,7 @@ v4.0.0 之后项目新增了消息可靠性、群管理、安全中心等大量�
 
 #### 2.1 健康检查（Cloudflare 版提供，公开）
 * **接口**：`GET /api/health`
-* **返回**：`{ "status": "ok", "runtime": "cloudflare-workers", "version": "v8.0.0", "online_count": 2 }`
+* **返回**：`{ "status": "ok", "runtime": "cloudflare-workers", "version": "v9.0.0", "online_count": 2 }`
 * **用途**：探活、监控、以及快速确认在线人数。
 
 #### 3. 查询服务端版本
@@ -455,7 +455,7 @@ v4.0.0 之后项目新增了消息可靠性、群管理、安全中心等大量�
 * **返回**：
   ```json
   {
-    "version": "v8.0.0",
+    "version": "v9.0.0",
     "repo": "luojunqi20111219/OpenBoard-...",
     "runtime": "cloudflare-workers",   // 或 "fastapi"
     "force_update": false

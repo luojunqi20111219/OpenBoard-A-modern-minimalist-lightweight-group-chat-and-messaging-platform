@@ -810,7 +810,7 @@ messageRoutes.post('/favorites/emojis/delete', requireAuth, async (c) => {
 messageRoutes.get('/check_update', async (c) => {
   const e = env(c);
   return c.json({
-    version: e.CURRENT_VERSION || 'v8.0.0',
+    version: e.CURRENT_VERSION || 'v9.0.0',
     repo: 'luojunqi20111219/OpenBoard-A-modern-minimalist-lightweight-group-chat-and-messaging-platform',
     runtime: 'cloudflare-workers',
     force_update: false,

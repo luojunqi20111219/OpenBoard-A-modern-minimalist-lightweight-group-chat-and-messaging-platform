@@ -1,6 +1,6 @@
 name: open_board_mobile
 description: OpenBoard cross-platform Flutter client for iOS and Android.
-version: 8.0.0+800
+version: 9.0.0+900
 
 publish_to: 'none'
 

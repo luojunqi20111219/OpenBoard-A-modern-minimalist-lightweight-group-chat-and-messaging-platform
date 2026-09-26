@@ -78,7 +78,7 @@ export function createApp() {
     return c.json({
       status: 'ok',
       runtime: 'cloudflare-workers',
-      version: e.CURRENT_VERSION || 'v8.0.0',
+      version: e.CURRENT_VERSION || 'v9.0.0',
       online_count: online.length,
     });
   });

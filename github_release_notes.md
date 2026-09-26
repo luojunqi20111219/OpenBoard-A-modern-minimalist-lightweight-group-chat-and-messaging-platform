@@ -1,6 +1,6 @@
 # Release Notes (版本发布日志)
 
-> 下方 `v5.0.0` 为历史发布记录。当前主干已到 `v8.0.0`，
+> 下方 `v5.0.0` 为历史发布记录。当前主干已到 `v9.0.0`，
 > 最新变更见 [`升级内容.md`](./升级内容.md) 与 [`code_updates_summary.md`](./code_updates_summary.md)。
 
 ---

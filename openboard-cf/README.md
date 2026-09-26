@@ -170,7 +170,7 @@ npx wrangler d1 execute openboard-db --remote \
 
 ```bash
 curl https://你的域名/api/health
-# → {"status":"ok","runtime":"cloudflare-workers","version":"v8.0.0","online_count":0}
+# → {"status":"ok","runtime":"cloudflare-workers","version":"v9.0.0","online_count":0}
 ```
 
 ---

@@ -52,7 +52,7 @@ const mf = new Miniflare({
       name: 'pages-app',
       modules: true,
       scriptPath: 'dist/pages/index.js',
-      bindings: { CURRENT_VERSION: 'v8.0.0' },
+      bindings: { CURRENT_VERSION: 'v9.0.0' },
       d1Databases: { DB: 'android' },
       r2Buckets: { UPLOADS: 'u' },
       kvNamespaces: { RATE_LIMIT: 'k' },

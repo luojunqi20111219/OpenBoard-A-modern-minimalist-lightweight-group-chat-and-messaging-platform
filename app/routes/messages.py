@@ -759,6 +759,20 @@ async def mark_notifications_read(current_user = Depends(get_current_user), db =
 @router.get("/check_update")
 async def check_update():
     import httpx
+
+    def _ver_tuple(v: str) -> tuple:
+        """把 "9.0.0" / "v9.0.0" 解析成可比较的元组。
+
+        不能直接用字符串比较：那样 "10.0.0" > "9.0.0" 会得到 False，
+        主版本号进位后更新提示会永久失效。
+        """
+        raw = v.replace("v", "").strip()
+        parts = []
+        for seg in raw.split("."):
+            num = "".join(ch for ch in seg if ch.isdigit())
+            parts.append(int(num) if num else 0)
+        return tuple(parts) or (0,)
+
     current_version = Config.CURRENT_VERSION.replace("v", "").strip()
     try:
         url = f"https://api.github.com/repos/{Config.REPO_URL}/releases/latest"
@@ -767,9 +781,9 @@ async def check_update():
             response = await client.get(url, headers=headers)
             if response.status_code == 200:
                 data = response.json()
-                latest_tag = data.get("tag_name", "v8.0.0")
+                latest_tag = data.get("tag_name", "v9.0.0")
                 latest_version = latest_tag.replace("v", "").strip()
-                has_update = latest_version > current_version
+                has_update = _ver_tuple(latest_version) > _ver_tuple(current_version)
                 
                 apk_url = f"https://github.com/{Config.REPO_URL}/releases/download/{latest_tag}/app-debug.apk"
                 assets = data.get("assets", [])
@@ -785,7 +799,7 @@ async def check_update():
                     "has_update": has_update,
                     "download_url": apk_url,
                     "url": data.get("html_url", f"https://github.com/{Config.REPO_URL}/releases"),
-                    "body": data.get("body", "V8.0.0 最新版本发布！全平台更新！")
+                    "body": data.get("body", "V9.0.0 最新版本发布！全平台更新！")
                 }
     except Exception:
         pass
@@ -793,11 +807,11 @@ async def check_update():
     return {
         "status": "success",
         "current": Config.CURRENT_VERSION,
-        "latest": "v8.0.0",
-        "has_update": "8.0.0" > current_version,
-        "download_url": f"https://github.com/{Config.REPO_URL}/releases/download/v8.0.0/app-debug.apk",
+        "latest": "v9.0.0",
+        "has_update": _ver_tuple("9.0.0") > _ver_tuple(current_version),
+        "download_url": f"https://github.com/{Config.REPO_URL}/releases/download/v9.0.0/app-debug.apk",
         "url": f"https://github.com/{Config.REPO_URL}/releases",
-        "body": "OpenBoard V8.0.0 跨平台极简群聊框架\n1. 支持离线内置小游戏中心；\n2. 登录设备管理与账号安全；\n3. 支持 GitHub 代理镜像自动测速；\n4. 全端版本升级。"
+        "body": "OpenBoard V9.0.0 跨平台极简群聊框架\n1. 新增 Cloudflare Workers & Pages 部署方案；\n2. 支持离线内置小游戏中心；\n3. 登录设备管理与账号安全；\n4. 全端版本升级。"
     }
 
 @router.get("/favorites/emojis")

@@ -43,7 +43,7 @@ new_classes = ["ChatHub"]
 
 [vars]
 JWT_SECRET = ""
-CURRENT_VERSION = "v8.0.0"
+CURRENT_VERSION = "v9.0.0"
 ALLOWED_ADMINS = "官方账号,Forest_siri,Forest_Brian_Birch"
 MAX_CONNECTIONS_PER_USER = "4"
 # 是否允许免鉴权读取 R2 中的上传文件（图片直链需要），设 false 则强制登录

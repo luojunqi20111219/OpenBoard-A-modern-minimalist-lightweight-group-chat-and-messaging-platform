@@ -191,7 +191,7 @@
                     android:id="@+id/btn_check_update"
                     android:layout_width="match_parent"
                     android:layout_height="52dp"
-                    android:text="🚀 检查系统软件更新 (V8.0.0)"
+                    android:text="🚀 检查系统软件更新 (V9.0.0)"
                     android:textAllCaps="false"
                     android:textSize="15sp"
                     android:layout_marginBottom="12dp"
