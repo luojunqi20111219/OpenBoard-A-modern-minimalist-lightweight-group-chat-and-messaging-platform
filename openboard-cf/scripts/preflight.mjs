@@ -61,7 +61,27 @@ const ok = (name, cond, extra = '') => {
 };
 const section = (t) => console.log(`\n${t}`);
 
-const req = (path, init) => mf.dispatchFetch(BASE + path, init);
+const req = (path, init) => {
+  // ⚠️ miniflare 4 与 3 的差异：用 FormData 作 body 时，miniflare 4
+  //    不会自动推导 multipart/form-data 的 Content-Type 与 boundary。
+  //    直接 dispatchFetch 会让服务端 request.formData() 报
+  //    "Unrecognized Content-Type header value"。
+  //
+  //    解法：用 Request 构造一次以生成正确的 Content-Type（含 boundary），
+  //    但 dispatchFetch 只收字符串 URL，所以把生成好的 headers 取出来
+  //    连同 Request 的 body 一起重新交给 dispatchFetch。
+  if (init?.body instanceof FormData) {
+    const built = new Request(BASE + path, init);
+    const headers = new Headers(built.headers);
+    return mf.dispatchFetch(BASE + path, {
+      method: built.method,
+      headers,
+      body: built.body,
+      duplex: 'half',
+    });
+  }
+  return mf.dispatchFetch(BASE + path, init);
+};
 const json = async (path, init) => {
   const r = await req(path, init);
   let b = null;

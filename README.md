@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python Version](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-00a67d.svg?logo=fastapi)](https://fastapi.tiangolo.com/)
-[![Cloudflare](https://img.shields.io/badge/Cloudflare-Workers%20%26%20Pages-F6821F.svg?logo=cloudflare&logoColor=white)](https://workers.cloudflare.com/)
+[![Cloudflare](https://img.shields.io/badge/Cloudflare-Workers-F6821F.svg?logo=cloudflare&logoColor=white)](https://workers.cloudflare.com/)
 
 **信语 (OpenBoard)** 是一个基于 **FastAPI**、**SQLite** 以及 **WebSocket** 构建的现代化极简即时通信平台。
 
@@ -11,9 +11,9 @@
 
 🌍 **线上体验地址**：[https://liuyan.luojunqi.xyz](https://liuyan.luojunqi.xyz)
 
-> ☁️ **本项目现已提供 Cloudflare 原生版本**（`openboard-cf/`）：后端跑在 Cloudflare Workers / Pages Functions 上，
+> ☁️ **本项目现已提供 Cloudflare 原生版本**（`openboard-cf/`）：后端跑在 Cloudflare Workers 上，
 > 数据库用 D1，文件存 R2，WebSocket 广播交给 Durable Object。**前端与 API 完全兼容**，
-> 已发布的各端客户端无需改动即可对接。详见下方 [☁️ Cloudflare 版本](#-cloudflare-版本workers--pages) 与 [部署教程](#-部署与使用教程)。
+> 已发布的各端客户端无需改动即可对接。详见下方 [☁️ Cloudflare 版本](#-cloudflare-版本-workers) 与 [部署教程](#-部署与使用教程)。
 
 ---
 
@@ -50,42 +50,49 @@
 
 ---
 
-## ☁️ Cloudflare 版本 (Workers & Pages)
+## ☁️ Cloudflare 版本 (Workers)
 
 `openboard-cf/` 是本项目的 Cloudflare 原生实现，适合不想维护服务器、希望全球边缘加速与按需付费的场景。
 
 | 原项目 | Cloudflare 版 | 说明 |
 |---|---|---|
-| FastAPI (Python) | **Hono** on Pages Functions | Python Workers 无法运行 FastAPI（pydantic-core 为 Rust 扩展） |
+| FastAPI (Python) | **Hono** on Workers | Python Workers 无法运行 FastAPI（pydantic-core 为 Rust 扩展） |
 | SQLite `board.db` | **D1** | SQLite 方言，表结构原样迁移 |
 | 内存 `ConnectionManager` | **Durable Object** | 原实现连接存于进程内存，边缘多节点下必然失效 |
 | 本地 `uploads/` | **R2** | Workers 无法做服务端图片处理 |
 | PyJWT | Web Crypto HMAC-SHA256 | JWT 结构不变，旧 Token 可直接平移 |
 | werkzeug 密码哈希 | PBKDF2-SHA256 | 保持同格式，旧库 `pbkdf2:` 哈希可直接用 |
 | bleach | 内置 HTML 清洗 | 等价于 `bleach.clean(text, tags=[], strip=True)` |
-| Jinja2 模板 | Pages 静态托管 | `index.html` 本就不含模板变量，零改动搬运 |
+| Jinja2 模板 | Workers Assets 静态托管 | `index.html` 本就不含模板变量，零改动搬运 |
 
-**部署形态**：
+**部署形态**（单个 Worker，一次部署）：
 
 ```
-Pages（前端 + API）                    Worker（WebSocket 中枢）
-┌─────────────────────────────┐        ┌──────────────────────┐
-│ public/index.html  静态托管  │        │  ChatHub Durable Obj │
-│ public/admin.html           │───────▶│  （全局广播 + 在线态）│
-│ functions/api/[[path]].ts   │ script │                      │
-│   → Hono 路由（D1 + R2）    │ _name  │                      │
-└─────────────────────────────┘        └──────────────────────┘
+┌────────────────────────────────────────────────────┐
+│  WebSocket ──▶ ChatHub Durable Object（全局广播）   │
+│  /api/*    ──▶ Hono 路由（D1 + R2 + KV）            │
+│  其它路径   ──▶ Assets（index.html / admin.html）    │
+└────────────────────────────────────────────────────┘
 ```
 
-> ⚠️ Cloudflare 不允许 Pages Functions 直接导出 Durable Object 类，DO 必须部署在独立 Worker 中，
-> Pages 再通过 `script_name` 引用 —— 因此需要两次部署（先 DO Worker，后 Pages）。
+> ⚠️ **为什么不是 Pages**：Cloudflare 官方兼容性矩阵明确写着
+> `Durable Objects: Only available on Workers`。
+> 早期按 Pages Functions + 独立 DO Worker（`script_name` 跨引用）实现时，
+> 普通 HTTP 请求正常，但 **WebSocket 升级一律 500（`error code 1101`）** ——
+> 带 `webSocket` 属性的 101 响应无法穿过 Pages → DO 的服务绑定边界，
+> 且异常发生在运行时层，连 `try/catch` 都拦不住。
+> 改为单 Worker 后 DO 成为同脚本原生绑定，WebSocket 直通，且只需一次部署。
+> 静态资源请求在此形态下与 Pages 一样**不额外计费**。
 
 **已知差异**：
 
-1. 密码哈希使用 PBKDF2-SHA256 210000 次迭代。Workers 免费套餐单请求 CPU 上限 10ms，登录/注册可能超限 —— 建议使用付费套餐，或调低 `src/crypto.ts` 中的 `PASSWORD_ITERATIONS`。
+1. 密码哈希用 PBKDF2-SHA256，默认 **10000 次迭代**。Workers **免费套餐**单请求 CPU 上限 10ms，`210000` 次必然超限，表现为登录/注册一律 500。升级到付费套餐后可通过 `PASSWORD_ITERATIONS` 环境变量调回 `210000`；哈希自带迭代次数，调整不会让已有密码失效（登录时会自动重算升级）。
 2. 服务端不再生成图片缩略图（原版用 Pillow），改由前端上传前压缩；如需服务端处理可接入 Cloudflare Images。
-3. 登录限流改为查 `login_history` 表统计（15 分钟内失败 5 次锁定 15 分钟），不再依赖进程内存。
+3. 登录限流优先走 **KV**，KV 未绑定时降级为查 `login_history` 表（15 分钟内失败 5 次锁定 15 分钟），不再依赖进程内存。
 4. `/api/check_update` 直接返回服务端版本号，不再读取 GitHub Release。
+5. 静态资源缓存响应头由 Cloudflare 静态资源层统一写入，Worker 代码无法覆盖（实测），一律 `max-age=0, must-revalidate` + ETag 校验。
+
+**验证状态**：本地 60 项自检（38 链路 + 22 安卓兼容）与生产环境 10 项端到端测试全部通过。
 
 ---
 
@@ -126,41 +133,64 @@ Pages（前端 + API）                    Worker（WebSocket 中枢）
 
 本项目提供两套部署方式，**按需二选一**：
 
-- **方案 A｜Cloudflare Workers & Pages**（推荐）：免运维、全球边缘加速、按量付费
+- **方案 A｜Cloudflare Workers**（推荐）：免运维、全球边缘加速、按量付费
 - **方案 B｜自托管 Python 服务器**：完全私有、依赖可控、支持服务端图片处理
 
 ### 方案 A：部署到 Cloudflare
+
+最简单的方式是直接跑仓库里的一键脚本：
+
+```bash
+cd openboard-cf
+npm install
+npm run setup         # 创建 D1 / R2 / KV 并把 id 自动写回 wrangler.toml
+npm run preflight     # 本地 38 项链路自检（不碰云端资源）
+npm run deploy        # npx wrangler deploy，一次搞定
+npx wrangler secret put JWT_SECRET   # 务必做，否则任何人都能伪造 token
+```
+
+下面是等价的手工分步说明。
 
 #### A-1 准备
 
 ```bash
 cd openboard-cf
 npm install
-npx wrangler login
+export CLOUDFLARE_API_TOKEN=你的token   # 或交互式执行 npx wrangler login
 ```
 
-#### A-2 创建 D1 与 R2
+Token 需要的权限：`Workers Scripts:Edit` + `D1:Edit` + `Workers R2 Storage:Edit` + `Workers KV Storage:Edit`。
+
+#### A-2 创建 D1 / R2 / KV
 
 ```bash
-npx wrangler d1 create openboard-db        # 把返回的 database_id 填进 wrangler.toml
+npx wrangler d1 create openboard-db            # 把返回的 database_id 填进 wrangler.toml
 npx wrangler r2 bucket create openboard-uploads
-npx wrangler d1 execute openboard-db --file=./schema.sql
+npx wrangler kv namespace create openboard-kv  # 把返回的 id 填进 [[kv_namespaces]]
+npx wrangler d1 execute openboard-db --remote --file=./schema.sql
 ```
 
-#### A-3 部署 Durable Object Worker（必须先做）
+> ⚠️ **KV 不能省**。缺了它登录限流整体失效，账号可被无限次暴力破解。
+
+#### A-3 部署（单次完成）
 
 ```bash
-npx wrangler deploy --config wrangler.do.toml
+npx wrangler deploy
 ```
 
-产出的 Worker 名为 `openboard-chat-hub`，需与 `wrangler.toml` 中的 `script_name` 一致。
+静态资源、API 路由、Durable Object 全在同一个 Worker 里，
+**不存在分步顺序问题**，也不需要单独部署 DO。
 
-#### A-4 设置密钥并部署 Pages
+#### A-4 设置密钥
 
 ```bash
-npx wrangler pages secret put JWT_SECRET   # 建议：openssl rand -base64 48
-npx wrangler pages deploy public
+npx wrangler secret put JWT_SECRET   # 建议：openssl rand -base64 48
 ```
+
+写入后无需重新部署，下次请求即生效。
+
+> ⚠️ 不能在 `wrangler.toml` 的 `[vars]` 里也声明同名变量，
+> 否则会报 `Binding name 'JWT_SECRET' already in use [code: 10053]`。
 
 #### A-5 设置管理员
 
@@ -184,7 +214,7 @@ npx wrangler d1 execute openboard-db --file=./migrations/d1_import.sql
 
 ```bash
 npx wrangler d1 execute openboard-db --local --file=./schema.sql
-npx wrangler dev --config wrangler.worker.toml
+npm run dev            # 完整 Worker（assets + API + DO）
 ```
 
 ### 方案 B：自托管 Python 服务端
@@ -215,7 +245,7 @@ export JWT_SECRET="替换为足够长的随机字符串"
 ### 安卓客户端编译 (Android)
 1. 在 Android Studio 中导入 `OpenBoardAndroid` 目录。
 2. 在 `app/src/main/java/com/openboard/nativeapp/data/api/RetrofitClient.kt` 中修改 `BASE_URL` 为您的服务端 IP/域名。
-   * 方案 A 填 Pages 域名（如 `https://openboard.pages.dev`）
+   * 方案 A 填 Worker 域名（如 `https://openboard.你的子域.workers.dev` 或绑定的自定义域）
    * 方案 B 填自托管服务器地址（如 `http://192.168.1.100:5000`）
 3. 连接测试设备，编译运行即可。如需生成 release 签名安装包，可执行：
    ```bash
@@ -253,16 +283,13 @@ OpenBoard/
 ├── templates/           # 精美前台网页界面模板 (Jinja2)
 │   ├── index.html       # 信语网页交互主页 (支持拖拽上传、名片展示)
 │   └── admin.html       # 🛡️ 信语 ROOT 系统管理后台
-└── openboard-cf/        # ☁️ Cloudflare Workers & Pages 版本
-    ├── public/          # Pages 静态前端（index.html / admin.html / game / static）
-    ├── functions/       # Pages Functions（API 入口 + WebSocket 路由）
-    ├── src/             # Hono 路由、D1 封装、Web Crypto、Durable Object
-    ├── do-worker/       # ChatHub Durable Object 宿主 Worker
+└── openboard-cf/        # ☁️ Cloudflare Workers 版本
+    ├── public/          # 静态前端（index.html / admin.html / game / static）
+    ├── src/             # Worker 入口、Hono 路由、D1 封装、Web Crypto、Durable Object
+    ├── scripts/         # setup / deploy / preflight / 安卓回归 / 生产端到端测试
     ├── schema.sql       # D1 表结构
     ├── migrations/      # 旧 SQLite 数据导出脚本
-    ├── wrangler.toml        # Pages 配置
-    ├── wrangler.do.toml     # DO Worker 配置
-    └── wrangler.worker.toml # 单 Worker 备选配置
+    └── wrangler.toml    # Worker 配置（单文件，含 assets / D1 / KV / R2 / DO）
 ```
 
 ---

@@ -16,7 +16,7 @@
 
 ---
 
-## ☁️ 新增：Cloudflare Workers & Pages 版（`openboard-cf/`）
+## ☁️ 新增：Cloudflare Workers 版（`openboard-cf/`）
 
 在原 FastAPI 版之外新增了一套可部署到 Cloudflare 边缘的实现，**对外 API 完全兼容**，
 已发布的 Android / HarmonyOS / Flutter / 网页客户端无需改动即可直连。
@@ -49,7 +49,7 @@
 npm run setup         # 创建 D1 / R2 / KV 并把 id 自动写回 wrangler.toml
 npm run preflight     # 本地隔离环境跑 38 项链路自检
 npm run check:android # 存量 Android 客户端收消息回归（22 项，改了 WS 入口必跑）
-npm run deploy        # 先部署 DO Worker，再部署 Pages
+npm run deploy        # npx wrangler deploy，单次部署（含 DO）
 ```
 
 `KV` 命名空间必须先在你自己账号下创建 —— 没有它，登录限流会整体失效，
@@ -112,7 +112,7 @@ npm run deploy        # 先部署 DO Worker，再部署 Pages
 | :--- | :--- | :--- | :--- |
 | **入口** | `openboard-cf/src/app.ts` | ➕ 新增 | Hono 应用装配，挂载五组路由 + WS + 健康检查 |
 | **入口** | `openboard-cf/src/worker.ts` | ➕ 新增 | 独立 Worker 入口（备选部署形态） |
-| **入口** | `openboard-cf/functions/api/[[path]].ts` | ➕ 新增 | Pages Functions 主入口 |
+| **入口** | `openboard-cf/src/worker.ts` | ➕ 新增 | Worker 主入口（assets / API / DO 三合一） |
 | **认证** | `openboard-cf/src/auth.ts` | ➕ 新增 | JWT 校验、CSRF 同源检查、管理员判定 |
 | **认证** | `openboard-cf/src/crypto.ts` | ➕ 新增 | PBKDF2 / JWT HS256 / TOTP（全走 Web Crypto） |
 | **数据** | `openboard-cf/src/db.ts` | ➕ 新增 | D1 封装（含 `bind()` 语义修正） |
@@ -120,19 +120,19 @@ npm run deploy        # 先部署 DO Worker，再部署 Pages
 | **缓存** | `openboard-cf/src/kv.ts` | ➕ 新增 | KV 用途封装：限流计数 + 在线快照，未绑定自动降级 |
 | **实时** | `openboard-cf/src/durable/chat.ts` | ➕ 新增 | ChatHub Durable Object（WebSocket Hibernation） |
 | **实时** | `openboard-cf/src/realtime.ts` | ➕ 新增 | 广播 / 踢人 / 在线列表（DO 为权威源） |
-| **实时** | `openboard-cf/do-worker/index.ts` | ➕ 新增 | DO 宿主 Worker（Pages 无法直接导出 DO 类） |
+| **实时** | `openboard-cf/src/durable/chat.ts` | ➕ 新增 | ChatHub Durable Object（同 Worker 内绑定） |
 | **路由** | `openboard-cf/src/routes/{auth,messages,groups,friends,admin}.ts` | ➕ 新增 | 五组业务路由，共 80+ 接口 |
 | **安全** | `openboard-cf/src/security.ts` | ➕ 新增 | 限流、安全响应头 |
 | **安全** | `openboard-cf/src/sanitize.ts` | ➕ 新增 | XSS 清洗、用户名校验、文本裁剪 |
 | **前端** | `openboard-cf/public/index.html` | ➕ 新增 | 主聊天页（仅增强 WS 重连） |
 | **前端** | `openboard-cf/public/admin.html` | ➕ 新增 | 管理后台（改为 fetch 渲染） |
 | **脚本** | `openboard-cf/scripts/setup.sh` | ➕ 新增 | 一键创建 D1 / R2 / KV 并回写配置 |
-| **脚本** | `openboard-cf/scripts/deploy.sh` | ➕ 新增 | 一键部署（DO Worker → Pages） |
+| **脚本** | `openboard-cf/scripts/deploy.sh` | ➕ 新增 | 一键部署（单 Worker） |
 | **脚本** | `openboard-cf/scripts/preflight.mjs` | ➕ 新增 | 部署前 38 项链路自检（隔离环境） |
 | **脚本** | `openboard-cf/scripts/android-ws-check.mjs` | ➕ 新增 | 存量 Android 客户端收消息验证（22 项） |
 | **脚本** | `openboard-cf/scripts/local_d1_dump.sh` | ➕ 新增 | 本地 D1 导出为 SQL |
 | **迁移** | `openboard-cf/migrations/export_from_sqlite.py` | ➕ 新增 | 旧 SQLite → D1 数据导出 |
-| **配置** | `openboard-cf/wrangler{,.do,.worker}.toml` | ➕ 新增 | Pages / DO Worker / 单 Worker 三套配置 |
+| **配置** | `openboard-cf/wrangler.toml` | ➕ 新增 | 单文件 Worker 配置（assets / D1 / KV / R2 / DO） |
 
 ### 原版（Python / Android）
 

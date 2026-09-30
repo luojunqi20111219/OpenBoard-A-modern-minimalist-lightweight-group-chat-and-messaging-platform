@@ -18,7 +18,13 @@ export interface Env {
   RATE_LIMIT?: KVNamespace;
   /** Durable Object 命名空间 —— WebSocket 广播中枢 */
   CHAT_HUB: DurableObjectNamespace;
-  /** JWT 签名密钥，生产环境用 `wrangler pages secret put JWT_SECRET` 设置 */
+  /**
+   * 静态资源绑定（wrangler.toml 的 [assets]）。
+   * 仅在全栈 Worker 部署下存在；纯 API 场景可能没有。
+   * 未命中 Worker 路由的请求由它返回 public/ 下的文件。
+   */
+  ASSETS?: Fetcher;
+  /** JWT 签名密钥，生产环境用 `wrangler secret put JWT_SECRET` 设置 */
   JWT_SECRET?: string;
   CURRENT_VERSION?: string;
   /** 逗号分隔的管理员用户名 */
@@ -26,6 +32,11 @@ export interface Env {
   MAX_CONNECTIONS_PER_USER?: string;
   /** 是否允许免鉴权读取 R2 中的上传文件（图片直链），默认 true */
   PUBLIC_UPLOADS?: string;
+  /**
+   * PBKDF2 迭代次数覆盖值。留空用代码默认（10000，Free 计划安全值）。
+   * Paid 计划可设 210000 提升安全性；已存在的哈希自带 N，不受影响。
+   */
+  PASSWORD_ITERATIONS?: string;
 }
 
 /** 默认 JWT 密钥（仅本地开发；生产环境未设置会打警告日志） */
@@ -50,4 +61,16 @@ export function maxConnectionsPerUser(env: Env): number {
 /** 上传目录公开读取开关，默认开启（图片需要能被 <img> 直接加载） */
 export function publicUploads(env: Env): boolean {
   return (env.PUBLIC_UPLOADS || 'true').toLowerCase() !== 'false';
+}
+
+/**
+ * PBKDF2 迭代次数。
+ *
+ * ⚠️ 取值直接决定登录/注册能否成功：Free 计划单请求 CPU 上限 10ms，
+ * 210000 次会超限导致这些接口一律 500。故默认 10000，仅在全段合法时采用覆盖值。
+ */
+export function passwordIterations(env: Env): number {
+  const n = parseInt(env.PASSWORD_ITERATIONS || '', 10);
+  if (!Number.isFinite(n) || n < 1000 || n > 1_000_000) return 10_000;
+  return Math.floor(n);
 }

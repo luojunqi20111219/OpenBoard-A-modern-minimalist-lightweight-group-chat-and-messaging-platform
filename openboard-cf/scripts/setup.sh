@@ -85,7 +85,9 @@ python3 - "$D1_ID" "$KV_ID" <<'PY'
 import re, sys, pathlib
 
 d1_id, kv_id = sys.argv[1], sys.argv[2]
-for name in ('wrangler.toml', 'wrangler.worker.toml'):
+# 迁移到 Workers 后只剩这一个配置文件（原 wrangler.worker.toml /
+# wrangler.do.toml 已合并删除，DO 与 Worker 同脚本）
+for name in ('wrangler.toml',):
     p = pathlib.Path(name)
     if not p.exists():
         continue

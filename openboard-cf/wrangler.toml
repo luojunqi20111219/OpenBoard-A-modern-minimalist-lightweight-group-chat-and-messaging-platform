@@ -1,19 +1,56 @@
 #:schema node_modules/wrangler/config-schema.json
+#
+# ===========================================================================
+# OpenBoard · Cloudflare Workers 全栈部署
+# ===========================================================================
+#
+#   npx wrangler deploy      # 部署
+#   npx wrangler dev         # 本地调试
+#
+# ---------------------------------------------------------------------------
+# 架构说明（为什么是 Workers 而不是 Pages）
+# ---------------------------------------------------------------------------
+# 早期版本部署在 Pages Functions + 独立 DO Worker（script_name 跨引用）。
+# 该组合不受 Cloudflare 支持：普通 HTTP 正常，但 WebSocket 升级一律
+# 500（error code 1101），因为带 webSocket 属性的 101 响应无法穿过
+# Pages → DO 的服务绑定边界，且异常发生在运行时层，try/catch 拦不住。
+#
+# 官方兼容性矩阵：`Durable Objects: Only available on Workers`。
+# 因此改为单个 Worker 承载：静态资源（assets）+ API（Hono）+ DO（同 Worker 绑定）。
+# 好处：WebSocket 直通、少一次跨服务调用、可用 Cron 与完整可观测性。
+#
+# 静态资源请求与 Pages 一样不额外计费。
+# ---------------------------------------------------------------------------
 name = "openboard"
+main = "src/worker.ts"
 compatibility_date = "2024-11-27"
-pages_build_output_dir = "public"
+
+# ---------------------------------------------------------------------------
+# 静态资源（原 Pages 的 public/ 目录）
+#
+# binding = "ASSETS" 让 Worker 代码可通过 env.ASSETS 读取文件。
+#
+# ⚠️ run_worker_first 是这里的关键，绝不能省：
+#    Worker 带 assets 时的默认行为是「静态资源优先，未匹配才走 Worker」。
+#    配合 not_found_handling = "single-page-application"（未找到即回 index.html），
+#    /api/* 和 /ws/* 都会被当成「没找到这个静态文件」而直接返回 index.html，
+#    表现为接口全部 404、WebSocket 握手 404 —— 且没有任何报错提示。
+#    因此必须显式声明这些前缀由 Worker 先处理。
+# ---------------------------------------------------------------------------
+[assets]
+directory = "public"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*", "/ws", "/ws/*"]
 
 # ---------------------------------------------------------------------------
 # D1 数据库（原 SQLite board.db）
-#
 # 创建：npx wrangler d1 create openboard-db
-# 然后把返回的 database_id 填进下面的 database_id 字段
-# （或直接跑 `npm run setup`，会自动创建 D1 / R2 / KV 并回写本文件）
 # ---------------------------------------------------------------------------
 [[d1_databases]]
 binding = "DB"
 database_name = "openboard-db"
-database_id = "REPLACE_WITH_YOUR_D1_ID"
+database_id = "1f6015cb-09ba-490c-b083-145a7be040db"
 
 # ---------------------------------------------------------------------------
 # KV —— 登录限流计数 + 在线状态快照
@@ -26,40 +63,58 @@ database_id = "REPLACE_WITH_YOUR_D1_ID"
 # ---------------------------------------------------------------------------
 [[kv_namespaces]]
 binding = "RATE_LIMIT"
-id = "REPLACE_WITH_YOUR_KV_ID"
+id = "c9ef480d69c942e4abfd6ccf68be999a"
 
 # ---------------------------------------------------------------------------
 # R2 存储（原本地 uploads/ 目录）
+# 创建：npx wrangler r2 bucket create openboard-uploads
 # ---------------------------------------------------------------------------
 [[r2_buckets]]
 binding = "UPLOADS"
 bucket_name = "openboard-uploads"
 
 # ---------------------------------------------------------------------------
-# Durable Object — WebSocket 实时广播中枢（原内存 ConnectionManager）
+# Durable Object —— WebSocket 实时广播中枢
 #
-# ⚠️ Pages Functions 无法直接导出 DO 类（wrangler 会报 "not exported in your
-# entrypoint"），DO 必须部署在独立 Worker 中，Pages 再通过 script_name 引用。
-#
-# 因此部署顺序是：
-#   1) npx wrangler deploy --config wrangler.do.toml     # 部署 ChatHub DO
-#   2) npx wrangler pages deploy public                  # 部署前端 + API
+# 与原 Pages 方案的唯一区别：**不再有 script_name**。
+# DO 类与 Worker 在同一个脚本内，迁移直接生效，不需要先部署独立的 DO Worker。
 # ---------------------------------------------------------------------------
 [[durable_objects.bindings]]
 name = "CHAT_HUB"
 class_name = "ChatHub"
-script_name = "openboard-chat-hub"
+
+[[migrations]]
+tag = "v1"
+# ⚠️ 必须是 new_sqlite_classes，不能是 new_classes。
+#    Free 计划的 Durable Objects 只支持 SQLite 存储后端，用 new_classes
+#    会报错：In order to use Durable Objects with a free plan, you must
+#    create a namespace using a `new_sqlite_classes` migration. [code: 10097]
+new_sqlite_classes = ["ChatHub"]
 
 # ---------------------------------------------------------------------------
 # 环境变量 / 密钥
-# 生产环境请用 `npx wrangler pages secret put JWT_SECRET` 写入，别把真密钥写这里
+# 生产环境请用 `npx wrangler secret put JWT_SECRET` 写入，别把真密钥写这里
 # ---------------------------------------------------------------------------
 [vars]
-# 留空则自动使用内置默认值（仅适合本地开发）
-JWT_SECRET = ""
+# ⚠️ JWT_SECRET 不在这里配置！
+#    它是 secret，必须用 `npx wrangler secret put JWT_SECRET` 写入。
+#    若在 [vars] 里也声明同名变量，secret put 会报
+#    "Binding name 'JWT_SECRET' already in use" [code: 10053]。
+#    本文件也不该出现真实密钥（会进 git 历史）。
 CURRENT_VERSION = "v9.0.0"
+# PBKDF2 迭代次数。Free 计划 CPU 上限 10ms，210000 次必然超限导致
+# 登录/注册全部 500，故 Free 套餐请留空（用代码内 10000 的默认值）；
+# 升级到 Paid（CPU 上限 30s）后可设为 210000 提升安全性。
+# 已存在的哈希自带迭代次数，调整此值不会让已有密码失效。
+PASSWORD_ITERATIONS = ""
 # 逗号分隔的管理员用户名
 ALLOWED_ADMINS = "官方账号,Forest_siri,Forest_Brian_Birch"
 MAX_CONNECTIONS_PER_USER = "4"
 # 是否允许免鉴权读取 R2 中的上传文件（图片直链需要），设 false 则强制登录
 PUBLIC_UPLOADS = "true"
+
+# ---------------------------------------------------------------------------
+# 可观测性 —— WebSocket / DO 的问题不会体现在响应体里，必须靠日志定位
+# ---------------------------------------------------------------------------
+[observability]
+enabled = true

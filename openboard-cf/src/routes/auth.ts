@@ -11,12 +11,13 @@ import {
   hashPassword,
   verifyPassword,
   isUnsupportedHash,
+  iterationsOf,
   randomId,
   generateTotpSecret,
   verifyTotp,
   unsafeDecodeJwt,
 } from '../crypto';
-import { adminList } from '../env';
+import { adminList, passwordIterations } from '../env';
 import {
   clientIp,
   countryOf,
@@ -181,7 +182,7 @@ authRoutes.post('/register', async (c) => {
     return c.json({ detail: '用户名已被占用' }, 400);
   }
 
-  const hashed = await hashPassword(password);
+  const hashed = await hashPassword(password, passwordIterations(e));
   const nickname = cleanText(data.nickname || username, 64) || username;
   const role = adminList(e).includes(username) ? 1 : 0;
 
@@ -296,7 +297,22 @@ authRoutes.post('/login', async (c) => {
     );
   }
 
-  const check = await verifyPassword(data.password || '', user.password_hash);
+  // Free 计划单请求 CPU 上限 10ms，验证 210000 次的旧哈希必然超限。
+  // 与其抛成没说法的 500，不如提前给出可操作的提示。
+  const storedIter = iterationsOf(user.password_hash);
+  const targetIter = passwordIterations(e);
+  if (storedIter !== null && storedIter > targetIter) {
+    return c.json(
+      {
+        detail:
+          `该账号密码哈希使用了 ${storedIter} 次迭代，超出当前运行套餐的 CPU 限额，无法验证。` +
+          `请升级到付费套餐（CPU 上限 30s），或联系管理员重置密码。`,
+      },
+      400,
+    );
+  }
+
+  const check = await verifyPassword(data.password || '', user.password_hash, targetIter);
   if (!check.ok) {
     await recordLogin(e, {
       userId: user.id,
@@ -315,6 +331,16 @@ authRoutes.post('/login', async (c) => {
       });
     }
     return c.json({ detail: '账号或密码错误' }, 401);
+  }
+
+  // 验证通过且强度落后于当前配置 → 趁明文密码在手，静默升级哈希
+  if (check.needsRehash) {
+    try {
+      const upgraded = await hashPassword(data.password || '', targetIter);
+      await exec(e.DB, 'UPDATE users SET password_hash=? WHERE id=?', upgraded, user.id);
+    } catch {
+      // 升级失败不影响本次登录
+    }
   }
 
   if (user.is_banned === 1) {
@@ -470,13 +496,27 @@ authRoutes.put('/user/password', requireAuth, async (c) => {
   const user = c.get('user');
   const data = (await c.req.json()) as { old_password?: string; new_password?: string };
 
-  const check = await verifyPassword(data.old_password || '', user.password_hash);
+  // 与登录同样的提前拦截：超出套餐 CPU 限额的旧哈希会 500，给出可读原因
+  const storedIter = iterationsOf(user.password_hash);
+  const targetIter = passwordIterations(e);
+  if (storedIter !== null && storedIter > targetIter) {
+    return c.json(
+      {
+        detail:
+          `账号密码哈希为 ${storedIter} 次迭代，超出当前套餐 CPU 限额无法验证。` +
+          `请联系管理员重置密码，或升级到付费套餐。`,
+      },
+      400,
+    );
+  }
+
+  const check = await verifyPassword(data.old_password || '', user.password_hash, targetIter);
   if (!check.ok) return c.json({ detail: '原密码不正确' }, 400);
   if (!data.new_password || data.new_password.length < 8) {
     return c.json({ detail: '新密码至少 8 位' }, 400);
   }
 
-  const hashed = await hashPassword(data.new_password);
+  const hashed = await hashPassword(data.new_password, targetIter);
   await exec(e.DB, 'UPDATE users SET password_hash=? WHERE id=?', hashed, user.id);
   // 换密码后所有旧会话失效
   await revokeToken(e, c.get('token'), user.id, 'password-change');
@@ -786,7 +826,7 @@ authRoutes.post('/admin/reset-password', requireAuth, requireAdmin, async (c) =>
   if (!target || !data.new_password || data.new_password.length < 8) {
     return c.json({ detail: '参数不完整' }, 400);
   }
-  const hashed = await hashPassword(data.new_password);
+  const hashed = await hashPassword(data.new_password, passwordIterations(e));
   await exec(e.DB, 'UPDATE users SET password_hash=? WHERE username=?', hashed, target);
   return c.json({ status: 'success', msg: `已重置 ${target} 的密码` });
 });

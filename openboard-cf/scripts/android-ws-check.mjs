@@ -5,69 +5,48 @@
  *   baseUrl.replace("https://","wss://") + "ws/$token"   →  路径 /ws/{token}
  * 并按 WsMessage.kt 的 WsData 字段逐个核对广播载荷。
  *
- * 走真实的 Pages Functions 产物（wrangler pages functions build），
- * 而不是 src/worker.ts —— 因为客户端打的是 Pages 的 URL 空间。
+ * ---------------------------------------------------------------------------
+ * 迁移到 Workers 后的简化（2026-09-30）
+ * ---------------------------------------------------------------------------
+ * 旧版本要起两个 Miniflare worker（pages-app + do-test）并用 service binding
+ * 串起来，因为 Pages 的 URL 空间来自模板 worker、DO 又必须住在独立脚本里。
  *
- * ── 关于 Miniflare 的一个已知偏差（只影响「注册」这个动作）──────────────────
- * Pages 产物必须经 service binding 访问（Pages 的 URL 空间来自模板 worker），
- * 而 Miniflare 跨 worker 转发时会重建 Response 的 Headers，重建后的对象
- * 原型链上没有 getSetCookie()。Hono 的 `set res()` 恰好要调它拼 set-cookie，
- * 于是**写 Cookie 的路由在 Miniflare 里会 500**。
- *
- * 这是本地测试宿主的偏差，不是产物缺陷，依据：
- *   1. 单 worker 构建（dist/worker.js，无跨边界）注册返回 200；
- *   2. workerd 原生 new Response() 的 Headers.getSetCookie 是 function（_probe4 实测）；
- *   3. 同一份 Pages 产物上，不写 Cookie 的接口（401/404/health）全部正常；
- *   4. 生产 Pages 走标准 Fetch，Hono 4.x 的 Cookie 路径是常态化用法。
- *
- * 所以账号准备**不走 HTTP 注册**，而是直接往 D1 写行 —— 反正被测的是
- * 「WebSocket 能不能连上、消息字段对不对」，跟注册接口无关。
+ * 现在 DO 与 Worker 同脚本，**只需起一个 worker**：
+ *   - 不再需要 proxy worker
+ *   - 不再需要解释「Miniflare 跨 worker 转发丢 getSetCookie」这个偏差
+ *     （那个偏差本身就是 Pages 架构的产物，现在整类问题都不存在了）
+ *   - 测试直接跑 dist/worker.js，与线上产物完全一致
  */
 import { Miniflare } from 'miniflare';
 import { readFileSync, existsSync } from 'node:fs';
 
-for (const f of ['dist/pages/index.js', 'dist/do-test.js', 'dist/proxy.js']) {
-  if (!existsSync(f)) {
-    console.error(`❌ 缺少构建产物 ${f}，请先执行： npm run check:android`);
-    process.exit(1);
-  }
+if (!existsSync('dist/worker.js')) {
+  console.error('❌ 缺少构建产物 dist/worker.js，请先执行： npm run check:android');
+  process.exit(1);
 }
 
 const SCHEMA = readFileSync('schema.sql', 'utf8');
 const B = 'http://localhost';
 
-// 不设任何 *Persist 选项：Miniflare 会落在系统临时目录，每次都是干净环境，
-// 进程退出即清理。DO 用的是 SQLite 后端（useSQLite: true），
-// 再叠加 doPersist 目录会让 DO 起不来（握手表现为 500）。
+// 不设任何 *Persist 选项：Miniflare 落在系统临时目录，每次干净环境，退出即清理。
+// DO 用 SQLite 后端（useSQLite: true），与线上 new_sqlite_classes 一致。
+//
+// ⚠️ 这里**刻意不挂 assets**（尽管 wrangler.toml 里有 [assets]）。
+//    Miniflare 3.2025xxx 的 assets 路由器会把所有请求先拦下来（含 /api/*），
+//    Worker 的 fetch 根本不会被调用 —— 实测 /api/health 返回空 404 而非报错，
+//    极难排查。而线上运行时（新版）支持 assets.run_worker_first，
+//    行为与本地的老 Miniflare 不同。
+//    本脚本聚焦「API + WebSocket 是否正常」，因此只挂必要绑定；
+//    静态资源与路由分流由 scripts/verify-assets.mjs 单独验证。
 const mf = new Miniflare({
   modules: true,
   compatibilityDate: '2024-11-27',
-  scriptPath: 'dist/proxy.js',
+  scriptPath: 'dist/worker.js',
+  bindings: { CURRENT_VERSION: 'v9.0.0' },
   d1Databases: { DB: 'android' },
   r2Buckets: { UPLOADS: 'u' },
   kvNamespaces: { RATE_LIMIT: 'k' },
-  serviceBindings: { PAGES: 'pages-app' },
-  workers: [
-    {
-      name: 'pages-app',
-      modules: true,
-      scriptPath: 'dist/pages/index.js',
-      bindings: { CURRENT_VERSION: 'v9.0.0' },
-      d1Databases: { DB: 'android' },
-      r2Buckets: { UPLOADS: 'u' },
-      kvNamespaces: { RATE_LIMIT: 'k' },
-      durableObjects: { CHAT_HUB: { className: 'ChatHub', scriptName: 'do-test' } },
-    },
-    {
-      name: 'do-test',
-      modules: true,
-      scriptPath: 'dist/do-test.js',
-      d1Databases: { DB: 'android' },
-      r2Buckets: { UPLOADS: 'u' },
-      kvNamespaces: { RATE_LIMIT: 'k' },
-      durableObjects: { ChatHub: { className: 'ChatHub', useSQLite: true } },
-    },
-  ],
+  durableObjects: { CHAT_HUB: { className: 'ChatHub', useSQLite: true } },
 });
 
 let pass = 0;
@@ -86,8 +65,8 @@ const J = (t) => ({ 'Content-Type': 'application/json', ...(t ? { Authorization:
 const onB = (path, init) => mf.dispatchFetch(B + path, init);
 const postB = (path, data, t) => onB(path, { method: 'POST', headers: J(t), body: JSON.stringify(data) });
 
-// ═══ 0. 灌 schema + 直写两个账号（绕开 Miniflare 的 set-cookie 偏差）════════
-console.log('\n【0】准备数据（直接写 D1，绕开本地宿主的 set-cookie 偏差）');
+// ═══ 0. 灌 schema + 直写两个账号 ═══════════════════════════════════════════
+console.log('\n【0】准备数据');
 const db = await mf.getD1Database('DB');
 await db.batch(
   SCHEMA.split(';').map((s) => s.replace(/--[^\n]*/g, '').trim()).filter(Boolean).map((s) => db.prepare(s)),
@@ -104,14 +83,13 @@ for (const [u, t] of [['android_phone', TOK_PHONE], ['web_other', TOK_WEB]]) {
 const cnt = await db.prepare('SELECT COUNT(*) AS n FROM users').first();
 ok("D1 就绪，账号已写入", (cnt?.n ?? 0) >= 2, `users=${cnt?.n}`);
 
-// 建好友关系（私聊不要求是好友，但保持与真实场景一致）
 await db
   .prepare('INSERT OR IGNORE INTO friends (user_a, user_b) VALUES (?, ?)')
   .bind('android_phone', 'web_other')
   .run();
 
 const hb = await onB('/api/health');
-ok('Pages 产物 /api/health 正常', hb.status === 200, `status=${hb.status}`);
+ok('Worker /api/health 正常', hb.status === 200, `status=${hb.status}`);
 
 // ═══ 1. 安卓客户端的真实连接地址 ═══════════════════════════════════════════
 console.log('\n【1】按 WebSocketManager.kt 的方式连接');
@@ -197,19 +175,22 @@ await onB(`/api/messages/${sent.id}`, { method: 'DELETE', headers: J(TOK_WEB) })
 await new Promise((r) => setTimeout(r, 1200));
 ok('收到 recall 事件', got.some((x) => x.type === 'recall'), got.map((x) => x.type).join(',') || '(无)');
 
-// ═══ 5. 鉴权边界（pickToken 修复的回归测试）════════════════════════════════
+// ═══ 5. 鉴权边界 ═══════════════════════════════════════════════════════════
 console.log('\n【6】鉴权边界');
 const bad = await onB('/ws/definitely-not-a-token', { headers: { Upgrade: 'websocket' } });
 ok('伪造 token 返回 401（不是 500）', bad.status === 401, `status=${bad.status}`);
 
-const empty = await onB('/ws/', { headers: { Upgrade: 'websocket' } });
-ok('/ws/ 空 token 不崩', empty.status === 401 || empty.status === 404, `status=${empty.status}`);
-
-// ═══ 6. 老客户端还可能打 /api/ws/{token} ══════════════════════════════════
-console.log('\n【7】/api/ws/{token} 兼容路径');
-const up2 = await onB(`/api/ws/${TOK_WEB}`, { headers: { Upgrade: 'websocket' } });
-ok('/api/ws/{token} 握手 101', up2.status === 101 && up2.webSocket != null, `status=${up2.status}`);
-if (up2.webSocket) up2.webSocket.accept();
+// ═══ 6. 两条 URL 带 token 的路径都要能连 ═══════════════════════════════════
+console.log('\n【7】URL 携带 token 的两条路径');
+const paths = [
+  [`/ws/${TOK_WEB}`, '旧版安卓 /ws/{token}'],
+  [`/api/ws/${TOK_WEB}`, 'v8 原生 /api/ws/{token}'],
+];
+for (const [p, label] of paths) {
+  const r = await onB(p, { headers: { Upgrade: 'websocket' } });
+  ok(`${label} 握手 101`, r.status === 101 && r.webSocket != null, `status=${r.status}`);
+  if (r.webSocket) r.webSocket.accept();
+}
 
 console.log(`\n${'─'.repeat(52)}\n通过 ${pass} 项，失败 ${fail} 项`);
 await mf.dispose();

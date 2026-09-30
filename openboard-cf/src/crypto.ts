@@ -51,11 +51,29 @@ export function randomId(bytes = 16): string {
 /**
  * PBKDF2-HMAC-SHA256 迭代次数。
  *
- * ⚠️ Cloudflare Workers 免费套餐单次请求 CPU 上限为 10ms，本函数在免费版上
- * 大概率会因超出 CPU 限额而失败。生产环境请使用付费套餐（CPU 上限 30s），
- * 或把该值调低到 100000（安全性略降但仍在可接受范围）。
+ * ⚠️ 这个值与运行套餐强绑定，改错会让**所有登录/注册请求直接 500**：
+ *
+ *   Free 计划      单请求 CPU 上限 10ms   → 只能用 ~10 000 次
+ *   Paid 计划      单请求 CPU 上限 30s    → 可用 210 000 次
+ *
+ * 实测：在 Free 计划上 210 000 次会因超 CPU 限额抛错，表现为
+ * `/api/login` 与 `/api/register` 一律返回 500「服务器内部错误」，
+ * 且不会在响应里暴露真实原因（要看 `npx wrangler tail`）。
+ *
+ * 因此这里不再写死，而是以 10 000 为基准（Free 安全值），
+ * 并由 `PASSWORD_ITERATIONS` 环境变量覆盖：付费套餐可把它调回 210000。
+ *
+ * 兼容性：哈希串自带迭代次数（`pbkdf2:sha256:<N>$...`），校验时按哈希里
+ * 记录的 N 计算，因此调大调小都不会让已存在的用户密码失效。
  */
-export const PASSWORD_ITERATIONS = 210_000;
+export const PASSWORD_ITERATIONS = 10_000;
+
+/** 从环境变量读迭代次数，非法值回落到默认 */
+function resolveIterations(override?: string | number): number {
+  const n = typeof override === 'number' ? override : parseInt(String(override ?? ''), 10);
+  if (!Number.isFinite(n) || n < 1000 || n > 1_000_000) return PASSWORD_ITERATIONS;
+  return Math.floor(n);
+}
 const KEY_LEN_BYTES = 32;
 
 async function pbkdf2(
@@ -85,24 +103,47 @@ async function pbkdf2(
  */
 export async function hashPassword(
   password: string,
-  iterations: number = PASSWORD_ITERATIONS,
+  iterations?: number,
 ): Promise<string> {
+  const n = resolveIterations(iterations);
   const salt = crypto.getRandomValues(new Uint8Array(16));
-  const dk = await pbkdf2(password, salt, iterations, KEY_LEN_BYTES);
-  return `pbkdf2:sha256:${iterations}$${toHex(salt)}$${toHex(dk)}`;
+  const dk = await pbkdf2(password, salt, n, KEY_LEN_BYTES);
+  return `pbkdf2:sha256:${n}$${toHex(salt)}$${toHex(dk)}`;
 }
 
 export type PasswordCheck =
-  | { ok: true }
+  | { ok: true; needsRehash?: boolean }
   | { ok: false; reason: 'mismatch' | 'unsupported' };
+
+/**
+ * 该哈希的迭代次数是否高于给定阈值（说明是在高 CPU 配额环境下生成的）。
+ * 用于在 Free 计划上识别「验证会超 CPU 限额」的旧哈希，提前给出明确提示，
+ * 而不是让它变成难以定位的 500。
+ */
+export function iterationsOf(stored: string | null): number | null {
+  if (!stored) return null;
+  const [method] = stored.split('$');
+  const [, digest, iterStr] = method.split(':');
+  if (digest !== 'sha256') return null;
+  const n = parseInt(iterStr || '', 10);
+  return Number.isFinite(n) ? n : null;
+}
 
 /**
  * 校验密码。
  * 支持 `pbkdf2:sha256:N$salt$hash`（werkzeug 同格式）。
  * werkzeug 3.x 默认改用 scrypt，Workers 的 Web Crypto 不提供 scrypt，
  * 这类旧哈希会返回 unsupported —— 需要管理员重置密码或用迁移脚本转码。
+ *
+ * 校验一律以**哈希自身记录的 N** 为准，这样把配置调大调小都不会让
+ * 已存在的密码失效。返回 needsRehash 表示该哈希的 N 低于当前配置，
+ * 调用方可在验证成功后顺手用新参数重写一遍。
  */
-export async function verifyPassword(password: string, stored: string | null): Promise<PasswordCheck> {
+export async function verifyPassword(
+  password: string,
+  stored: string | null,
+  iterations?: number,
+): Promise<PasswordCheck> {
   if (!stored) return { ok: false, reason: 'mismatch' };
   const parts = stored.split('$');
   if (parts.length !== 3) return { ok: false, reason: 'mismatch' };
@@ -114,15 +155,21 @@ export async function verifyPassword(password: string, stored: string | null): P
     return { ok: false, reason: 'unsupported' };
   }
 
-  const iterations = parseInt(iterStr || String(PASSWORD_ITERATIONS), 10) || PASSWORD_ITERATIONS;
-  const dk = await pbkdf2(password, fromHex(saltHex), iterations, KEY_LEN_BYTES);
+  // 优先采用哈希自身记录的 N（旧库可能用 210000），
+  // 仅当哈希没写 N 时才回落到当前配置值 —— 保证历史密码继续可验证。
+  const n = resolveIterations(iterStr || iterations);
+  const dk = await pbkdf2(password, fromHex(saltHex), n, KEY_LEN_BYTES);
   const expected = fromHex(hashHex);
 
   if (dk.length !== expected.length) return { ok: false, reason: 'mismatch' };
   // 常数时间比较
   let diff = 0;
   for (let i = 0; i < dk.length; i++) diff |= dk[i] ^ expected[i];
-  return diff === 0 ? { ok: true } : { ok: false, reason: 'mismatch' };
+  if (diff !== 0) return { ok: false, reason: 'mismatch' };
+
+  // 哈希的 N 低于当前配置时提示调用方重新哈希（升级强度）
+  const target = resolveIterations(iterations);
+  return { ok: true, needsRehash: n < target };
 }
 
 /** 旧哈希是否为 Workers 无法验证的格式（如 scrypt） */

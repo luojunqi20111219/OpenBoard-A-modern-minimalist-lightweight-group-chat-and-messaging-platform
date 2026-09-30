@@ -96,5 +96,16 @@ export function upgradeWebSocket(env: Env, request: Request, username: string): 
       'Sec-WebSocket-Version': '13',
     },
   });
-  return hub(env).fetch(forwarded);
+  return hub(env)
+    .fetch(forwarded)
+    .catch((err) => {
+      // DO 不可达时不能只抛裸异常 —— Pages 会把它变成无信息的 500 (error 1101)。
+      // 这里转成带原因的 502，方便一眼看出是绑定问题还是 DO 内部报错。
+      console.error('[ws upgrade] DO fetch failed', err);
+      const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+      return new Response(JSON.stringify({ detail: 'WebSocket 升级失败', reason: msg }), {
+        status: 502,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
 }

@@ -52,7 +52,7 @@
 
 ---
 
-## ☁️ 新增部署形态：Cloudflare Workers & Pages
+## ☁️ 新增部署形态：Cloudflare Workers
 
 本版本同时收录了 `openboard-cf/` —— 将后端从 FastAPI 迁移到 Cloudflare 边缘运行，
 **对外 API 完全兼容**，Android / HarmonyOS / Flutter / 网页客户端无需改动。
@@ -70,7 +70,7 @@
 ```bash
 npm run setup      # 创建 D1 / R2 / KV，并把 id 写回 wrangler.toml
 npm run preflight  # 本地隔离环境跑 38 项链路自检
-npm run deploy     # 部署 DO Worker → 部署 Pages
+npm run deploy     # npx wrangler deploy，单次部署（含 DO）
 ```
 
 > ⚠️ **KV 命名空间必须先生成**（`npm run setup` 会做）。

@@ -2,22 +2,19 @@
   "name": "openboard-cf",
   "version": "9.0.0",
   "private": true,
-  "description": "信语 OpenBoard — Cloudflare Workers & Pages 版本",
+  "description": "信语 OpenBoard — Cloudflare Workers 版本",
   "type": "module",
   "scripts": {
-    "dev": "wrangler pages dev public",
-    "dev:api": "wrangler dev --config wrangler.worker.toml",
+    "dev": "wrangler dev",
     "typecheck": "tsc --noEmit",
     "bundle": "esbuild src/worker.ts --bundle --format=esm --outfile=dist/worker.js --external:cloudflare:workers",
     "bundle:do": "esbuild src/durable/chat.ts --bundle --format=esm --outfile=dist/do-test.js --external:cloudflare:workers",
-    "build:pages": "wrangler pages functions build functions --outdir dist/pages",
-    "build:test": "npm run bundle:do && npm run build:pages",
     "preflight": "npm run bundle && node scripts/preflight.mjs",
-    "check:android": "npm run bundle:do && npm run build:pages && node scripts/android-ws-check.mjs",
+    "check:android": "npm run bundle:do && npm run bundle && node scripts/android-ws-check.mjs",
+    "test:live": "node scripts/live-ws-test.mjs",
     "setup": "bash scripts/setup.sh",
     "deploy": "bash scripts/deploy.sh",
-    "deploy:do": "wrangler deploy --config wrangler.do.toml",
-    "deploy:pages": "wrangler pages deploy public",
+    "deploy:worker": "wrangler deploy",
     "d1:create": "wrangler d1 create openboard-db",
     "d1:init": "wrangler d1 execute openboard-db --remote --file=./schema.sql",
     "d1:init-local": "wrangler d1 execute openboard-db --local --file=./schema.sql",
@@ -31,7 +28,8 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241127.0",
+    "miniflare": "^4.20260730.0",
     "typescript": "^5.6.3",
-    "wrangler": "^3.87.0"
+    "wrangler": "^4.144.0"
   }
 }

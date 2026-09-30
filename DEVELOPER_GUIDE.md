@@ -534,9 +534,11 @@ app.route('/api', yourRoutes);
 cd openboard-cf
 npm run typecheck                        # 必须零错误
 npx wrangler d1 execute openboard-db --local --file=./schema.sql
-npx wrangler dev --config wrangler.worker.toml   # 本地调试 API + DO
-npx wrangler deploy --config wrangler.do.toml    # 部署 Durable Object
-npx wrangler pages deploy public                 # 部署前端 + API
+npm run dev                              # 本地调试（assets + API + DO 完整环境）
+npm run preflight                        # 38 项链路自检（隔离环境，不碰云端资源）
+npm run check:android                    # 存量安卓客户端兼容性回归（22 项）
+npx wrangler deploy                      # 一次部署：静态资源 + API + Durable Object
+npm run test:live <你的域名>              # 部署后跑生产环境端到端测试
 ```
 
 > 新增数据表时，需同步更新 `schema.sql`，并对已有库执行迁移 SQL。
