@@ -250,6 +250,33 @@ curl https://你的域名/api/health
 **超大目录**：若压缩后超过 60 MB，页面会明确拒绝并建议分批
 （例如先只打包 `uploads/`，再单独传 `board.db`）—— 不做静默截断。
 
+#### 旧库列多于当前 Schema 时（重要）
+
+旧 Python 版 `board.db` 常年迭代，往往积累了当前 `schema.sql` 里
+**没有的字段**，例如 `users.is_vip`、`groups.description`、
+`messages.is_top`、`users.last_login_ip` 等。
+
+SQLite / D1 的行为是：`INSERT` 里出现未知列 → **整条语句报错**，
+不会自动忽略。若不处理，这些表和列对不上的表会**一条都进不来**，
+而列刚好对上的小表照常成功 —— 结果是数据库处于半残状态，
+且那些成功的表全都成了引用了不存在 user/group/message 的孤儿数据。
+
+因此导入器在写之前会先执行 `PRAGMA table_info(<表>)` 取 D1 的真实
+列清单，**只写双方共有的列**。旧库多出来的字段被静默丢弃，但会通过
+返回体的 `ignoredColumns`（全局，按表分组）与
+`perTable[<表>].ignoredColumns`（逐表）如实报出，页面上会单独显示
+「已忽略的旧字段」区块 + 在结果表内联标注，**数据本体不丢**。
+
+> 曾经踩过的坑：线上实测 20 用户 / 2 群 / 525 消息因
+> `table users has no column named is_vip` 全部未写入，
+> 只有 648 条小表数据成功。现已修复并有回归测试钉住
+> （`scripts/import-test.mjs` 的 section 11）。
+
+如果某张表在 D1 里**完全不存在**（不在 `schema.sql` 里），
+它在解析阶段就会被归入 `ignoredTables`，只提示不导入；
+若因白名单与 Schema 不同步而进入写入阶段，也会给出
+「D1 中不存在这张表」的可读原因，而不是抛一屏 `D1_ERROR`。
+
 ### 方式 B：命令行（数据量大或需要脚本化时）
 
 ```bash
