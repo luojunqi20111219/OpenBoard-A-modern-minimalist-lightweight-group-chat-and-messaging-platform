@@ -729,17 +729,99 @@ messageRoutes.get('/download/:filename', async (c) => {
   const obj = await e.UPLOADS.get(key);
   if (!obj) return c.json({ detail: '文件不存在' }, 404);
 
+  // ---------------------------------------------------------------------------
+  // 兼容旧版下载 URL：`/api/download/{uuid}.{ext}?name={显示名}`
+  //
+  // 旧版（FastAPI）的 download_file 会带 ?name= 把原始文件名写进
+  // Content-Disposition，让浏览器另存为时有正确的名字。
+  // 迁移过来的历史消息里存的就是这种 URL —— 不带 ?name= 处理的话，
+  // 点击下载会得到一长串 uuid 文件名。
+  //
+  // 安全：name 只用于 Content-Disposition，且做了 basename + 长度限制；
+  //       真正的文件名以路径参数 key 为准，不参与磁盘/对象寻址。
+  // ---------------------------------------------------------------------------
+  const nameParam = c.req.query('name');
+  const headers: Record<string, string> = {
+    'Content-Type': obj.httpMetadata?.contentType || 'application/octet-stream',
+    'Content-Length': String(obj.size),
+    // 文件名含随机串、内容不可变，可放心长缓存
+    'Cache-Control': 'public, max-age=31536000, immutable',
+    'ETag': obj.httpEtag,
+  };
+
+  if (nameParam) {
+    const display = sanitizeDisplayName(nameParam);
+    if (display) {
+      headers['Content-Disposition'] =
+        `attachment; filename="${display.ascii}"; filename*=UTF-8''${display.encoded}`;
+    } else {
+      headers['Content-Disposition'] = `attachment; filename="${key}"`;
+    }
+  } else {
+    headers['Content-Disposition'] = `inline; filename="${key}"`;
+  }
+
+  return new Response(obj.body, { headers });
+});
+
+/**
+ * 兼容旧版静态目录 URL：`/uploads/{uuid}.{ext}`。
+ *
+ * 旧版是把 `uploads/` 目录用 StaticFiles 挂在 `/uploads` 上的，
+ * 所以历史消息里的图片地址是 `/uploads/xxx.jpg`。CF 版没有这个路径，
+ * 若不补一条，导入进来的所有历史图片都会裂。
+ *
+ * ⚠️ 只认「单段、无子路径」的 key，与 R2 的平坦 key 空间一一对应，
+ *    杜绝 `/uploads/../../xxx` 这类穿越。
+ *
+ * ⚠️ 这个 handler 挂在 **根部**（不是 /api 下），见 app.ts 的
+ *    `app.get('/uploads/:filename', uploadsAssetHandler)`。
+ *    因为 messageRoutes 整体挂在 /api 前缀下，在这里注册会变成
+ *    `/api/uploads/...`，而旧消息里的地址是 `/uploads/...`。
+ */
+export const uploadsAssetHandler = async (c: {
+  env: unknown;
+  req: { param: (k: string) => string };
+  json: (o: unknown, s?: number) => Response;
+}) => {
+  const e = env(c);
+  const key = c.req.param('filename');
+  if (!key || key.includes('/') || key.includes('..') || key.startsWith('.')) {
+    return c.json({ detail: '文件名非法' }, 400);
+  }
+  const obj = await e.UPLOADS.get(key);
+  if (!obj) return c.json({ detail: '文件不存在' }, 404);
   return new Response(obj.body, {
     headers: {
       'Content-Type': obj.httpMetadata?.contentType || 'application/octet-stream',
       'Content-Length': String(obj.size),
-      // 文件名含随机串、内容不可变，可放心长缓存
       'Cache-Control': 'public, max-age=31536000, immutable',
-      'Content-Disposition': `inline; filename="${key}"`,
       'ETag': obj.httpEtag,
     },
   });
-});
+};
+
+/**
+ * 把 `?name=` 洗成安全的下载文件名。
+ *
+ * 返回两套编码：
+ *   · ascii   —— 去 ASCII 化后的降级名（给老浏览器）
+ *   · encoded —— RFC 5987 的 UTF-8 百分号编码（给现代浏览器，中文名靠它）
+ * 两者都经过引号/换行/路径分隔符清洗，防止响应头注入。
+ */
+function sanitizeDisplayName(raw: string): { ascii: string; encoded: string } | null {
+  // 只取 basename，剥掉任何路径成分
+  let name = raw.replace(/\\/g, '/').split('/').pop() || '';
+  // 去掉控制字符（含 CR/LF，防 header 注入）与双引号
+  name = name.replace(/[\u0000-\u001f\u007f"]/g, '').trim();
+  if (!name) return null;
+  if (name.length > 200) name = name.slice(0, 200);
+
+  // ASCII 降级：非 ASCII 一律换成下划线
+  const ascii = name.replace(/[^\x20-\x7e]/g, '_').replace(/[\\]/g, '_');
+  const encoded = encodeURIComponent(name);
+  return { ascii: ascii || 'download', encoded };
+}
 
 // ---------------------------------------------------------------------------
 // 通知

@@ -43,8 +43,15 @@ const app = createApp();
  *   `run_worker_first` 是新版运行时的特性，本地 Miniflare 3 不支持，
  *   会导致「本地测试通过、线上却 404」或相反的假象。
  *   因此在代码里做一个明确的兜底：无论运行时怎么配，这些前缀都归 Worker。
+ *
+ * ⚠️ `/uploads` 是**向后兼容**用的，别删：
+ *    旧版（FastAPI）把 uploads/ 目录挂在 /uploads 静态路径下，
+ *    历史消息里存的图片地址就是 `/uploads/{uuid}.{ext}`。
+ *    不把它划归 Worker，assets 会先接住这个请求 ——
+ *    文件当然找不到，于是 SPA 回退返回 index.html，
+ *    表现为「所有历史图片都裂成一张 HTML」，且没有任何 404 报错可查。
  */
-const WORKER_OWNED_PREFIXES = ['/api/', '/ws', '/upload'] as const;
+const WORKER_OWNED_PREFIXES = ['/api/', '/ws', '/upload', '/uploads'] as const;
 
 function isWorkerOwned(pathname: string): boolean {
   return WORKER_OWNED_PREFIXES.some(

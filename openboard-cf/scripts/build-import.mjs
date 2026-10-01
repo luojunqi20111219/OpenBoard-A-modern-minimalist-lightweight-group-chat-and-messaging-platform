@@ -29,7 +29,7 @@
  * 用法：node scripts/build-import.mjs   （package.json 的 bundle 已包含）
  */
 import { build } from 'esbuild';
-import { copyFileSync, mkdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -109,6 +109,24 @@ if (js.includes(PATCH_FROM)) {
 if (/self\.location\.href/.test(js)) {
   js = js.replace(/self\.location\.href/g, '(globalThis.location?.href ?? "")');
   console.log('✔ 已兜底改写其余 self.location.href 引用');
+}
+
+// ---------------------------------------------------------------------------
+// 2.5) fflate 前端 bundle 的处理
+//
+//     它由 scripts/build-fflate.mjs 产出到 public/upload-fflate.js，
+//     作为**静态资源**由 Cloudflare assets 托管，不计入 Worker 体积
+//     （Worker 只剩十几 KB 余量，内联 32KB 会直接超限）。
+//
+//     这里只在产物缺失时给出明确提示 —— 它是 /upload 页面「选择文件夹」
+//     功能的依赖，缺了会导致前端打包失败。
+// ---------------------------------------------------------------------------
+const FFLATE_PUBLIC = join(ROOT, 'public/upload-fflate.js');
+if (!existsSync(FFLATE_PUBLIC)) {
+  console.warn(
+    '⚠ 缺少 public/upload-fflate.js —— /upload 的「选择文件夹」功能会不可用。\n' +
+      '  请执行：node scripts/build-fflate.mjs（npm run bundle 已包含）',
+  );
 }
 
 writeFileSync(OUT_JS, js);

@@ -6,11 +6,12 @@ import { cors } from 'hono/cors';
 import type { HonoEnv, Env } from './auth';
 import { resolveUser } from './auth';
 import { authRoutes } from './routes/auth';
-import { messageRoutes } from './routes/messages';
+import { messageRoutes, uploadsAssetHandler } from './routes/messages';
 import { groupRoutes } from './routes/groups';
 import { friendRoutes } from './routes/friends';
 import { adminRoutes } from './routes/admin';
-import { importRoutes } from './routes/import';
+import { importRoutes, MAX_DB_BYTES } from './routes/import';
+import { MAX_ARCHIVE_BYTES } from './import/archive';
 import { upgradeWebSocket } from './realtime';
 import { onlineUsers } from './realtime';
 import { securityHeaders } from './security';
@@ -43,8 +44,18 @@ export function createApp() {
   app.route('/api', groupRoutes);
   app.route('/api', friendRoutes);
   app.route('/api', adminRoutes);
-  // 数据库导入（一次性初始化用，见 src/routes/import.ts）
+  // 数据导入（一次性初始化用，见 src/routes/import.ts）
   app.route('/api', importRoutes);
+
+  // --- 旧版静态目录兼容 -----------------------------------------------------
+  //
+  // 旧版（FastAPI）把 uploads/ 目录挂在 /uploads 下，历史消息里存的
+  // 图片地址就是 `/uploads/{uuid}.{ext}`。导入进来的附件在 R2 里保持
+  // 同名 key，这条路由把它们原样吐出来，前端零改动即可显示。
+  //
+  // 挂在**根部**而不是 /api 下 —— messageRoutes 整体挂在 /api 前缀，
+  // 在那里注册会变成 /api/uploads/...，与旧地址对不上。
+  app.get('/uploads/:filename', (c) => uploadsAssetHandler(c));
 
   // --- WebSocket ------------------------------------------------------------
   //
@@ -306,6 +317,12 @@ function renderUploadPage(opts: { available: boolean; importedAt: string | null 
     importedAt: opts.importedAt,
   }).replace(/</g, '\\u003c');
 
+  // 体积上限从服务端注入，前端校验与后端拒绝用同一组常量，不会漂移
+  const limitsJson = JSON.stringify({
+    db: MAX_DB_BYTES,
+    archive: MAX_ARCHIVE_BYTES,
+  });
+
   return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -388,27 +405,32 @@ function renderUploadPage(opts: { available: boolean; importedAt: string | null 
 </head>
 <body>
 <div class="wrap">
-  <h1>数据库导入</h1>
-  <div class="sub">把旧版（Python / FastAPI）的 <code class="mono">board.db</code> 合并到当前部署</div>
+  <h1>数据导入</h1>
+  <div class="sub">把旧版（Python / FastAPI）的 <code class="mono">board.db</code> 或整个项目目录合并到当前部署</div>
 
   <div id="closedBanner" class="banner ok hide"></div>
   <div id="readyBanner" class="banner warn hide">
-    <strong>仅可导入一次。</strong>导入成功后该入口会自动永久关闭，且上传的文件不会保留。
+    <strong>仅可导入一次。</strong>导入成功后该入口会自动永久关闭，且上传的压缩包不会保留。
     导入采用<strong>合并</strong>方式，与现有数据冲突的记录会被跳过，不会覆盖。
   </div>
   <div id="errorBanner" class="banner danger hide"></div>
 
   <div class="card" id="uploadCard">
     <div id="drop">
-      <div class="big">点击选择，或把 board.db 拖到这里</div>
-      <div class="hint">SQLite 数据库文件 · 最大 25MB · 仅 .db / .sqlite</div>
+      <div class="big">点击选择，或把文件 / 整个文件夹拖到这里</div>
+      <div class="hint">
+        <code class="mono">board.db</code> 只迁数据 ·
+        <code class="mono">.zip</code> / <code class="mono">.tar.gz</code> / <code class="mono">.tgz</code> / 文件夹 → 连 <code class="mono">uploads/</code> 附件一起迁
+      </div>
     </div>
-    <input type="file" id="fileInput" accept=".db,.sqlite,.sqlite3,application/octet-stream" class="hide">
+    <input type="file" id="fileInput" accept=".db,.sqlite,.sqlite3,.zip,.tar,.tar.gz,.tgz,.gz,.z" class="hide">
+    <input type="file" id="dirInput" webkitdirectory directory multiple class="hide">
     <div id="fileInfo"></div>
     <div id="progressWrap" class="hide"><div id="progressBar"></div></div>
     <div id="progressText" class="hide"></div>
     <div class="actions">
       <button class="btn" id="submitBtn" disabled>开始导入</button>
+      <button class="btn secondary" id="dirBtn">选择文件夹</button>
       <button class="btn secondary" id="resetBtn">重新选择</button>
     </div>
   </div>
@@ -416,6 +438,7 @@ function renderUploadPage(opts: { available: boolean; importedAt: string | null 
   <div class="card hide" id="resultCard">
     <h2 style="font-size:16px;margin:0 0 4px">导入完成</h2>
     <div class="sub" id="resultTime" style="margin-bottom:12px"></div>
+    <div id="resultArchive"></div>
     <h3>各表结果</h3>
     <table><thead><tr><th>表</th><th class="num">写入</th><th class="num">跳过</th></tr></thead>
       <tbody id="resultTable"></tbody></table>
@@ -423,11 +446,15 @@ function renderUploadPage(opts: { available: boolean; importedAt: string | null 
   </div>
 </div>
 
+<script src="/upload-fflate.js"></script>
 <script>
 (function () {
   var INIT = ${initialState};
+  // 服务端注入的体积上限，避免前后端各写一份常量而对不上
+  var LIMITS = ${limitsJson};
   var el = function (id) { return document.getElementById(id); };
-  var chosenFile = null;
+  var chosenFile = null;   // 最终要上传的 File（可能是现打的 zip）
+  var label = '';          // 显示用的选择描述
 
   function show(id) { el(id).classList.remove('hide'); }
   function hide(id) { el(id).classList.add('hide'); }
@@ -441,20 +468,31 @@ function renderUploadPage(opts: { available: boolean; importedAt: string | null 
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   }
+  function showError(msg) {
+    el('errorBanner').innerHTML = msg;
+    show('errorBanner');
+  }
+  function setBusy(b, text) {
+    var btn = el('submitBtn');
+    btn.disabled = b || !chosenFile;
+    btn.textContent = text || (b ? '导入中…' : '开始导入');
+    el('dirBtn').disabled = b;
+    el('resetBtn').disabled = b;
+  }
 
   // --- 已关闭：隐藏上传，展示结果 ---
   if (!INIT.available) {
     hide('readyBanner');
     el('closedBanner').innerHTML =
-      '数据库导入功能<strong>已关闭</strong>（此前已成功导入一次，不可重复导入）。' +
+      '数据导入功能<strong>已关闭</strong>（此前已成功导入一次，不可重复导入）。' +
       (INIT.importedAt ? '<br>导入时间：<code class="mono">' + esc(INIT.importedAt) + '</code>' : '');
     show('closedBanner');
-    // 仍允许查看最近一次导入的摘要
     fetch('/api/import/status').then(function (r) { return r.json(); }).then(function (d) {
       if (!d.summary) return;
       try {
         var s = JSON.parse(d.summary);
         if (s.perTable) { renderTable(s.perTable); }
+        renderArchive(s);
         show('resultCard');
       } catch (e) { /* ignore */ }
     }).catch(function () {});
@@ -463,8 +501,9 @@ function renderUploadPage(opts: { available: boolean; importedAt: string | null 
   }
   show('readyBanner');
 
-  // --- 文件选择 ---
-  var drop = el('drop'), input = el('fileInput');
+  // --- 选择区 ------------------------------------------------------------
+  var drop = el('drop'), input = el('fileInput'), dirInput = el('dirInput');
+
   drop.addEventListener('click', function () { input.click(); });
   ['dragenter', 'dragover'].forEach(function (ev) {
     drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('over'); });
@@ -473,40 +512,181 @@ function renderUploadPage(opts: { available: boolean; importedAt: string | null 
     drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('over'); });
   });
   drop.addEventListener('drop', function (e) {
-    if (e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]);
+    if (!e.dataTransfer) return;
+    var items = e.dataTransfer.items;
+    // 拖文件夹进来时，只有走 webkitGetAsEntry 才能拿到完整目录树
+    if (items && items.length && items[0].webkitGetAsEntry) {
+      var entries = [];
+      for (var i = 0; i < items.length; i++) {
+        var entry = items[i].webkitGetAsEntry();
+        if (entry) entries.push(entry);
+      }
+      var hasDir = entries.some(function (en) { return en.isDirectory; });
+      if (hasDir) { collectEntries(entries); return; }
+    }
+    if (e.dataTransfer.files.length) acceptSingle(e.dataTransfer.files[0]);
   });
+
   input.addEventListener('change', function () {
-    if (input.files.length) setFile(input.files[0]);
+    if (input.files.length === 1) acceptSingle(input.files[0]);
   });
+  dirInput.addEventListener('change', function () {
+    if (dirInput.files.length) acceptFolder(dirInput.files);
+  });
+  el('dirBtn').addEventListener('click', function () { dirInput.click(); });
   el('resetBtn').addEventListener('click', function () {
-    chosenFile = null; input.value = '';
+    chosenFile = null; label = '';
+    input.value = ''; dirInput.value = '';
     el('fileInfo').classList.remove('show');
-    el('submitBtn').disabled = true;
+    setBusy(false);
     hide('errorBanner');
   });
 
-  function setFile(f) {
+  // --- 单个文件（board.db 或压缩包）---------------------------------------
+  function acceptSingle(f) {
     var name = (f.name || '').toLowerCase();
-    if (!/\\.(db|sqlite|sqlite3)$/.test(name)) {
-      showError('请选择 .db / .sqlite 文件（当前：' + f.name + '）');
+    var isDb = /\\.(db|sqlite|sqlite3)$/.test(name);
+    var isArchive = /\\.(zip|tar|tar\\.gz|tgz|gz|z)$/.test(name);
+    if (!isDb && !isArchive) {
+      showError('不支持的格式：<code class="mono">' + esc(f.name) + '</code><br>' +
+        '请选择 <code class="mono">board.db</code>、压缩包（zip / tar.gz / tgz），' +
+        '或点下方「选择文件夹」。');
       return;
     }
-    if (f.size > 25 * 1024 * 1024) {
-      showError('文件超过 25MB 上限（当前 ' + fmtSize(f.size) + '）');
+    if (!isDb && /^.{0,260}\\.part$/.test(name)) {
+      showError('这看起来是未完成的下载文件（.part），请等下载完成后再试。');
       return;
     }
-    hide('errorBanner');
+    var limit = isDb ? LIMITS.db : LIMITS.archive;
+    if (f.size > limit) {
+      showError((isDb ? '数据库文件' : '压缩包') + '超过 ' + Math.round(limit / 1048576) + 'MB 上限' +
+        '（当前 ' + fmtSize(f.size) + '）。<br>' +
+        (isDb
+          ? '若这是整个项目目录，请打包成 zip 后上传（上限 ' + Math.round(LIMITS.archive / 1048576) + 'MB）。'
+          : '请分批上传：先只打包 <code class="mono">uploads/</code>，再单独传 board.db。'));
+      return;
+    }
+    if (f.size === 0) { showError('文件为空。'); return; }
+
     chosenFile = f;
-    el('fileInfo').innerHTML =
-      '已选择：<strong>' + esc(f.name) + '</strong> <span class="mono">(' + fmtSize(f.size) + ')</span>';
-    el('fileInfo').classList.add('show');
-    el('submitBtn').disabled = false;
+    label = f.name;
+    showPicked(f.name, f.size, isArchive ? null : 'board.db / 单个文件');
+    hide('errorBanner');
   }
 
-  function showError(msg) {
-    el('errorBanner').innerHTML = esc(msg);
-    show('errorBanner');
+  // --- 文件夹（webkitdirectory 或拖拽目录）--------------------------------
+  //  前端打 zip 后再上传，复用与压缩包完全相同的服务端路径。
+  //  这样服务端只需要实现一种归档解析，测试面也小。
+  function acceptFolder(fileList) {
+    var files = [];
+    for (var i = 0; i < fileList.length; i++) {
+      var f = fileList[i];
+      // 浏览器给的 relativePath 形如 "openboard/uploads/a.jpg"
+      var rel = f.webkitRelativePath || f.relativePath || f.name;
+      if (/\\.(DS_Store|part|crdownload)$/i.test(rel)) continue;
+      if (/\/__MACOSX\\//.test(rel) || /^\\._/.test(rel.split('/').pop())) continue;
+      files.push({ rel: rel, file: f });
+    }
+    if (!files.length) { showError('所选文件夹里没有可用文件。'); return; }
+
+    var total = files.reduce(function (a, x) { return a + x.file.size; }, 0);
+    var rootName = (files[0].rel.split('/')[0]) || 'folder';
+    showError('');
+    var proc = '正在打包文件夹 ' + rootName + '（' + files.length + ' 个文件，' + fmtSize(total) + '）…';
+    showProgress(30, proc);
+
+    zipFolder(files, rootName).then(function (blob) {
+      if (blob.size > LIMITS.archive) {
+        hideProgress();
+        showError('打包后 ' + fmtSize(blob.size) + '，超过 ' + Math.round(LIMITS.archive / 1048576) + 'MB 上限。<br>' +
+          '建议只把 <code class="mono">board.db</code> 和 <code class="mono">uploads/</code> 目录拖进来。');
+        return;
+      }
+      chosenFile = new File([blob], rootName + '.zip', { type: 'application/zip' });
+      label = '文件夹 ' + rootName;
+      hideProgress();
+      showPicked('文件夹 ' + rootName, blob.size, files.length + ' 个文件（已打包为 zip）');
+      hide('errorBanner');
+    }).catch(function (err) {
+      hideProgress();
+      showError('打包失败：' + esc(err && err.message ? err.message : String(err)));
+    });
   }
+
+  // 拖拽的目录树 → 递归收集
+  function collectEntries(entries) {
+    var out = [];
+    var pending = entries.length;
+    entries.forEach(function (entry) { walk(entry, ''); });
+    function done() {
+      if (pending !== 0) return;
+      if (out.length) acceptFolder(fakeFileList(out));
+    }
+    function walk(entry, prefix) {
+      if (entry.isFile) {
+        entry.file(function (f) {
+          out.push({ rel: prefix + entry.name, file: f });
+          // 用 pending 计数不可行（目录会递归），改为延迟触发
+        }, function () {});
+      } else if (entry.isDirectory) {
+        var reader = entry.createReader();
+        reader.readEntries(function (children) {
+          children.forEach(function (child) { walk(child, prefix + entry.name + '/'); });
+        }, function () {});
+      }
+    }
+    // webkitGetAsEntry 的读取是异步且层数未知，这里给一个宽裕的等待窗口
+    setTimeout(done, 1200);
+  }
+
+  function fakeFileList(items) {
+    // acceptFolder 只用到 length / [i].webkitRelativePath / [i].size，
+    // 这里造一个最小可用的数组式对象
+    var arr = items.map(function (x) {
+      var f = x.file;
+      try { Object.defineProperty(f, 'webkitRelativePath', { value: x.rel, configurable: true }); } catch (e) { /* ignore */ }
+      return f;
+    });
+    arr.item = function (i) { return arr[i]; };
+    return arr;
+  }
+
+  function zipFolder(files, rootName) {
+    return new Promise(function (resolve, reject) {
+      if (typeof FFLATE === 'undefined' || !FFLATE.zip) {
+        reject(new Error('前端打包组件未加载，请改用压缩包上传'));
+        return;
+      }
+      var inObj = {};
+      var tasks = files.map(function (x) {
+        return x.file.arrayBuffer().then(function (buf) {
+          // 用相对路径作为 zip 内路径，服务端会自动剥掉顶层目录
+          inObj[x.rel] = new Uint8Array(buf);
+        });
+      });
+      Promise.all(tasks).then(function () {
+        FFLATE.zip(inObj, { level: 6 }, function (err, data) {
+          if (err) { reject(err); return; }
+          resolve(new Blob([data], { type: 'application/zip' }));
+        });
+      }).catch(reject);
+    });
+  }
+
+  // --- 展示与进度 ---------------------------------------------------------
+  function showPicked(name, size, note) {
+    el('fileInfo').innerHTML =
+      '已选择：<strong>' + esc(name) + '</strong> ' +
+      '<span class="mono">(' + fmtSize(size) + (note ? ' · ' + esc(note) : '') + ')</span>';
+    el('fileInfo').classList.add('show');
+    setBusy(false, '开始导入');
+  }
+  function showProgress(pct, text) {
+    show('progressWrap'); show('progressText');
+    el('progressBar').style.width = pct + '%';
+    el('progressText').textContent = text || '';
+  }
+  function hideProgress() { hide('progressWrap'); hide('progressText'); }
 
   function renderTable(perTable) {
     var tb = el('resultTable');
@@ -522,16 +702,45 @@ function renderUploadPage(opts: { available: boolean; importedAt: string | null 
     });
   }
 
-  // --- 提交 ---
+  function renderArchive(s) {
+    var box = el('resultArchive');
+    box.innerHTML = '';
+    var a = s && s.archive;
+    if (!a) return;
+
+    var h = document.createElement('div');
+    var at = a.attachments;
+    var lines = '<h3>附件迁移</h3><div class="sub" style="margin:0 0 8px">' +
+      '来源：<code class="mono">' + esc(a.dbPath || '?') + '</code>（' + esc(a.format) + '）· ' +
+      '扫描 ' + a.scannedFiles + ' 个文件' +
+      (a.skippedFiles ? '，跳过 ' + a.skippedFiles + ' 个' : '') + '</div>';
+
+    if (!at) {
+      lines += '<div class="sub" style="margin:0">本次未包含附件（只导入了数据库）。</div>';
+    } else if (at.total === 0) {
+      lines += '<div class="sub" style="margin:0">压缩包里没有找到 uploads/ 附件。</div>';
+    } else {
+      lines += '<table><thead><tr><th>项目</th><th class="num">数量</th></tr></thead><tbody>' +
+        '<tr><td>写入 R2</td><td class="num">' + at.written + '</td></tr>' +
+        '<tr><td>已存在（跳过）</td><td class="num">' + at.existed + '</td></tr>' +
+        (at.failed ? '<tr><td>失败</td><td class="num" style="color:var(--danger)">' + at.failed + '</td></tr>' : '') +
+        '<tr><td>合计大小</td><td class="num">' + fmtSize(at.totalBytes) + '</td></tr>' +
+        '</tbody></table>';
+      if (at.errors && at.errors.length) {
+        lines += '<div class="sub mono" style="margin-top:6px">' + at.errors.map(esc).join('<br>') + '</div>';
+      }
+    }
+    h.innerHTML = lines;
+    box.appendChild(h);
+  }
+
+  // --- 提交 ---------------------------------------------------------------
   el('submitBtn').addEventListener('click', function () {
     if (!chosenFile) return;
-    var btn = el('submitBtn');
-    btn.disabled = true; btn.textContent = '导入中…';
+    setBusy(true);
     hide('errorBanner');
-    show('progressWrap'); show('progressText');
-    el('progressText').textContent = '正在上传并解析数据库…';
+    showProgress(0, '正在上传并解析…');
 
-    // 上传进度（fetch 拿不到上传进度，用 XHR）
     var fd = new FormData();
     fd.append('file', chosenFile, chosenFile.name);
 
@@ -542,8 +751,8 @@ function renderUploadPage(opts: { available: boolean; importedAt: string | null 
       var pct = Math.round((e.loaded / e.total) * 100);
       el('progressBar').style.width = pct + '%';
       el('progressText').textContent = pct < 100
-        ? '上传中… ' + pct + '%'
-        : '解析并写入数据库…（数据量大时可能需要几十秒）';
+        ? '上传中… ' + pct + '%（' + fmtSize(e.loaded) + ' / ' + fmtSize(e.total) + '）'
+        : '解压并写入…（含附件时可能需要一两分钟，请勿关闭页面）';
     };
     xhr.onload = function () {
       var data = null;
@@ -553,17 +762,17 @@ function renderUploadPage(opts: { available: boolean; importedAt: string | null 
         el('progressText').textContent = '导入完成';
         renderResult(data);
       } else {
-        hide('progressWrap'); hide('progressText');
-        showError((data && data.detail) || ('导入失败（HTTP ' + xhr.status + '）'));
-        btn.disabled = false; btn.textContent = '开始导入';
-        // 403 表示入口已关闭 —— 刷新页面以反映真实状态
-        if (xhr.status === 403) setTimeout(function () { location.reload(); }, 1800);
+        hideProgress();
+        showError(esc((data && data.detail) || ('导入失败（HTTP ' + xhr.status + '）')) +
+          (data && data.hint ? '<br><span class="sub">' + esc(data.hint) + '</span>' : ''));
+        setBusy(false, '开始导入');
+        if (xhr.status === 403) setTimeout(function () { location.reload(); }, 2200);
       }
     };
     xhr.onerror = function () {
-      hide('progressWrap'); hide('progressText');
-      showError('网络错误，请检查连接后重试');
-      btn.disabled = false; btn.textContent = '开始导入';
+      hideProgress();
+      showError('网络错误，请检查连接后重试。');
+      setBusy(false, '开始导入');
     };
     xhr.send(fd);
   });
@@ -572,8 +781,9 @@ function renderUploadPage(opts: { available: boolean; importedAt: string | null 
     el('uploadCard').classList.add('hide');
     el('resultTime').textContent =
       '导入时间：' + (d.importedAt || '') + ' · 合计写入 ' + (d.totalInserted || 0) +
-      ' 条，跳过 ' + (d.totalSkipped || 0) + ' 条';
+      ' 条，跳过 ' + (d.totalSkipped || 0) + ' 条 · 来源：' + esc(label || 'board.db');
     renderTable(d.perTable || {});
+    renderArchive({ archive: d.archive });
     el('closedBanner').innerHTML = '导入已成功，该入口已永久关闭。';
     show('closedBanner');
     hide('readyBanner');
@@ -581,7 +791,6 @@ function renderUploadPage(opts: { available: boolean; importedAt: string | null 
     var extra = el('resetSection');
     extra.innerHTML = '';
 
-    // 需重置密码的账号
     var npr = d.needsPasswordReset || {};
     var bad = (npr.unsupported || []).concat(
       (npr.highIteration || []).map(function (u) { return { username: u.username, algorithm: 'pbkdf2 x' + u.iterations }; })

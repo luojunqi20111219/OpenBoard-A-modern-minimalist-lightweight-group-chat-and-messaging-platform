@@ -1,5 +1,5 @@
 /**
- * 数据库导入 —— 把旧 Python/FastAPI 版的 board.db 迁移进 D1。
+ * 数据导入 —— 把旧 Python/FastAPI 版的 board.db（及附件）迁移进当前部署。
  *
  * 设计要点（都是有意为之，改动前请先读完）：
  *
@@ -8,25 +8,47 @@
  *    两个并发请求可能都读到"未导入"，从而导两遍。
  *    D1 主键冲突能提供真正的原子性保证。
  *
- * 2. **上传的文件不落 R2**。
+ * 2. **board.db 本身不落 R2**。
  *    `PUBLIC_UPLOADS=true` 时 R2 里任何 key 都能被直接下载，
  *    把用户的整库丢进去等于公开泄露。这里直接在内存里解析完即弃，
  *    天然满足"上传后自动删除"。
  *
- * 3. **合并而非覆盖**。全部用 `INSERT OR IGNORE`，
+ * 3. **但附件必须落 R2**（这是我与「board.db 不落 R2」的例外，理由如下）：
+ *    旧消息正文里存的是 `/uploads/{uuid}.{ext}` 这类**路径**，
+ *    而 CF 版前端用 safeLocalUrl 校验同源后才渲染。要让历史消息里的
+ *    图片/文件继续可点，R2 的 key 必须与旧文件名**逐字节相同**。
+ *    附件本身在旧版就是通过公开静态目录对外提供的，不构成新的泄露。
+ *
+ * 4. **合并而非覆盖**。全部用 `INSERT OR IGNORE`，
  *    以各表自身的 UNIQUE 约束为准判冲突（users.username 等）。
  *
- * 4. **保护种子数据**：filehelper（role=2）和 groups.id=0（公共大厅）
+ * 5. **保护种子数据**：filehelper（role=2）和 groups.id=0（公共大厅）
  *    是 schema.sql 注入的系统数据，绝不能被旧库覆盖。
+ *
+ * ---------------------------------------------------------------------------
+ * 两种导入方式
+ * ---------------------------------------------------------------------------
+ *   A. 单个 board.db      → 只迁数据
+ *   B. 项目根目录压缩包    → 迁数据 + 附件（zip / tar.gz / tgz）
+ *      或直接选择文件夹（前端 zip 打包后上传，复用同一条路径）
+ *   两者共用同一个 `POST /api/import/board`，按上传内容自动分流。
  */
 import { Hono } from 'hono';
 import type { Env } from '../env';
 import { passwordIterations } from '../env';
 import { iterationsOf, isUnsupportedHash } from '../crypto';
 import { nowIso } from '../db';
+import {
+  MAX_ARCHIVE_BYTES,
+  parseArchiveFile,
+  detectArchiveFormat,
+  ArchiveError,
+  type AttachmentEntry,
+} from '../import/archive';
 
-/** 上传体积上限。Free 计划请求体硬上限 100MB，这里留足余量。 */
-const MAX_DB_BYTES = 25 * 1024 * 1024;
+
+/** 单个 board.db 的上传体积上限。Free 计划请求体硬上限 100MB，这里留足余量。 */
+export const MAX_DB_BYTES = 25 * 1024 * 1024;
 
 /** 需要跳过的种子数据（见 schema.sql 末尾） */
 const SEED_USERNAMES = new Set(['filehelper']);
@@ -149,7 +171,7 @@ importRoutes.get('/import/status', async (c) => {
   }
 });
 
-/** 执行导入 */
+/** 执行导入（单个 board.db 或整个项目压缩包，自动分流） */
 importRoutes.post('/import/board', async (c) => {
   const env = c.env;
 
@@ -176,7 +198,7 @@ importRoutes.post('/import/board', async (c) => {
     const form = await c.req.formData();
     const entry = form.get('file');
     if (!entry || typeof entry === 'string') {
-      return c.json({ detail: '缺少文件字段（应为 board.db）' }, 400);
+      return c.json({ detail: '缺少文件字段（应为 board.db 或项目压缩包）' }, 400);
     }
     file = entry as File;
   } catch (err) {
@@ -187,14 +209,47 @@ importRoutes.post('/import/board', async (c) => {
   }
 
   if (file.size === 0) return c.json({ detail: '文件为空' }, 400);
+
+  // -------------------------------------------------------------------------
+  // 2) 分流：先看魔数，再看扩展名
+  //
+  //    必须优先看魔数 —— 用户可能把 .zip 改名成 .db，或者反过来。
+  //    detectArchiveFormat 只认魔数（tar 兜底看扩展名），
+  //    SQLite 的魔数 'SQLite format 3\0' 与压缩格式互斥，不会歧义。
+  // -------------------------------------------------------------------------
+  const head = new Uint8Array(await file.slice(0, 512).arrayBuffer());
+  const archiveFormat = detectArchiveFormat(file.name || '', head);
+  const looksSqlite =
+    head.length >= 16 && new TextDecoder('latin1').decode(head.subarray(0, 15)) === 'SQLite format 3';
+
+  if (archiveFormat && !looksSqlite) {
+    if (file.size > MAX_ARCHIVE_BYTES) {
+      return c.json(
+        {
+          detail:
+            `压缩包超过 ${MAX_ARCHIVE_BYTES / 1024 / 1024}MB 上限` +
+            `（实际 ${(file.size / 1024 / 1024).toFixed(1)}MB）。请分批上传，或只挑 uploads/ 目录单独打包。`,
+        },
+        413,
+      );
+    }
+    return importArchive(c, file, archiveFormat);
+  }
+
+  // --- 走原有的纯数据库路径 ---
   if (file.size > MAX_DB_BYTES) {
+    const archiveUpper = MAX_ARCHIVE_BYTES / 1024 / 1024;
     return c.json(
-      { detail: `文件超过 ${MAX_DB_BYTES / 1024 / 1024}MB 上限（实际 ${(file.size / 1024 / 1024).toFixed(1)}MB）` },
+      {
+        detail:
+          `文件超过 ${MAX_DB_BYTES / 1024 / 1024}MB 上限` +
+          `（实际 ${(file.size / 1024 / 1024).toFixed(1)}MB）` +
+          `。若这是整个项目目录，请打包成 zip / tar.gz（上限 ${archiveUpper}MB）后上传。`,
+      },
       413,
     );
   }
 
-  // 2) 读进内存后立即解析（不落盘、不写 R2）
   const bytes = new Uint8Array(await file.arrayBuffer());
 
   let parsed: ParseResult;
@@ -204,12 +259,91 @@ importRoutes.post('/import/board', async (c) => {
     return c.json(
       {
         detail: `解析数据库失败：${err instanceof Error ? err.message : String(err)}`,
-        hint: '请确认上传的是旧版本导出的 board.db（SQLite 格式）',
+        hint: '请确认上传的是旧版本导出的 board.db（SQLite 格式），或整个项目目录的 zip 压缩包',
       },
       400,
     );
   }
 
+  return mergeIntoD1(c, env, parsed, null);
+});
+
+// ---------------------------------------------------------------------------
+// 归档导入：解压 → 找 board.db → 收附件 → 落 R2 → 合并 D1
+// ---------------------------------------------------------------------------
+async function importArchive(
+  c: { env: Env; json: (o: unknown, s?: number) => Response },
+  file: File,
+  format: string,
+): Promise<Response> {
+  const env = c.env;
+  const archiveBytes = new Uint8Array(await file.arrayBuffer());
+
+  let result;
+  try {
+    result = parseArchiveFile(archiveBytes, file.name || '');
+  } catch (err) {
+    if (err instanceof ArchiveError) {
+      return c.json({ detail: `解压失败：${err.message}` }, 400);
+    }
+    return c.json(
+      { detail: `解压失败：${err instanceof Error ? err.message : String(err)}` },
+      400,
+    );
+  }
+
+  if (!result.dbBytes) {
+    return c.json(
+      {
+        detail: '压缩包里没有找到 board.db',
+        hint:
+          `已扫描 ${result.nodes.length} 个文件（识别为 ${result.format}）。` +
+          '请确认压缩包是旧项目的根目录，且包含 board.db；' +
+          '如果只有 uploads/ 附件要迁，请连同 board.db 一起打包。',
+      },
+      400,
+    );
+  }
+
+  // 用归档里的 db 走同一条解析路径
+  let parsed: ParseResult;
+  try {
+    parsed = await parseSqlite(result.dbBytes);
+  } catch (err) {
+    return c.json(
+      {
+        detail: `解析 ${result.dbPath} 失败：${err instanceof Error ? err.message : String(err)}`,
+        hint: '压缩包里找到了名为 board.db 的文件，但它不是有效的 SQLite 数据库',
+      },
+      400,
+    );
+  }
+
+  return mergeIntoD1(c, env, parsed, {
+    format: result.format,
+    dbPath: result.dbPath,
+    attachments: result.attachments,
+    scanned: result.nodes.length,
+    skipped: result.skipped,
+  });
+}
+
+/** 归档导入时透传给合并逻辑的附加信息 */
+interface ArchiveMeta {
+  format: string;
+  dbPath: string | null;
+  attachments: AttachmentEntry[];
+  scanned: number;
+  skipped: number;
+}
+
+/** 合并主逻辑：抢占位 → 写 D1 →（可选）写 R2 附件 → 落摘要 */
+async function mergeIntoD1(
+  c: { env: Env; json: (o: unknown, s?: number) => Response },
+  env: Env,
+  parsed: ParseResult,
+  meta: ArchiveMeta | null,
+): Promise<Response> {
   if (parsed.tables.length === 0) {
     return c.json({ detail: '数据库里没有找到任何可识别的表，确认是 OpenBoard 的 board.db 吗？' }, 400);
   }
@@ -343,12 +477,64 @@ importRoutes.post('/import/board', async (c) => {
     const totalInserted = Object.values(perTable).reduce((a, t) => a + t.inserted, 0);
     const totalSkipped = Object.values(perTable).reduce((a, t) => a + t.skipped, 0);
 
+    // ---------------------------------------------------------------------
+    // 4.5) 写附件到 R2
+    //
+    //  ⚠️ key 必须与旧版 `uploads/` 下的文件名逐字节相同。
+    //     旧消息正文里存的是 `/uploads/{uuid}.{ext}`，前端用
+    //     safeLocalUrl 校验同源后拼成 <img src>。改 key 就等于让所有
+    //     历史图片全部失效。
+    //
+    //  已存在同名 key 时**不覆盖**：旧版文件名是 uuid4，碰撞概率可忽略；
+    //  真撞上了说明是同一批数据重复上传过，保留先来的更安全。
+    // ---------------------------------------------------------------------
+    // 注意：归档导入时**即使没有附件也要返回一个零值结构**，
+    // 否则页面无法区分「没带附件」和「服务端没返回这个字段」，
+    // 只能笼统显示"未包含附件"，用户体验上差一截。
+    let attachmentStats: {
+      total: number;
+      written: number;
+      existed: number;
+      failed: number;
+      totalBytes: number;
+      errors: string[];
+    } | null = null;
+
+    if (meta) {
+      attachmentStats = { total: meta.attachments.length, written: 0, existed: 0, failed: 0, totalBytes: 0, errors: [] };
+      for (const att of meta.attachments) {
+        try {
+          // head() 一次探测，避免覆盖旧附件
+          const existing = await env.UPLOADS.head(att.key);
+          if (existing) {
+            attachmentStats.existed++;
+            continue;
+          }
+          await env.UPLOADS.put(att.key, att.bytes, {
+            httpMetadata: { contentType: att.contentType },
+            customMetadata: { importedFrom: 'legacy-archive' },
+          });
+          attachmentStats.written++;
+          attachmentStats.totalBytes += att.bytes.length;
+        } catch (err) {
+          attachmentStats.failed++;
+          if (attachmentStats.errors.length < 5) {
+            attachmentStats.errors.push(`${att.key}: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+      }
+    }
+
     // 5) 落最终摘要
     const summary = JSON.stringify({
       sourceStats: parsed.stats,
       perTable,
       totalInserted,
       totalSkipped,
+      archive: meta
+        ? { format: meta.format, dbPath: meta.dbPath, scanned: meta.scanned, skipped: meta.skipped }
+        : null,
+      attachments: attachmentStats,
     });
     try {
       await env.DB.prepare('UPDATE _import_state SET source_summary = ? WHERE id = 1')
@@ -366,6 +552,16 @@ importRoutes.post('/import/board', async (c) => {
       perTable,
       totalInserted,
       totalSkipped,
+      // 归档导入才有的字段 —— 页面据此展示附件统计
+      archive: meta
+        ? {
+            format: meta.format,
+            dbPath: meta.dbPath,
+            scannedFiles: meta.scanned,
+            skippedFiles: meta.skipped,
+            attachments: attachmentStats,
+          }
+        : null,
       // 迁移后无法直接登录的账号 —— 供页面提示
       needsPasswordReset: {
         unsupported: unsupportedUsers,
@@ -385,7 +581,7 @@ importRoutes.post('/import/board', async (c) => {
       500,
     );
   }
-});
+}
 
 /** 汇总各表错误信息，有错才返回 */
 function err_note(perTable: Record<string, { error?: string }>): string | undefined {
@@ -394,6 +590,33 @@ function err_note(perTable: Record<string, { error?: string }>): string | undefi
     .map(([k, v]) => `${k}: ${v.error}`);
   return bad.length ? bad.join('；') : undefined;
 }
+
+/**
+ * 导入结果里的附件预览。
+ *
+ * 旧消息里存的是 `/uploads/{uuid}.{ext}`，CF 版没有这个路径；
+ * 前端 safeLocalUrl 只认同源 URL，所以还需要一个固定的预览入口。
+ * 这个路由就是它 —— 页面拿它拼 `<img src>` 直接看导入结果对不对。
+ *
+ * 只读，不鉴权：附件在旧版就是公开静态目录，且 key 是不可枚举的 uuid4。
+ */
+importRoutes.get('/import/attachment/:key', async (c) => {
+  const env = c.env;
+  const key = c.req.param('key');
+  if (!key || key.includes('/') || key.includes('..') || key.startsWith('.')) {
+    return c.json({ detail: '文件名非法' }, 400);
+  }
+  const obj = await env.UPLOADS.get(key);
+  if (!obj) return c.json({ detail: '附件不存在' }, 404);
+  return new Response(obj.body, {
+    headers: {
+      'Content-Type': obj.httpMetadata?.contentType || 'application/octet-stream',
+      'Content-Length': String(obj.size),
+      'Cache-Control': 'no-store',
+      'ETag': obj.httpEtag,
+    },
+  });
+});
 
 /** 手动关闭导入入口（幂等）。导入成功后其实已自动关闭，此接口用于主动放弃。 */
 importRoutes.post('/import/close', async (c) => {

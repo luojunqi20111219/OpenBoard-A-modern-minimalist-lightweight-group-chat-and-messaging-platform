@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "typecheck": "tsc --noEmit",
-    "bundle": "node scripts/build-import.mjs",
+    "bundle": "node scripts/build-fflate.mjs && node scripts/build-import.mjs",
     "bundle:do": "esbuild src/durable/chat.ts --bundle --format=esm --outfile=dist/do-test.js --external:cloudflare:workers",
     "preflight": "npm run bundle && node scripts/preflight.mjs",
     "check:android": "npm run bundle:do && npm run bundle && node scripts/android-ws-check.mjs",
@@ -25,6 +25,7 @@
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
+    "fflate": "^0.8.3",
     "hono": "^4.6.14",
     "sql.js": "^1.14.2"
   },

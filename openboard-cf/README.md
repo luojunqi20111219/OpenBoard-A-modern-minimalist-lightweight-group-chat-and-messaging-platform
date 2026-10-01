@@ -220,27 +220,75 @@ curl https://你的域名/api/health
 
 ## 从原项目迁移数据
 
+有两种方式，**都只能执行一次**，成功后入口自动永久关闭。
+
+### 方式 A：网页导入（推荐，四种输入都支持）
+
+打开 `https://你的域名/upload`，页面支持三条通路：
+
+| 输入 | 迁移内容 | 体积上限 |
+|---|---|---|
+| `board.db` 单文件 | 仅数据（20 张白名单表） | 25 MB |
+| `.zip` / `.tar.gz` / `.tgz` / `.tar` | **数据 + `uploads/` 附件** | 60 MB |
+| 点「选择文件夹」（或直接把文件夹拖进页面） | 同上，前端自动打 zip 后上传 | 60 MB（打包后） |
+
+压缩包直接选**旧项目的整个根目录**即可（`openboard/` 那一层含 `board.db`、
+`uploads/`、`APP/`、`app.js`…），服务端会自动剥掉外层包裹目录，
+在任意深度定位 `board.db`，并把 `uploads/` 下的附件写进 R2。
+
+> **附件为什么必须落到 R2**：旧消息正文里存的是路径
+> （`[img:/uploads/{uuid}.jpg|/uploads/{uuid}.thumb.jpg]`），
+> 而前端只渲染同源 URL。因此 R2 的 key 必须与旧文件名**逐字节相同**，
+> 迁移后历史图片才能原样显示，前端**无需任何改动**。
+> 为此服务端额外提供了两条兼容路由：
+> `GET /uploads/:filename`（复刻旧的 StaticFiles 挂载点）
+> 与 `GET /api/download/:filename?name=`（复刻旧的下载接口，含中文文件名）。
+
+单次导入的返回体会带上附件统计（`archive.attachments`：
+`written` / `existed` / `failed` / `totalBytes`），页面会直接展示。
+
+**超大目录**：若压缩后超过 60 MB，页面会明确拒绝并建议分批
+（例如先只打包 `uploads/`，再单独传 `board.db`）—— 不做静默截断。
+
+### 方式 B：命令行（数据量大或需要脚本化时）
+
 ```bash
 python3 migrations/export_from_sqlite.py /path/to/board.db
 npx wrangler d1 execute openboard-db --remote --file=./migrations/d1_import.sql
 ```
 
-数据量大时分片导入：
+分片导入：
 
 ```bash
 python3 migrations/export_from_sqlite.py board.db --chunk 500
 ```
 
-**密码迁移注意**：werkzeug 3.x 默认用 scrypt，而 Workers 的 Web Crypto 不提供 scrypt。
-脚本会自动列出受影响的账号，这些账号迁移后需要重置密码（管理后台 → 改密码）。
-旧库若使用 `pbkdf2:sha256:` 格式则可直接使用。
+> ⚠️ 命令行方式**不含附件**。附件在旧版的 `uploads/` 目录里，
+> 要一并迁移请走方式 A。
 
-迁移后校验一下行数是否对得上：
+### 密码迁移注意
+
+werkzeug 3.x 默认用 scrypt，而 Workers 的 Web Crypto 不提供 scrypt。
+导入结果会列出受影响的账号（`needsPasswordReset.unsupported`），
+这些账号迁移后需要重置密码（管理后台 → 改密码）。
+`pbkdf2:sha256:` 且迭代次数不高于当前套餐限额的哈希可直接登录；
+迭代次数过高的会被列进 `needsPasswordReset.highIteration`。
+
+迁移后校验行数：
 
 ```bash
 npx wrangler d1 execute openboard-db --remote \
   --command "SELECT (SELECT COUNT(*) FROM users) AS users, (SELECT COUNT(*) FROM messages) AS messages"
 ```
+
+### 合并语义与保护
+
+导入一律 `INSERT OR IGNORE`，**合并而非覆盖**：
+
+- `users` / `groups` 等表以自身 UNIQUE 约束判冲突，已存在的记录跳过
+- `groups.id=0`（公共大厅）与 `filehelper`（role=2）是 schema.sql 的种子数据，**永不被覆盖**
+- 旧库中不在 20 表白名单里的表只提示、不导入
+- 重名附件**不覆盖**（旧库文件名是 uuid4，碰撞概率可忽略）
 
 ---
 
@@ -251,6 +299,7 @@ npm install
 npx wrangler d1 execute openboard-db --local --file=./schema.sql   # 只做一次
 npm run dev            # 完整本地环境（静态前端 + API + DO），wrangler dev 自带
 npm run preflight      # 隔离环境跑完整链路自检，不碰开发数据
+npm run test:import    # 数据导入专项（含 zip/附件/R2/旧 URL 兼容），85 项
 ```
 
 `npm run dev` 起的是完整的 Worker（含 assets / API / DO 三合一），
