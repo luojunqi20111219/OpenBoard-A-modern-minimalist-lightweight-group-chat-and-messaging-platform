@@ -149,6 +149,43 @@ function normalizeValue(v: unknown): string | number | null | ArrayBuffer {
 const D1_MAX_PARAMS = 90;
 
 // ---------------------------------------------------------------------------
+// D1 实际列清单缓存
+// ---------------------------------------------------------------------------
+/**
+ * ⚠️ 这是导入功能最容易踩的坑，别删。
+ *
+ * 旧版（Python/FastAPI）的 board.db 与当前 CF 版 schema.sql **列不完全一致**：
+ * 旧库常年迭代积累了 `users.is_vip`、`groups.description`、`messages.is_top`
+ * 这类字段，而 CF 版没建。
+ *
+ * 而 SQLite / D1 的行为是：**INSERT 出现未知列 → 整条语句报错**，
+ * 没有"忽略多余列"的降级。实测后果是 20 个用户、2 个群、525 条消息
+ * 全部一条都进不来，只有那些列刚好对上的小表成功。
+ *
+ * 因此这里改成：**先问 D1 要真实列清单，只写双方共有的列**。
+ * 旧库多出来的字段被静默丢弃（记进 ignoredColumns 回报给用户），
+ * 数据本体照常进来。这是唯一正确的降级方式。
+ */
+const tableColumnsCache = new Map<string, Set<string>>();
+
+async function d1Columns(env: Env, table: string): Promise<Set<string> | null> {
+  // Worker isolate 内进程级缓存：同一次导入里每张表只查一次
+  const cached = tableColumnsCache.get(table);
+  if (cached) return cached;
+  try {
+    const info = await env.DB.prepare(`PRAGMA table_info("${table}")`).all<{ name: string }>();
+    const names = (info.results ?? []).map((r) => r.name).filter((n): n is string => !!n);
+    // PRAGMA 查不到任何列 = 这张表在 D1 里不存在，不能盲写
+    if (names.length === 0) return null;
+    const set = new Set(names);
+    tableColumnsCache.set(table, set);
+    return set;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 路由
 // ---------------------------------------------------------------------------
 export const importRoutes = new Hono<{ Bindings: Env }>();
@@ -358,9 +395,11 @@ async function mergeIntoD1(
   // 之后任何失败都要释放占位，否则入口被永久锁死
   try {
     // 4) 逐个表合并写入
-    const perTable: Record<string, { inserted: number; skipped: number; error?: string }> = {};
+    const perTable: Record<string, { inserted: number; skipped: number; error?: string; ignoredColumns?: string[] }> = {};
     const highIterationUsers: { username: string; iterations: number }[] = [];
     const unsupportedUsers: { username: string; algorithm: string }[] = [];
+    /** 收集所有"旧库有、D1 没有"的列，回报给用户，免得他们以为数据丢了 */
+    const ignoredColumns: Record<string, string[]> = {};
 
     // 现有用户名，用于统计"跳过"（INSERT OR IGNORE 不报具体冲突）
     const existingUsers = new Set<string>();
@@ -375,7 +414,12 @@ async function mergeIntoD1(
 
     for (const table of parsed.tables) {
       const rows = parsed.rows[table] ?? [];
-      const stat = { inserted: 0, skipped: 0 } as { inserted: number; skipped: number; error?: string };
+      const stat = { inserted: 0, skipped: 0 } as {
+        inserted: number;
+        skipped: number;
+        error?: string;
+        ignoredColumns?: string[];
+      };
       perTable[table] = stat;
 
       if (rows.length === 0) continue;
@@ -383,6 +427,34 @@ async function mergeIntoD1(
       // 列集合：以第一行建列，后续行若缺列一律补 null
       let columns = [...new Set(rows.flatMap((r) => Object.keys(r)))];
       if (columns.length === 0) continue;
+
+      // -----------------------------------------------------------------
+      // ⭐ 关键降级：只保留 D1 schema 里真实存在的列
+      //
+      // 旧库积累了不少当前 schema 没有的字段（users.is_vip /
+      // groups.description / messages.is_top ...）。SQLite 遇到未知列
+      // 是整句报错，不会自动忽略 —— 之前就是栽在这里，三张核心表
+      // 一条都没进来。这里先取 D1 的真实列清单做交集。
+      // -----------------------------------------------------------------
+      const d1Cols = await d1Columns(env, table);
+      if (d1Cols === null) {
+        // PRAGMA 查不到 = D1 里没这张表（schema.sql 没建），写入必然失败，
+        // 直接跳过并说明原因，而不是抛一整屏 D1_ERROR
+        stat.error = 'D1 中不存在这张表，已跳过（当前 schema.sql 未定义）';
+        continue;
+      }
+      const dropped = columns.filter((col) => !d1Cols.has(col));
+      if (dropped.length > 0) {
+        columns = columns.filter((col) => d1Cols.has(col));
+        stat.ignoredColumns = dropped;
+        ignoredColumns[table] = dropped;
+      }
+
+      if (columns.length === 0) {
+        stat.error = '旧库的列在当前 schema 中一个都不存在，已跳过';
+        continue;
+      }
+
       if (columns.length > D1_MAX_PARAMS) {
         stat.error = `列数过多（${columns.length}），已跳过该表`;
         continue;
@@ -531,6 +603,7 @@ async function mergeIntoD1(
       perTable,
       totalInserted,
       totalSkipped,
+      ignoredColumns,
       archive: meta
         ? { format: meta.format, dbPath: meta.dbPath, scanned: meta.scanned, skipped: meta.skipped }
         : null,
@@ -549,6 +622,8 @@ async function mergeIntoD1(
       importedAt: nowIso(),
       sourceStats: parsed.stats,
       ignoredTables: parsed.ignoredTables,
+      // 旧库有、D1 没有的列 —— 这些字段被丢弃了，但不是数据丢失
+      ignoredColumns,
       perTable,
       totalInserted,
       totalSkipped,

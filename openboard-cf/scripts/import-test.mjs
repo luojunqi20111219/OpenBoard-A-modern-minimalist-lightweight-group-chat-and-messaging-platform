@@ -582,5 +582,160 @@ await (async () => {
   }
 })();
 
+// ===========================================================================
+// 11. 旧库列数多于当前 schema —— 回归测试
+//
+// 这是线上真实踩过的坑：旧 Python 版 board.db 积累了大量当前 schema.sql
+// 没有的字段（users.is_vip / groups.description / messages.is_top ...）。
+// SQLite 遇到 INSERT 里出现未知列是**整句报错**，不会自动忽略，
+// 结果三张最核心的表一条都进不来，用户看到 20 用户 / 2 群 / 525 消息
+// 全部丢失，只有列刚好对上的小表成功。
+//
+// 修法：写之前用 PRAGMA table_info 取 D1 真实列清单，只写双方共有的列。
+// 本节就是钉住这个行为，防止哪天被人"优化"回去。
+// ===========================================================================
+function buildLegacyDbWithExtraColumns() {
+  const dir = mkdtempSync(join(tmpdir(), 'imp-extra-'));
+  const script = join(dir, 'gen.cjs');
+  const out = join(dir, 'legacy-extra.db');
+  writeFileSync(script, `
+const initSqlJs = require(${JSON.stringify(join(ROOT, 'node_modules/sql.js/dist/sql-wasm.js'))});
+const fs = require('fs');
+initSqlJs().then((SQL) => {
+  const db = new SQL.Database();
+  // users：多出 is_vip / last_login_ip / signature 三列
+  db.run("CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password_hash TEXT, nickname TEXT, role INTEGER DEFAULT 0, avatar TEXT, is_vip INTEGER DEFAULT 0, last_login_ip TEXT, signature TEXT)");
+  // messages：多出 is_top / ip / device 三列
+  db.run("CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, content TEXT, receiver TEXT, room_id INTEGER DEFAULT 0, client_id TEXT, is_top INTEGER DEFAULT 0, ip TEXT, device TEXT)");
+  // groups：多出 description / tags 两列
+  db.run("CREATE TABLE groups (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, is_public INTEGER DEFAULT 0, owner_id INTEGER DEFAULT 0, description TEXT, tags TEXT)");
+  // 一张 D1 schema 里完全没有的表 —— 应被明确跳过而不是抛 D1_ERROR
+  db.run("CREATE TABLE legacy_only_table (id INTEGER PRIMARY KEY, payload TEXT)");
+
+  db.run("INSERT INTO users (username,password_hash,nickname,role,is_vip,last_login_ip,signature) VALUES ('extra_u1','pbkdf2:sha256:10000$aa$bb','多列一',0,1,'10.0.0.1','你好')");
+  db.run("INSERT INTO users (username,password_hash,nickname,role,is_vip,last_login_ip,signature) VALUES ('extra_u2','pbkdf2:sha256:10000$cc$dd','多列二',0,0,'10.0.0.2','世界')");
+  db.run("INSERT INTO users (username,password_hash,nickname,role,is_vip,last_login_ip,signature) VALUES ('extra_u3','pbkdf2:sha256:10000$ee$ff','多列三',0,0,'10.0.0.3','第三')");
+  db.run("INSERT INTO users (username,password_hash,nickname,role,is_vip,last_login_ip,signature) VALUES ('filehelper','HACKED','假助手',0,1,'0.0.0.0','x')");
+
+  db.run("INSERT INTO messages (name,content,receiver,room_id,is_top,ip,device) VALUES ('extra_u1','多列时代的第一条','extra_u2',0,1,'1.1.1.1','iPhone')");
+  db.run("INSERT INTO messages (name,content,receiver,room_id,is_top,ip,device) VALUES ('extra_u2','多列时代的第二条','extra_u1',0,0,'2.2.2.2','Pixel')");
+
+  db.run("INSERT INTO groups (id,name,is_public,owner_id,description,tags) VALUES (0,'假大厅',1,0,'被覆盖','a,b')");
+  db.run("INSERT INTO groups (id,name,is_public,owner_id,description,tags) VALUES (21,'多列群',0,1,'一个群','c,d')");
+
+  db.run("INSERT INTO legacy_only_table (id,payload) VALUES (1,'孤表')");
+  fs.writeFileSync(${JSON.stringify(out)}, Buffer.from(db.export()));
+  console.log('ok');
+});
+`);
+  execFileSync(process.execPath, [script], { stdio: 'pipe' });
+  return new Uint8Array(readFileSync(out));
+}
+
+await (async () => {
+  const env = buildEnv('import-extracol-db', 'import-extracol-kv', 'secret-extra-1');
+  try {
+    section('11. 旧库列多于当前 schema（回归：未知列不得整表失败）');
+    const d = await env.mf.getD1Database('DB');
+    const stmts = SCHEMA.split(';')
+      .map((s) => s.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n').trim())
+      .filter((s) => s.length > 0);
+    await d.batch(stmts.map((s) => d.prepare(s)));
+    ok('独立环境 schema 灌入成功', true);
+
+    const legacy = buildLegacyDbWithExtraColumns();
+
+    // --- 11.1 先是纯 board.db 路径 ---
+    const r1 = await env.post(legacy, 'legacy-extra.db', 'application/x-sqlite3');
+    ok('含多余列的旧库导入返回 200', r1.status === 200, r1.text);
+
+    const per = r1.body?.perTable || {};
+    // 这一条就是本次回归的核心：以前这里是 0 写入 + D1_ERROR
+    ok(`users 未整表失败（实际 inserted=${per.users?.inserted} error=${per.users?.error ?? '无'}）`,
+      !per.users?.error && per.users?.inserted === 3, JSON.stringify(per.users));
+    ok(`messages 未整表失败（实际 inserted=${per.messages?.inserted}）`,
+      !per.messages?.error && per.messages?.inserted === 2, JSON.stringify(per.messages));
+    ok(`groups 未整表失败（实际 inserted=${per.groups?.inserted}）`,
+      !per.groups?.error && per.groups?.inserted === 1, JSON.stringify(per.groups));
+
+    ok('没有任何表出现 D1_ERROR', !r1.body?.message || !/D1_ERROR/.test(r1.body.message),
+      String(r1.body?.message));
+
+    // --- 11.2 被忽略的列要被如实报出来 ---
+    const ic = r1.body?.ignoredColumns || {};
+    ok('ignoredColumns 列出 users 的多余列',
+      (ic.users || []).includes('is_vip') && (ic.users || []).includes('signature'),
+      JSON.stringify(ic.users));
+    ok('ignoredColumns 列出 messages 的多余列',
+      (ic.messages || []).includes('is_top'), JSON.stringify(ic.messages));
+    ok('ignoredColumns 列出 groups 的多余列',
+      (ic.groups || []).includes('description'), JSON.stringify(ic.groups));
+    ok('perTable 内也带上了 ignoredColumns（供逐表展示）',
+      Array.isArray(per.users?.ignoredColumns), JSON.stringify(per.users));
+
+    // --- 11.3 白名单外的表在解析阶段就被挡掉，只提示不导入 ---
+    //  legacy_only_table 不在 TABLES 白名单里，压根不会进 perTable，
+    //  会在 ignoredTables 里列出。这比进了 mergeIntoD1 再报错更早、更省。
+    ok('legacy_only_table 未进入 perTable（解析阶段已挡）',
+      per.legacy_only_table === undefined, JSON.stringify(per.legacy_only_table));
+    ok('legacy_only_table 出现在 ignoredTables 里',
+      (r1.body?.ignoredTables || []).includes('legacy_only_table'),
+      JSON.stringify(r1.body?.ignoredTables));
+
+    // --- 11.4 数据本体确实落进去了（不是只报了个数）---
+    const u1 = await d.prepare('SELECT username, nickname, role, avatar FROM users WHERE username = ?')
+      .bind('extra_u1').first();
+    ok('extra_u1 真实存在且昵称正确',
+      u1?.nickname === '多列一' && Number(u1?.role) === 0, JSON.stringify(u1));
+
+    const m1 = await d.prepare('SELECT content, receiver, room_id FROM messages WHERE content = ?')
+      .bind('多列时代的第一条').first();
+    ok('旧消息正文完整写入', m1?.receiver === 'extra_u2', JSON.stringify(m1));
+
+    const g1 = await d.prepare('SELECT name, is_public, owner_id FROM groups WHERE id = 21').first();
+    ok('旧群写入且 id=21 得以保留', g1?.name === '多列群', JSON.stringify(g1));
+
+    // --- 11.5 种子数据保护仍然生效 ---
+    const fh = await d.prepare('SELECT role, password_hash FROM users WHERE username = ?')
+      .bind('filehelper').first();
+    ok('filehelper 仍未被覆盖（role=2 / system_account）',
+      Number(fh?.role) === 2 && fh?.password_hash === 'system_account', JSON.stringify(fh));
+    const hall = await d.prepare('SELECT name, is_public FROM groups WHERE id = 0').first();
+    ok('groups.id=0 仍是「公共大厅」', hall?.name === '公共大厅', JSON.stringify(hall));
+
+    // --- 11.6 归档路径下同样成立（走的是同一个 mergeIntoD1）---
+    const env2 = buildEnv('import-extracol-zip-db', 'import-extracol-zip-kv', 'secret-extra-2');
+    try {
+      const d2 = await env2.mf.getD1Database('DB');
+      await d2.batch(stmts.map((s) => d2.prepare(s)));
+      const zipBytes = zipSync(
+        {
+          'openboard/board.db': buildLegacyDbWithExtraColumns(),
+          ['openboard/uploads/' + ATT_JPG]: FAKE_JPG,
+        },
+        { level: 6 },
+      );
+      const r2 = await env2.post(zipBytes, 'openboard.zip', 'application/zip');
+      ok('多余列 + 归档路径也返回 200', r2.status === 200, r2.text);
+      const per2 = r2.body?.perTable || {};
+      ok(`归档路径 users 写入 3（实际 ${per2.users?.inserted}）`,
+        !per2.users?.error && per2.users?.inserted === 3, JSON.stringify(per2.users));
+      ok('归档路径附件照常落 R2',
+        r2.body?.archive?.attachments?.written === 1,
+        JSON.stringify(r2.body?.archive?.attachments));
+      const bucket2 = await env2.mf.getR2Bucket('UPLOADS');
+      ok('R2 中确实有该附件', (await bucket2.head(ATT_JPG)) !== null);
+    } finally {
+      await env2.mf.dispose();
+    }
+  } catch (err) {
+    console.error('\n\x1b[31m多余列回归测试异常：\x1b[0m', err.message);
+    console.error((err.stack || '').split('\n').slice(0, 8).join('\n'));
+    fail++;
+  } finally {
+    await env.mf.dispose();
+  }
+})();
+
 console.log(`\n\x1b[1m结果：${pass} 通过 / ${fail} 失败\x1b[0m`);
 process.exit(fail === 0 ? 0 : 1);

@@ -709,8 +709,13 @@ function renderUploadPage(opts: { available: boolean; importedAt: string | null 
     Object.keys(perTable).forEach(function (t) {
       var v = perTable[t];
       var tr = document.createElement('tr');
+      // 被丢弃的旧列（D1 schema 里没有）在这里就标出来，
+      // 免得用户看到某张表数字不对时以为是自己导坏了
+      var dropped = (v.ignoredColumns && v.ignoredColumns.length)
+        ? ' <span class="sub">（忽略列：' + esc(v.ignoredColumns.join(', ')) + '）</span>'
+        : '';
       tr.innerHTML =
-        '<td class="mono">' + esc(t) + (v.error ? ' <span style="color:var(--danger)">（' + esc(v.error) + '）</span>' : '') + '</td>' +
+        '<td class="mono">' + esc(t) + (v.error ? ' <span style="color:var(--danger)">（' + esc(v.error) + '）</span>' : '') + dropped + '</td>' +
         '<td class="num">' + (v.inserted || 0) + '</td>' +
         '<td class="num">' + (v.skipped || 0) + '</td>';
       tb.appendChild(tr);
@@ -825,6 +830,23 @@ function renderUploadPage(opts: { available: boolean; importedAt: string | null 
       ig.innerHTML = '<h3>未导入的表</h3><div class="sub" style="margin:0">' +
         d.ignoredTables.map(esc).join('、') + '（不在迁移白名单内）</div>';
       extra.appendChild(ig);
+    }
+
+    // --- 旧库多出来的列 ---
+    //  这些字段当前 schema 里没有，写入时被丢弃。数据本体没丢，
+    //  但要说清楚，否则用户会以为导入失败。
+    var ic = d.ignoredColumns || {};
+    var icKeys = Object.keys(ic);
+    if (icKeys.length) {
+      var icEl = document.createElement('div');
+      icEl.innerHTML = '<h3>已忽略的旧字段</h3>' +
+        '<div class="sub" style="margin:0 0 6px">下面这些列来自旧版数据库，当前 Schema 中没有定义，' +
+        '导入时已跳过（<strong>记录本身已完整写入</strong>，只是这些附加字段不迁移）。</div>' +
+        '<ul style="margin:0">' + icKeys.map(function (t) {
+          return '<li><span class="mono">' + esc(t) + '</span> — ' +
+            esc((ic[t] || []).join(', ')) + '</li>';
+        }).join('') + '</ul>';
+      extra.appendChild(icEl);
     }
 
     if (d.message) {
