@@ -543,17 +543,22 @@ function renderUploadPage(opts: { available: boolean; importedAt: string | null 
   });
 
   // --- 单个文件（board.db 或压缩包）---------------------------------------
+  //  正则统一用 RegExp 构造，理由见下方 acceptFolder 里的注释
+  var RE_DB = new RegExp('\\.(db|sqlite|sqlite3)$');
+  var RE_ARCHIVE = new RegExp('\\.(zip|tar|tar\\.gz|tgz|gz|z)$');
+  var RE_PART = new RegExp('^.{0,260}\\.part$');
+
   function acceptSingle(f) {
     var name = (f.name || '').toLowerCase();
-    var isDb = /\\.(db|sqlite|sqlite3)$/.test(name);
-    var isArchive = /\\.(zip|tar|tar\\.gz|tgz|gz|z)$/.test(name);
+    var isDb = RE_DB.test(name);
+    var isArchive = RE_ARCHIVE.test(name);
     if (!isDb && !isArchive) {
       showError('不支持的格式：<code class="mono">' + esc(f.name) + '</code><br>' +
         '请选择 <code class="mono">board.db</code>、压缩包（zip / tar.gz / tgz），' +
         '或点下方「选择文件夹」。');
       return;
     }
-    if (!isDb && /^.{0,260}\\.part$/.test(name)) {
+    if (!isDb && RE_PART.test(name)) {
       showError('这看起来是未完成的下载文件（.part），请等下载完成后再试。');
       return;
     }
@@ -577,14 +582,24 @@ function renderUploadPage(opts: { available: boolean; importedAt: string | null 
   // --- 文件夹（webkitdirectory 或拖拽目录）--------------------------------
   //  前端打 zip 后再上传，复用与压缩包完全相同的服务端路径。
   //  这样服务端只需要实现一种归档解析，测试面也小。
+  //  ⚠️ 正则一律用 RegExp 构造，**不要**写字面量。
+  //     本函数返回的是模板字符串，里面的 \ 会被先做一层转义：
+  //       写 /\/__MACOSX\// 会变成 //__MACOSX// —— 前半截成了行注释，
+  //       整个 if 语句直接语法错误，导致**页面上所有 JS 全部不执行**
+  //       （按钮不响应、拖拽无反应，且不报任何可见错误）。
+  //     这个坑真实踩过：服务端测试全绿，页面却是死的。
+  var RE_SKIP = new RegExp('\\.(DS_Store|part|crdownload)$', 'i');
+  var RE_MACOSX = new RegExp('/__MACOSX/');
+  var RE_DOTUNDER = new RegExp('^\\._');
+
   function acceptFolder(fileList) {
     var files = [];
     for (var i = 0; i < fileList.length; i++) {
       var f = fileList[i];
       // 浏览器给的 relativePath 形如 "openboard/uploads/a.jpg"
       var rel = f.webkitRelativePath || f.relativePath || f.name;
-      if (/\\.(DS_Store|part|crdownload)$/i.test(rel)) continue;
-      if (/\/__MACOSX\\//.test(rel) || /^\\._/.test(rel.split('/').pop())) continue;
+      if (RE_SKIP.test(rel)) continue;
+      if (RE_MACOSX.test(rel) || RE_DOTUNDER.test(rel.split('/').pop())) continue;
       files.push({ rel: rel, file: f });
     }
     if (!files.length) { showError('所选文件夹里没有可用文件。'); return; }

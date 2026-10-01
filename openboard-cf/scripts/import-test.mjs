@@ -321,6 +321,33 @@ try {
   ok('页面注入了体积上限常量', /LIMITS\s*=\s*\{/.test(html), '');
   ok('页面引用了前端 zip 组件', html.includes('/upload-fflate.js'), '');
   ok('页面提供「选择文件夹」入口', html.includes('webkitdirectory'), '');
+
+  // -------------------------------------------------------------------------
+  // 内联脚本语法校验 —— 这条断言救过一次命，别删
+  //
+  // renderUploadPage 返回的是**模板字符串**，里面的正则字面量会被先做一层
+  // 转义。曾经写过 /\/__MACOSX\//，实际产出变成 //__MACOSX// ——
+  // 前半截成了行注释，整个 <script> 语法错误，页面所有 JS 静默不执行
+  // （按钮无反应、拖拽没响应，控制台只有一条 'Unexpected token'）。
+  //
+  // 服务端接口测试全绿、页面却是死的 —— 只有真开浏览器才发现。
+  // 这里用 new Function 做语法解析（不执行），比开浏览器便宜得多，
+  // 能在 npm run test:import 阶段就拦住这类错误。
+  // -------------------------------------------------------------------------
+  const inlineScripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+  ok(`页面含 ${inlineScripts.length} 段内联脚本`, inlineScripts.length >= 1,
+    String(inlineScripts.length));
+  let syntaxErr = null;
+  for (const code of inlineScripts) {
+    try {
+      new Function(code);
+    } catch (e) {
+      syntaxErr = e.message;
+    }
+  }
+  ok('内联脚本语法正确（能通过解析）', syntaxErr === null, String(syntaxErr));
+  ok('  未出现被模板字符串吃掉的正则（// 注释化）',
+    !/if\s*\(\s*\/\/[A-Za-z]/.test(html), '疑似正则字面量被转义成了行注释');
 } catch (err) {
   console.error('\n\x1b[31m测试异常：\x1b[0m', err.message);
   console.error((err.stack || '').split('\n').slice(0, 8).join('\n'));
