@@ -19,9 +19,15 @@ const SCHEMA = readFileSync(join(ROOT, 'schema.sql'), 'utf8');
 
 // 用 Miniflare 自己维护的临时状态目录：不写 d1Persist 等就落在系统 temp，
 // 每次启动都是干净库，且跑完不留痕（进程退出即被系统清理）。
+//
+// SQL_WASM 对应 wrangler.toml 的 [wasm_modules] 绑定（SQLite 解析用），
+// 本地测试需手动喂同一个文件，否则导入功能会报「未配置绑定」。
+const DIST = join(ROOT, 'dist');
 const mf = new Miniflare({
-  scriptPath: join(ROOT, 'dist/worker.js'),
+  scriptPath: join(DIST, 'worker.js'),
   modules: true,
+  // 与 wrangler.toml 的 [[rules]] 对齐：让 Miniflare 认识 .wasm 模块
+  modulesRules: [{ type: 'CompiledWasm', include: ['**/*.wasm'] }],
   compatibilityDate: '2024-11-27',
   d1Databases: { DB: 'preflight-db' },
   r2Buckets: { UPLOADS: 'openboard-uploads' },

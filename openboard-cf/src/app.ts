@@ -10,6 +10,7 @@ import { messageRoutes } from './routes/messages';
 import { groupRoutes } from './routes/groups';
 import { friendRoutes } from './routes/friends';
 import { adminRoutes } from './routes/admin';
+import { importRoutes } from './routes/import';
 import { upgradeWebSocket } from './realtime';
 import { onlineUsers } from './realtime';
 import { securityHeaders } from './security';
@@ -42,6 +43,8 @@ export function createApp() {
   app.route('/api', groupRoutes);
   app.route('/api', friendRoutes);
   app.route('/api', adminRoutes);
+  // 数据库导入（一次性初始化用，见 src/routes/import.ts）
+  app.route('/api', importRoutes);
 
   // --- WebSocket ------------------------------------------------------------
   //
@@ -97,6 +100,31 @@ export function createApp() {
   app.get('/api/ws/:token', (c) => handleUpgrade(c, c.req.param('token'), 'api/ws/token'));
   app.get('/ws', (c) => handleUpgrade(c, tokenFromHeaders(c), 'ws'));
   app.get('/ws/:token', (c) => handleUpgrade(c, c.req.param('token'), 'ws/token'));
+
+  // --- 旧库导入页面 ---------------------------------------------------------
+  //
+  // 单独由 Worker 返回 HTML（而不是放 public/upload.html），因为：
+  //   1. 需要干净 URL /upload，而 assets 的 SPA 回退会把无扩展名路径
+  //      一律吐成 index.html
+  //   2. 页面里要注入 import 是否可用的初始状态，省掉一次额外请求
+  app.get('/upload', async (c) => {
+    const e = c.env as unknown as Env;
+    let available = true;
+    let importedAt: string | null = null;
+    try {
+      const row = await e.DB.prepare(
+        'SELECT imported_at FROM _import_state WHERE id = 1',
+      ).first<{ imported_at: string }>();
+      if (row) {
+        available = false;
+        importedAt = row.imported_at;
+      }
+    } catch {
+      // 表还没建 => 尚未导入过，保持可用
+    }
+    const html = renderUploadPage({ available, importedAt });
+    return c.html(html);
+  });
 
   // --- 健康检查 / 运行时信息 -------------------------------------------------
   app.get('/api/health', async (c) => {
@@ -264,3 +292,328 @@ export function createApp() {
 }
 
 export type AppEnv = Env;
+
+// ---------------------------------------------------------------------------
+// 导入页面 HTML
+//
+// 内联在 Worker 里（而非 public/*.html）的理由见 /upload 路由的注释。
+// 页面本身无框架、无外部依赖，风格与项目其余页面（admin.html）保持一致。
+// ---------------------------------------------------------------------------
+function renderUploadPage(opts: { available: boolean; importedAt: string | null }): string {
+  // 初始状态直接注入，避免页面先闪一下"可导入"再变成"已关闭"
+  const initialState = JSON.stringify({
+    available: opts.available,
+    importedAt: opts.importedAt,
+  }).replace(/</g, '\\u003c');
+
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>数据库导入 · OpenBoard</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --card: #ffffff;
+    --fg: #1f2329;
+    --muted: #8a9099;
+    --line: #e5e7eb;
+    --accent: #2563eb;
+    --accent-hover: #1d4ed8;
+    --danger: #dc2626;
+    --warn: #b45309;
+    --ok: #15803d;
+    --warn-bg: #fffbeb;
+    --ok-bg: #f0fdf4;
+    --danger-bg: #fef2f2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16181d; --card: #1f2228; --fg: #e6e8ea; --muted: #9aa1ab;
+      --line: #2e3238; --warn-bg: #2a2416; --ok-bg: #16241a; --danger-bg: #2a1717;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 16px; min-height: 100vh;
+    background: var(--bg); color: var(--fg);
+    font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 6px; font-weight: 600; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 10px; padding: 22px; margin-bottom: 16px;
+  }
+  #drop {
+    border: 2px dashed var(--line); border-radius: 10px;
+    padding: 40px 20px; text-align: center; cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  #drop:hover, #drop.over { border-color: var(--accent); background: rgba(37,99,235,.05); }
+  #drop .big { font-size: 15px; font-weight: 500; margin-bottom: 6px; }
+  #drop .hint { color: var(--muted); font-size: 12px; }
+  #fileInfo { display: none; margin-top: 14px; font-size: 13px; }
+  #fileInfo.show { display: block; }
+  .btn {
+    appearance: none; border: 0; border-radius: 8px; padding: 10px 18px;
+    font-size: 14px; font-weight: 500; cursor: pointer;
+    background: var(--accent); color: #fff; transition: background .15s;
+  }
+  .btn:hover:not(:disabled) { background: var(--accent-hover); }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .btn.secondary { background: transparent; color: var(--fg); border: 1px solid var(--line); }
+  .actions { margin-top: 18px; display: flex; gap: 10px; align-items: center; }
+  .banner { padding: 12px 16px; border-radius: 8px; font-size: 13px; margin-bottom: 20px; }
+  .banner.ok { background: var(--ok-bg); color: var(--ok); }
+  .banner.warn { background: var(--warn-bg); color: var(--warn); }
+  .banner.danger { background: var(--danger-bg); color: var(--danger); }
+  .banner code { background: rgba(0,0,0,.06); padding: 1px 5px; border-radius: 4px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  .hide { display: none !important; }
+  h3 { font-size: 14px; margin: 20px 0 4px; font-weight: 600; }
+  ul { margin: 6px 0; padding-left: 20px; font-size: 13px; }
+  #progressWrap { margin-top: 16px; height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
+  #progressBar { height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+  #progressText { margin-top: 8px; font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>数据库导入</h1>
+  <div class="sub">把旧版（Python / FastAPI）的 <code class="mono">board.db</code> 合并到当前部署</div>
+
+  <div id="closedBanner" class="banner ok hide"></div>
+  <div id="readyBanner" class="banner warn hide">
+    <strong>仅可导入一次。</strong>导入成功后该入口会自动永久关闭，且上传的文件不会保留。
+    导入采用<strong>合并</strong>方式，与现有数据冲突的记录会被跳过，不会覆盖。
+  </div>
+  <div id="errorBanner" class="banner danger hide"></div>
+
+  <div class="card" id="uploadCard">
+    <div id="drop">
+      <div class="big">点击选择，或把 board.db 拖到这里</div>
+      <div class="hint">SQLite 数据库文件 · 最大 25MB · 仅 .db / .sqlite</div>
+    </div>
+    <input type="file" id="fileInput" accept=".db,.sqlite,.sqlite3,application/octet-stream" class="hide">
+    <div id="fileInfo"></div>
+    <div id="progressWrap" class="hide"><div id="progressBar"></div></div>
+    <div id="progressText" class="hide"></div>
+    <div class="actions">
+      <button class="btn" id="submitBtn" disabled>开始导入</button>
+      <button class="btn secondary" id="resetBtn">重新选择</button>
+    </div>
+  </div>
+
+  <div class="card hide" id="resultCard">
+    <h2 style="font-size:16px;margin:0 0 4px">导入完成</h2>
+    <div class="sub" id="resultTime" style="margin-bottom:12px"></div>
+    <h3>各表结果</h3>
+    <table><thead><tr><th>表</th><th class="num">写入</th><th class="num">跳过</th></tr></thead>
+      <tbody id="resultTable"></tbody></table>
+    <div id="resetSection"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var INIT = ${initialState};
+  var el = function (id) { return document.getElementById(id); };
+  var chosenFile = null;
+
+  function show(id) { el(id).classList.remove('hide'); }
+  function hide(id) { el(id).classList.add('hide'); }
+  function fmtSize(n) {
+    if (n < 1024) return n + ' B';
+    if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+    return (n / 1048576).toFixed(2) + ' MB';
+  }
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  // --- 已关闭：隐藏上传，展示结果 ---
+  if (!INIT.available) {
+    hide('readyBanner');
+    el('closedBanner').innerHTML =
+      '数据库导入功能<strong>已关闭</strong>（此前已成功导入一次，不可重复导入）。' +
+      (INIT.importedAt ? '<br>导入时间：<code class="mono">' + esc(INIT.importedAt) + '</code>' : '');
+    show('closedBanner');
+    // 仍允许查看最近一次导入的摘要
+    fetch('/api/import/status').then(function (r) { return r.json(); }).then(function (d) {
+      if (!d.summary) return;
+      try {
+        var s = JSON.parse(d.summary);
+        if (s.perTable) { renderTable(s.perTable); }
+        show('resultCard');
+      } catch (e) { /* ignore */ }
+    }).catch(function () {});
+    el('uploadCard').classList.add('hide');
+    return;
+  }
+  show('readyBanner');
+
+  // --- 文件选择 ---
+  var drop = el('drop'), input = el('fileInput');
+  drop.addEventListener('click', function () { input.click(); });
+  ['dragenter', 'dragover'].forEach(function (ev) {
+    drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('over'); });
+  });
+  ['dragleave', 'drop'].forEach(function (ev) {
+    drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('over'); });
+  });
+  drop.addEventListener('drop', function (e) {
+    if (e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]);
+  });
+  input.addEventListener('change', function () {
+    if (input.files.length) setFile(input.files[0]);
+  });
+  el('resetBtn').addEventListener('click', function () {
+    chosenFile = null; input.value = '';
+    el('fileInfo').classList.remove('show');
+    el('submitBtn').disabled = true;
+    hide('errorBanner');
+  });
+
+  function setFile(f) {
+    var name = (f.name || '').toLowerCase();
+    if (!/\\.(db|sqlite|sqlite3)$/.test(name)) {
+      showError('请选择 .db / .sqlite 文件（当前：' + f.name + '）');
+      return;
+    }
+    if (f.size > 25 * 1024 * 1024) {
+      showError('文件超过 25MB 上限（当前 ' + fmtSize(f.size) + '）');
+      return;
+    }
+    hide('errorBanner');
+    chosenFile = f;
+    el('fileInfo').innerHTML =
+      '已选择：<strong>' + esc(f.name) + '</strong> <span class="mono">(' + fmtSize(f.size) + ')</span>';
+    el('fileInfo').classList.add('show');
+    el('submitBtn').disabled = false;
+  }
+
+  function showError(msg) {
+    el('errorBanner').innerHTML = esc(msg);
+    show('errorBanner');
+  }
+
+  function renderTable(perTable) {
+    var tb = el('resultTable');
+    tb.innerHTML = '';
+    Object.keys(perTable).forEach(function (t) {
+      var v = perTable[t];
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td class="mono">' + esc(t) + (v.error ? ' <span style="color:var(--danger)">（' + esc(v.error) + '）</span>' : '') + '</td>' +
+        '<td class="num">' + (v.inserted || 0) + '</td>' +
+        '<td class="num">' + (v.skipped || 0) + '</td>';
+      tb.appendChild(tr);
+    });
+  }
+
+  // --- 提交 ---
+  el('submitBtn').addEventListener('click', function () {
+    if (!chosenFile) return;
+    var btn = el('submitBtn');
+    btn.disabled = true; btn.textContent = '导入中…';
+    hide('errorBanner');
+    show('progressWrap'); show('progressText');
+    el('progressText').textContent = '正在上传并解析数据库…';
+
+    // 上传进度（fetch 拿不到上传进度，用 XHR）
+    var fd = new FormData();
+    fd.append('file', chosenFile, chosenFile.name);
+
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/import/board');
+    xhr.upload.onprogress = function (e) {
+      if (!e.lengthComputable) return;
+      var pct = Math.round((e.loaded / e.total) * 100);
+      el('progressBar').style.width = pct + '%';
+      el('progressText').textContent = pct < 100
+        ? '上传中… ' + pct + '%'
+        : '解析并写入数据库…（数据量大时可能需要几十秒）';
+    };
+    xhr.onload = function () {
+      var data = null;
+      try { data = JSON.parse(xhr.responseText); } catch (e) { /* ignore */ }
+      if (xhr.status >= 200 && xhr.status < 300 && data && data.ok) {
+        el('progressBar').style.width = '100%';
+        el('progressText').textContent = '导入完成';
+        renderResult(data);
+      } else {
+        hide('progressWrap'); hide('progressText');
+        showError((data && data.detail) || ('导入失败（HTTP ' + xhr.status + '）'));
+        btn.disabled = false; btn.textContent = '开始导入';
+        // 403 表示入口已关闭 —— 刷新页面以反映真实状态
+        if (xhr.status === 403) setTimeout(function () { location.reload(); }, 1800);
+      }
+    };
+    xhr.onerror = function () {
+      hide('progressWrap'); hide('progressText');
+      showError('网络错误，请检查连接后重试');
+      btn.disabled = false; btn.textContent = '开始导入';
+    };
+    xhr.send(fd);
+  });
+
+  function renderResult(d) {
+    el('uploadCard').classList.add('hide');
+    el('resultTime').textContent =
+      '导入时间：' + (d.importedAt || '') + ' · 合计写入 ' + (d.totalInserted || 0) +
+      ' 条，跳过 ' + (d.totalSkipped || 0) + ' 条';
+    renderTable(d.perTable || {});
+    el('closedBanner').innerHTML = '导入已成功，该入口已永久关闭。';
+    show('closedBanner');
+    hide('readyBanner');
+
+    var extra = el('resetSection');
+    extra.innerHTML = '';
+
+    // 需重置密码的账号
+    var npr = d.needsPasswordReset || {};
+    var bad = (npr.unsupported || []).concat(
+      (npr.highIteration || []).map(function (u) { return { username: u.username, algorithm: 'pbkdf2 x' + u.iterations }; })
+    );
+    if (bad.length) {
+      var h = document.createElement('div');
+      h.innerHTML = '<h3>需要重置密码的账号（' + bad.length + ' 个）</h3>' +
+        '<ul>' + bad.map(function (u) {
+          return '<li><span class="mono">' + esc(u.username) + '</span> — ' + esc(u.algorithm) + '</li>';
+        }).join('') + '</ul>' +
+        '<div class="sub" style="margin:0">' + esc(npr.note || '') + '</div>';
+      extra.appendChild(h);
+    }
+
+    if (d.ignoredTables && d.ignoredTables.length) {
+      var ig = document.createElement('div');
+      ig.innerHTML = '<h3>未导入的表</h3><div class="sub" style="margin:0">' +
+        d.ignoredTables.map(esc).join('、') + '（不在迁移白名单内）</div>';
+      extra.appendChild(ig);
+    }
+
+    if (d.message) {
+      var w = document.createElement('div');
+      w.className = 'banner warn';
+      w.style.marginTop = '16px';
+      w.textContent = d.message;
+      extra.appendChild(w);
+    }
+    show('resultCard');
+  }
+})();
+</script>
+</body>
+</html>`;
+}

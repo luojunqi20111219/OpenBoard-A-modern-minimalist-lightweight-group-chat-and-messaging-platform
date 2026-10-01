@@ -22,8 +22,46 @@
 # 静态资源请求与 Pages 一样不额外计费。
 # ---------------------------------------------------------------------------
 name = "openboard"
-main = "src/worker.ts"
+# main 指向 **构建产物** 而不是 src/worker.ts。
+#
+# 原因：数据库导入功能依赖 sql.js（CommonJS 包），Wrangler 自带的 bundler
+# 会把 `import initSqlJs from 'sql.js'` 当成磁盘路径去找（ENOENT: .../sql.js）。
+# 因此先由 esbuild 打包成标准 ESM（scripts/build-import.mjs），
+# 产物再交给 wrangler 上传。
+#
+# ⚠️ 改动源码后必须先 `npm run bundle`，直接 deploy 会发布旧代码。
+main = "dist/worker.js"
 compatibility_date = "2024-11-27"
+
+# ---------------------------------------------------------------------------
+# 模块规则
+#
+# ⚠️ 这里**不能**用 [wasm_modules] 绑定 wasm —— wrangler 会直接报错：
+#     "You cannot configure [wasm_modules] with an ES module worker.
+#      Instead, import the .wasm module directly in your code"
+#
+#   因此改用 ESM 原生方式：代码里直接 `import wasm from './sql-wasm.wasm'`
+#   （见 src/import/sqljs.ts），打包时保持该导入不被内联
+#   （scripts/build-import.mjs 中标记为 external），
+#   再由下面的 CompiledWasm 规则把 .wasm 作为模块处理并随 Worker 上传。
+#
+#   注：早期曾用「独立 bundle + 动态 import」想按需加载 wasm，
+#   但 wrangler 打包不跟随动态 import，wasm 根本不会被上传，已废弃该方案。
+# ---------------------------------------------------------------------------
+[[rules]]
+type = "ESModule"
+globs = ["**/*.js"]
+fallthrough = true
+
+[[rules]]
+type = "CompiledWasm"
+globs = ["**/*.wasm"]
+fallthrough = true
+# ---------------------------------------------------------------------------
+[[rules]]
+type = "ESModule"
+globs = ["**/*.js"]
+fallthrough = true
 
 # ---------------------------------------------------------------------------
 # 静态资源（原 Pages 的 public/ 目录）
@@ -41,7 +79,8 @@ compatibility_date = "2024-11-27"
 directory = "public"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
-run_worker_first = ["/api/*", "/ws", "/ws/*"]
+# /upload 与 /api/import 也必须走 Worker（否则会被 SPA 回退吞成 index.html）
+run_worker_first = ["/api/*", "/ws", "/ws/*", "/upload"]
 
 # ---------------------------------------------------------------------------
 # D1 数据库（原 SQLite board.db）

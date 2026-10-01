@@ -40,6 +40,8 @@ const B = 'http://localhost';
 //    静态资源与路由分流由 scripts/verify-assets.mjs 单独验证。
 const mf = new Miniflare({
   modules: true,
+  // 与 wrangler.toml 的 [[rules]] 对齐：让 Miniflare 认识 .wasm 模块
+  modulesRules: [{ type: 'CompiledWasm', include: ['**/*.wasm'] }],
   compatibilityDate: '2024-11-27',
   scriptPath: 'dist/worker.js',
   bindings: { CURRENT_VERSION: 'v9.0.0' },

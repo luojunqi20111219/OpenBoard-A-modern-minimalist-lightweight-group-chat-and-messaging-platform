@@ -7,11 +7,12 @@
   "scripts": {
     "dev": "wrangler dev",
     "typecheck": "tsc --noEmit",
-    "bundle": "esbuild src/worker.ts --bundle --format=esm --outfile=dist/worker.js --external:cloudflare:workers",
+    "bundle": "node scripts/build-import.mjs",
     "bundle:do": "esbuild src/durable/chat.ts --bundle --format=esm --outfile=dist/do-test.js --external:cloudflare:workers",
     "preflight": "npm run bundle && node scripts/preflight.mjs",
     "check:android": "npm run bundle:do && npm run bundle && node scripts/android-ws-check.mjs",
     "test:live": "node scripts/live-ws-test.mjs",
+    "test:import": "npm run bundle && node scripts/import-test.mjs",
     "setup": "bash scripts/setup.sh",
     "deploy": "bash scripts/deploy.sh",
     "deploy:worker": "wrangler deploy",
@@ -24,7 +25,8 @@
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
-    "hono": "^4.6.14"
+    "hono": "^4.6.14",
+    "sql.js": "^1.14.2"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241127.0",

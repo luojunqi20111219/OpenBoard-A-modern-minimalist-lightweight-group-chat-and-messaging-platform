@@ -44,7 +44,7 @@ const app = createApp();
  *   会导致「本地测试通过、线上却 404」或相反的假象。
  *   因此在代码里做一个明确的兜底：无论运行时怎么配，这些前缀都归 Worker。
  */
-const WORKER_OWNED_PREFIXES = ['/api/', '/ws'] as const;
+const WORKER_OWNED_PREFIXES = ['/api/', '/ws', '/upload'] as const;
 
 function isWorkerOwned(pathname: string): boolean {
   return WORKER_OWNED_PREFIXES.some(

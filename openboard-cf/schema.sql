@@ -245,6 +245,19 @@ INSERT OR IGNORE INTO users (username, password_hash, nickname, role, avatar)
 -- 注意：D1 里没有默认管理员账号，首次部署后请用普通账号注册，
 -- 再执行：UPDATE users SET role=1 WHERE username='你的账号';
 
+-- 旧库导入状态 ---------------------------------------------------------------
+-- 通过 /upload 上传旧 Python 版 board.db 的「仅一次」闸门。
+-- CHECK (id = 1) 让这表最多只存一行 —— 并发导入时靠主键冲突做互斥，
+-- 只有第一个 INSERT 成功（changes = 1），其余全部被忽略。
+-- 存在行 = 导入入口已永久关闭。
+-- 该表也会由代码在首次访问 /api/import/status 时懒创建，此处保留仅为
+-- 让全新部署一次性建好、便于本地测试与人工核对。
+CREATE TABLE IF NOT EXISTS _import_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    imported_at TEXT NOT NULL,
+    source_summary TEXT
+);
+
 -- 索引 ---------------------------------------------------------------------
 CREATE INDEX IF NOT EXISTS idx_messages_room ON messages(room_id);
 CREATE INDEX IF NOT EXISTS idx_messages_receiver ON messages(receiver);
