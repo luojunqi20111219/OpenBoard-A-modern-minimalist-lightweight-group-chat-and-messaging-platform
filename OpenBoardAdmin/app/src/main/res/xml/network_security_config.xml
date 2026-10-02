@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- 生产走 HTTPS；允许明文仅为本地/内网调试方便 -->
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

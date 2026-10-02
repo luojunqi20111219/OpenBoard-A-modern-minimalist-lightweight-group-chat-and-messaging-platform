@@ -159,4 +159,41 @@ interface ApiService {
 
     @DELETE("api/friends/{username}")
     fun removeFriend(@Path("username") username: String): Call<ApiResponse<Any>>
+
+    // =======================================================================
+    // 管理员授权 —— 聊天端只做「申请」和「审批」两件事
+    //
+    // 完整的用户管理（封禁、重置密码、删除）在专门的管理端 App 里，
+    // 那边有更合适的交互。聊天端加这几个是因为用户的原话：
+    // "授权登录的方式，可以设置为跳转到普通的聊天客户端，然后点击账号"
+    // —— 也就是管理员在日常聊天时顺手就能看到并处理申请。
+    // =======================================================================
+
+    /** 查询自己是否为管理员 / 有没有待处理申请 */
+    @GET("api/admin/my_application")
+    fun myAdminApplication(): Call<MyAdminApplicationResponse>
+
+    /** 提交管理员申请（任何登录用户都能调） */
+    @POST("api/admin/apply")
+    fun applyAdmin(@Body body: Map<String, String>): Call<ApiResponse<Any>>
+
+    /** 待审批列表（管理员才能调） */
+    @GET("api/admin/requests")
+    fun listAdminRequests(@Query("status") status: String = "pending"): Call<AdminRequestListResponse>
+
+    /** 批准 → 授予管理权限 */
+    @POST("api/admin/approve")
+    fun approveAdmin(@Body body: Map<String, @JvmSuppressWildcards Any>): Call<ApiResponse<Any>>
+
+    /** 拒绝申请 */
+    @POST("api/admin/reject")
+    fun rejectAdmin(@Body body: Map<String, @JvmSuppressWildcards Any>): Call<ApiResponse<Any>>
+
+    /** 撤销某人的管理权限 */
+    @POST("api/admin/revoke")
+    fun revokeAdmin(@Body body: Map<String, String>): Call<ApiResponse<Any>>
+
+    /** 管理员名单（含服务器保底名单，builtin=true 的不可撤销） */
+    @GET("api/admin/list")
+    fun listAdmins(): Call<AdminListResponse>
 }

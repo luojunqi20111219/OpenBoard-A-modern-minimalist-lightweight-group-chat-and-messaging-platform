@@ -1,5 +1,8 @@
 pluginManagement {
     repositories {
+        maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
+        maven { url 'https://maven.aliyun.com/repository/google' }
+        maven { url 'https://maven.aliyun.com/repository/public' }
         google()
         mavenCentral()
         gradlePluginPortal()
@@ -7,8 +10,13 @@ pluginManagement {
     }
 }
 dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    // 项目里没有仓库声明（都在 build.gradle 的 buildscript 里），用 PREFER_SETTINGS
+    // 允许项目级仓库生效，否则华为的 agconnect 依赖会找不到
+    repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
     repositories {
+        maven { url 'https://maven.aliyun.com/repository/google' }
+        maven { url 'https://maven.aliyun.com/repository/public' }
+        maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
         google()
         mavenCentral()
         maven { url 'https://developer.huawei.com/repo/' }

@@ -1,6 +1,6 @@
 {
   "name": "openboard-cf",
-  "version": "9.0.0",
+  "version": "10.0.0",
   "private": true,
   "description": "信语 OpenBoard — Cloudflare Workers 版本",
   "type": "module",
@@ -24,10 +24,13 @@
     "kv:create": "wrangler kv namespace create openboard-kv",
     "cf-typegen": "wrangler types",
     "test:ui": "npm run bundle && node scripts/upload-ui-test.mjs",
-    "test:all": "npm run test:import && npm run preflight && npm run check:android && npm run test:ui"
+    "test:admin": "npm run bundle && node scripts/admin-grants-test.mjs",
+    "test:all": "npm run test:import && npm run test:admin && npm run preflight && npm run check:android && npm run test:ui"
   },
   "dependencies": {
+    "@noble/hashes": "^2.4.0",
     "fflate": "^0.8.3",
+    "hash-wasm": "^4.12.0",
     "hono": "^4.6.14",
     "sql.js": "^1.14.2"
   },

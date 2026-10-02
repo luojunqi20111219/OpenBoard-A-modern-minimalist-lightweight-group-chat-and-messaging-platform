@@ -51,7 +51,7 @@ const app = createApp();
  *    文件当然找不到，于是 SPA 回退返回 index.html，
  *    表现为「所有历史图片都裂成一张 HTML」，且没有任何 404 报错可查。
  */
-const WORKER_OWNED_PREFIXES = ['/api/', '/ws', '/upload', '/uploads'] as const;
+const WORKER_OWNED_PREFIXES = ['/api/', '/ws', '/upload', '/uploads', '/contact-admin'] as const;
 
 function isWorkerOwned(pathname: string): boolean {
   return WORKER_OWNED_PREFIXES.some(

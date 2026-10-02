@@ -13,6 +13,11 @@ OpenBoardAndroid/local.properties
 OpenBoardAndroid/app/build/
 OpenBoardAndroid/app/build2/
 OpenBoardAndroid/.idea/
+OpenBoardAdmin/.gradle/
+OpenBoardAdmin/build/
+OpenBoardAdmin/local.properties
+OpenBoardAdmin/app/build/
+OpenBoardAdmin/.idea/
 *.apk
 *.iml
 *.exe

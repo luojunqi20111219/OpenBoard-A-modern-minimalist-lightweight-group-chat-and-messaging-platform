@@ -222,4 +222,61 @@ class ChatRepository {
 
     suspend fun removeFriend(username: String): Result<Unit> =
         apiCallVoid { api.removeFriend(username) }
+
+    // =======================================================================
+    // 管理员授权
+    //
+    // 这几个方法的错误语义要注意：服务端 requireAdmin 会给 403，
+    // apiCallVoid 会把 403 的 detail 透出来（"您无权进行此项管理员操作"），
+    // 调用方据此提示即可，不需要额外判断。
+    // =======================================================================
+
+    /** 自己是否为管理员 + 有没有待处理申请 */
+    suspend fun getMyAdminApplication(): Result<MyAdminApplicationResponse> =
+        apiCallRaw { api.myAdminApplication() }
+
+    /** 提交申请。note 会自动带上设备信息，方便管理员判断来源 */
+    suspend fun applyForAdmin(note: String, deviceInfo: String?): Result<Unit> =
+        apiCallVoid {
+            api.applyAdmin(
+                buildMap {
+                    put("note", note)
+                    deviceInfo?.let { put("device_info", it) }
+                },
+            )
+        }
+
+    /** 待审批列表（管理员） */
+    suspend fun getAdminRequests(status: String = "pending"): Result<List<AdminRequest>> =
+        apiCallRaw { api.listAdminRequests(status) }.map { it.requests }
+
+    /** 批准某人成为管理员 */
+    suspend fun approveAdmin(username: String, requestId: Int? = null): Result<Unit> =
+        apiCallVoid {
+            api.approveAdmin(
+                buildMap<String, Any> {
+                    put("username", username)
+                    requestId?.let { put("request_id", it) }
+                },
+            )
+        }
+
+    /** 拒绝申请 */
+    suspend fun rejectAdmin(username: String, requestId: Int? = null): Result<Unit> =
+        apiCallVoid {
+            api.rejectAdmin(
+                buildMap<String, Any> {
+                    put("username", username)
+                    requestId?.let { put("request_id", it) }
+                },
+            )
+        }
+
+    /** 撤销管理权限 */
+    suspend fun revokeAdmin(username: String): Result<Unit> =
+        apiCallVoid { api.revokeAdmin(mapOf("username" to username)) }
+
+    /** 管理员名单 */
+    suspend fun getAdminList(): Result<List<AdminEntry>> =
+        apiCallRaw { api.listAdmins() }.map { it.admins }
 }

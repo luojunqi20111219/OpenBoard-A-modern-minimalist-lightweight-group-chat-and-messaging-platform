@@ -10,6 +10,8 @@ import { messageRoutes, uploadsAssetHandler } from './routes/messages';
 import { groupRoutes } from './routes/groups';
 import { friendRoutes } from './routes/friends';
 import { adminRoutes } from './routes/admin';
+import { adminGrantRoutes } from './routes/admin-grants';
+import { migrationRoutes } from './routes/migrations';
 import { importRoutes, MAX_DB_BYTES } from './routes/import';
 import { MAX_ARCHIVE_BYTES } from './import/archive';
 import { upgradeWebSocket } from './realtime';
@@ -44,6 +46,8 @@ export function createApp() {
   app.route('/api', groupRoutes);
   app.route('/api', friendRoutes);
   app.route('/api', adminRoutes);
+  app.route('/api', adminGrantRoutes);
+  app.route('/api', migrationRoutes);
   // 数据导入（一次性初始化用，见 src/routes/import.ts）
   app.route('/api', importRoutes);
 
@@ -135,6 +139,23 @@ export function createApp() {
     }
     const html = renderUploadPage({ available, importedAt });
     return c.html(html);
+  });
+
+  // --- 联系管理员页面 -------------------------------------------------------
+  //
+  // 登录时若账号是旧版哈希格式（scrypt / 高迭代 pbkdf2），当前套餐
+  // 算不动、无法验证，用户会收到 PASSWORD_RESET_REQUIRED 并跳到这里。
+  //
+  // 放在 Worker 里返回 HTML 而不是 public/ 静态文件，原因同 /upload：
+  // 无扩展名路径会被 assets 的 SPA 回退吞成 index.html。
+  //
+  // 管理员名单从环境变量读，页面只展示**用户名**（本来就在
+  // ALLOWED_ADMINS 里公开可见），不泄露任何联系方式或隐私字段。
+  app.get('/contact-admin', (c) => {
+    const e = c.env as unknown as Env;
+    const raw = String(e.ALLOWED_ADMINS || '');
+    const admins = raw.split(',').map((s) => s.trim()).filter(Boolean);
+    return c.html(renderContactAdminPage(admins));
   });
 
   // --- 健康检查 / 运行时信息 -------------------------------------------------
@@ -860,6 +881,133 @@ function renderUploadPage(opts: { available: boolean; importedAt: string | null 
   }
 })();
 </script>
+</body>
+</html>`;
+}
+
+// ---------------------------------------------------------------------------
+// 联系管理员页面
+//
+// 触发场景：登录时账号密码是旧版格式（werkzeug scrypt / 高迭代 pbkdf2），
+// 当前套餐的 CPU 限额下无法完成校验。这时不能笼统提示"密码错误"，
+// 否则用户会反复尝试并触发登录锁定。正确的做法是明确告知
+// 「密码没输错，是账号需要重置」并给出联系通道。
+//
+// 安全考虑：
+//   · 只展示管理员**用户名**（已经在 ALLOWED_ADMINS 里，非敏感信息）
+//   · 不展示邮箱/手机号等个人联系方式，避免公开泄露
+//   · 页面加 noindex，不进搜索引擎
+// ---------------------------------------------------------------------------
+function renderContactAdminPage(admins: string[]): string {
+  // 全部走 HTML 转义后再拼，防止管理员名里带尖括号造成 XSS
+  const esc = (s: string) =>
+    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+  const list = admins.length
+    ? admins.map((a) => `<li><code>${esc(a)}</code></li>`).join('')
+    : '<li class="muted">管理员名单未配置（ALLOWED_ADMINS 为空）</li>';
+
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>联系管理员 · OpenBoard</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #ffffff; --fg: #1f2329; --muted: #8a9099;
+    --line: #e5e7eb; --accent: #2563eb; --warn: #b45309; --warn-bg: #fffbeb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16181d; --card: #1f2228; --fg: #e6e8ea; --muted: #9aa1ab;
+      --line: #2e3238; --warn-bg: #2a2416;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 16px; min-height: 100vh;
+    background: var(--bg); color: var(--fg);
+    font: 14px/1.7 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  }
+  .wrap { max-width: 620px; margin: 0 auto; }
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 12px; padding: 26px; margin-bottom: 16px;
+  }
+  h1 { font-size: 19px; margin: 0 0 14px; font-weight: 600; }
+  h2 { font-size: 15px; margin: 22px 0 8px; font-weight: 600; }
+  p { margin: 0 0 12px; }
+  .muted { color: var(--muted); }
+  .notice {
+    background: var(--warn-bg); border-left: 3px solid var(--warn);
+    padding: 12px 14px; border-radius: 6px; margin-bottom: 18px;
+  }
+  ul { margin: 8px 0 0; padding-left: 22px; }
+  li { margin: 4px 0; }
+  code {
+    background: rgba(127,127,127,.14); padding: 1px 6px;
+    border-radius: 4px; font-size: 13px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .step { display: flex; gap: 10px; margin-bottom: 10px; }
+  .n {
+    flex: none; width: 22px; height: 22px; border-radius: 50%;
+    background: var(--accent); color: #fff; font-size: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 600; margin-top: 2px;
+  }
+  .back {
+    display: inline-block; margin-top: 6px; color: var(--accent);
+    text-decoration: none; font-size: 13px;
+  }
+  .back:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>需要重置密码</h1>
+
+    <div class="notice">
+      您的密码本身<b>没有输错</b>。该账号的密码是用<b>旧版加密方式</b>（werkzeug scrypt）
+      保存的，当前服务器环境无法自动完成校验 —— 这是技术限制，不是账号异常。
+    </div>
+
+    <p>请联系管理员为您重置密码。重置后，用新密码即可正常登录，
+    <b>聊天记录、好友、群组等数据都不会丢失</b>。</p>
+
+    <h2>如何联系管理员</h2>
+    <div class="step">
+      <div class="n">1</div>
+      <div>通过你平时和管理员联系的渠道（微信 / QQ / 电话）直接说明：<br>
+        <span class="muted">「我的 OpenBoard 账号 <code>你的用户名</code> 需要重置密码」</span>
+      </div>
+    </div>
+    <div class="step">
+      <div class="n">2</div>
+      <div>管理员在<b>管理端应用</b>中找到你的账号，点击「重置密码」并设置一个新密码给你。</div>
+    </div>
+    <div class="step">
+      <div class="n">3</div>
+      <div>用新密码登录。<span class="muted">首次登录后建议在「我的」页面自行修改为常用密码。</span></div>
+    </div>
+
+    <h2>本实例的管理员</h2>
+    ${admins.length
+      ? `<p class="muted" style="margin-bottom:6px">以下账号拥有管理权限，可协助重置密码：</p>
+         <ul>${list}</ul>`
+      : `<ul>${list}</ul>`}
+    <p class="muted" style="margin-top:14px;font-size:13px">
+      出于隐私考虑，本页不展示管理员的具体联系方式，请通过既有渠道联系。
+    </p>
+
+    <a class="back" href="/">← 返回登录</a>
+  </div>
+</div>
 </body>
 </html>`;
 }

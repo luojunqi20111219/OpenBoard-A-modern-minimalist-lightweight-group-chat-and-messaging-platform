@@ -290,23 +290,48 @@ authRoutes.post('/login', async (c) => {
     return c.json({ detail: '账号或密码错误' }, 401);
   }
 
-  if (isUnsupportedHash(user.password_hash)) {
-    return c.json(
-      { detail: '该账号密码为旧版哈希格式，请联系管理员重置密码后再登录' },
-      400,
-    );
-  }
-
-  // Free 计划单请求 CPU 上限 10ms，验证 210000 次的旧哈希必然超限。
-  // 与其抛成没说法的 500，不如提前给出可操作的提示。
+  // ---------------------------------------------------------------------
+  // 旧格式哈希（scrypt / 高迭代 pbkdf2）→ 引导用户联系管理员
+  //
+  // 这不是「密码错了」，而是**当前套餐根本算不动这个哈希**：
+  //   werkzeug 3.x 默认 scrypt:32768:8:1，验证一次约 75ms CPU
+  //   Cloudflare 免费版每请求上限 10ms → 物理上跑不完
+  //
+  // 所以不能笼统说「密码错误」（会让用户反复试、白白触发锁定），
+  // 而要明确告诉他们：密码没输错，是账号需要重置 —— 并给出联系通道。
+  // ---------------------------------------------------------------------
+  const phAlgo = (user.password_hash || '').split('$')[0] || '';
   const storedIter = iterationsOf(user.password_hash);
   const targetIter = passwordIterations(e);
-  if (storedIter !== null && storedIter > targetIter) {
+
+  const needReset = isUnsupportedHash(user.password_hash)
+    || (storedIter !== null && storedIter > targetIter);
+
+  if (needReset) {
+    const reason = isUnsupportedHash(user.password_hash)
+      ? (phAlgo.startsWith('scrypt')
+          ? '该账号使用旧版 scrypt 加密（werkzeug 默认参数），当前部署环境无法完成校验'
+          : `该账号使用旧版加密格式（${phAlgo || '未知'}），当前部署环境无法完成校验`)
+      : `该账号密码哈希迭代 ${storedIter} 次，超出当前运行套餐的 CPU 限额（${targetIter}）`;
+
     return c.json(
       {
-        detail:
-          `该账号密码哈希使用了 ${storedIter} 次迭代，超出当前运行套餐的 CPU 限额，无法验证。` +
-          `请升级到付费套餐（CPU 上限 30s），或联系管理员重置密码。`,
+        detail: '该账号需要重置密码后才能登录',
+        code: 'PASSWORD_RESET_REQUIRED',
+        reason,
+        // 联系管理员的通道 —— 客户端与网页都据此渲染
+        admin_contact: {
+          // 管理端客户端名称与入口，前端可直接展示
+          title: '请联系管理员重置密码',
+          message:
+            '您的密码本身没有输错，但该账号的密码是用旧版方式加密的，' +
+            '当前服务器无法自动校验。请联系管理员在「管理端」为您重置密码，' +
+            '重置后即可用新密码登录。',
+          // 页面直接跳转的联系入口
+          action_url: '/contact-admin',
+          action_label: '查看联系方式',
+        },
+        unavailable_since: phAlgo || null,
       },
       400,
     );

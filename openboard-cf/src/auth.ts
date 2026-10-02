@@ -134,15 +134,76 @@ export async function requireAuth(c: Context<HonoEnv>, next: Next) {
 export async function requireAdmin(c: Context<HonoEnv>, next: Next) {
   const user = c.get('user');
   if (!user) return c.json({ detail: '未登录' }, 401);
-  const admins = adminList(c.env as unknown as Env);
-  if (user.role !== 1 && !admins.includes(user.username)) {
-    return c.json({ detail: '您无权进行此项管理员操作' }, 403);
-  }
+  const ok = await isAdminAsync(c.env as unknown as Env, user);
+  if (!ok) return c.json({ detail: '您无权进行此项管理员操作' }, 403);
   await next();
 }
 
+/**
+ * ⚠️ 同步版 isAdmin —— **只看硬编码名单与 role，不查 D1**。
+ *
+ * 保留它的理由：有些调用点已经在异步上下文里、且拿不到 env.DB 的
+ * 便捷路径（或对性能敏感，不想为一次权限判断多打一次 D1）。
+ *
+ * 但它**不包含动态授权的管理员**。任何一个"决定这个人能不能做管理操作"
+ * 的判断点，都必须用 isAdminAsync，否则会出现
+ * 「管理端 App 里显示是管理员，但实际调接口 403」的割裂现象。
+ */
 export function isAdmin(env: Env, user: UserRow): boolean {
   return user.role === 1 || adminList(env).includes(user.username);
+}
+
+/**
+ * 异步版 isAdmin —— **权限判断的唯一权威来源**。
+ *
+ * 判定顺序：
+ *   1. role === 1        老数据里已经提权的账号（兼容，避免历史管理员掉权限）
+ *   2. 硬编码 ALLOWED_ADMINS  保底名单，即使 D1 挂了也能进管理端
+ *   3. D1 里 is_admin = 1     管理端点「授权」后写入的动态管理员 ← 新增
+ *
+ * 顺序不能反：2 必须在 3 之前，因为 ALLOWED_ADMINS 是"就算数据库被清空
+ * 也还能救回来"的最后一道门。全部依赖 D1 的话，一旦误删 is_admin 字段
+ * 就再也没人能进管理端了。
+ */
+export async function isAdminAsync(env: Env, user: UserRow): Promise<boolean> {
+  if (user.role === 1) return true;
+  if (adminList(env).includes(user.username)) return true;
+  return await hasAdminFlag(env, user.username);
+}
+
+/**
+ * 查询 D1 的 is_admin 标记。
+ *
+ * 表/列可能不存在（老部署没跑过迁移），所以整段包 try：
+ * 查不到一律当 false，绝不因为权限表缺失就让请求 500。
+ */
+export async function hasAdminFlag(env: Env, username: string): Promise<boolean> {
+  if (!username) return false;
+  try {
+    const row = await env.DB.prepare(
+      'SELECT is_admin FROM users WHERE username = ?',
+    )
+      .bind(username)
+      .first<{ is_admin: number | null }>();
+    return Number(row?.is_admin ?? 0) === 1;
+  } catch {
+    // 列不存在（尚未迁移）→ 等同于"没有动态授权的管理员"
+    return false;
+  }
+}
+
+/** 授予 / 撤销管理权限（写 D1 的 is_admin 列） */
+export async function setAdminFlag(
+  env: Env,
+  username: string,
+  grant: boolean,
+): Promise<void> {
+  await exec(
+    env.DB,
+    'UPDATE users SET is_admin = ? WHERE username = ?',
+    grant ? 1 : 0,
+    username,
+  );
 }
 
 /** 记录登录历史（安全中心用） */

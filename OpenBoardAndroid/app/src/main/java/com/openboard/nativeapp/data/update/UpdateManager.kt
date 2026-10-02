@@ -101,9 +101,9 @@ object UpdateManager {
                 if (response.isSuccessful && response.body() != null) {
                     val body = response.body()!!
                     if (body.status == "success") {
-                        val latestVersion = body.latest ?: "v9.0.0"
-                        val rawDownloadUrl = body.downloadUrl ?: "https://github.com/luojunqi20111219/OpenBoard-A-modern-minimalist-lightweight-group-chat-and-messaging-platform/releases/download/v9.0.0/app-debug.apk"
-                        val changelog = body.body ?: "OpenBoard V9.0.0 跨平台全套更新上线！"
+                        val latestVersion = body.latest ?: "v10.0.0"
+                        val rawDownloadUrl = body.downloadUrl ?: "https://github.com/luojunqi20111219/OpenBoard-A-modern-minimalist-lightweight-group-chat-and-messaging-platform/releases/download/v10.0.0/app-debug.apk"
+                        val changelog = body.body ?: "OpenBoard V10.0.0 管理员体系上线！"
                         
                         // Compare version
                         val currentVersion = getAppVersionName(context)
@@ -247,7 +247,7 @@ object UpdateManager {
 
                 val body = resp.body ?: throw Exception("Empty response body")
                 val totalLength = body.contentLength()
-                val apkFile = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "OpenBoard_v9.0.0.apk")
+                val apkFile = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "OpenBoard_v10.0.0.apk")
 
                 val input = body.byteStream()
                 val output = FileOutputStream(apkFile)
@@ -306,9 +306,9 @@ object UpdateManager {
     private fun getAppVersionName(context: Context): String {
         return try {
             val info = context.packageManager.getPackageInfo(context.packageName, 0)
-            info.versionName ?: "9.0.0"
+            info.versionName ?: "10.0.0"
         } catch (e: Exception) {
-            "9.0.0"
+            "10.0.0"
         }
     }
 

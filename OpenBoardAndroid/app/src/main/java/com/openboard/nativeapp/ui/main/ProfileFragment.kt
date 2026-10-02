@@ -136,6 +136,294 @@ class ProfileFragment : Fragment() {
         if (SessionManager.username == "官方账号") {
             binding.btnDeleteAccount.visibility = View.GONE
         }
+
+        // 管理员相关入口 —— 状态由服务端决定，不信任本地角色
+        binding.btnAdminRequests.setOnClickListener { showAdminRequestsDialog() }
+        binding.btnAdminPanel.setOnClickListener { showAdminListDialog() }
+        binding.btnApplyAdmin.setOnClickListener { confirmApplyAdmin() }
+        loadAdminState()
+    }
+
+    /**
+     * 查询"我是不是管理员 / 我有没有在等审批"。
+     *
+     * 这个判断必须问服务端，不能用本地 SessionManager 里的 role ——
+     * 动态授予的管理权限存在 D1，本地缓存里根本没有这个信息。
+     *
+     * 三种状态：
+     *   · 已是管理员  → 显示「待处理申请」「管理员名单」
+     *   · 有 pending  → 显示"等待审批中"的提示，不给重复申请
+     *   · 都不是      → 显示「申请成为管理员」
+     *
+     * 接口失败（比如老版本后端）时三个控件全隐藏，静默降级 ——
+     * 不打扰正常用户。
+     */
+    private fun loadAdminState() {
+        lifecycleScope.launch {
+            val result = repository.getMyAdminApplication()
+            result.onSuccess { resp ->
+                if (resp.isAdmin) {
+                    binding.boxAdmin.visibility = View.VISIBLE
+                    binding.btnApplyAdmin.visibility = View.GONE
+                    refreshPendingBadge()
+                } else if (resp.pending != null) {
+                    binding.boxAdmin.visibility = View.GONE
+                    binding.btnApplyAdmin.visibility = View.GONE
+                } else {
+                    binding.boxAdmin.visibility = View.GONE
+                    binding.btnApplyAdmin.visibility = View.VISIBLE
+                }
+            }.onFailure {
+                binding.boxAdmin.visibility = View.GONE
+                binding.btnApplyAdmin.visibility = View.GONE
+            }
+        }
+    }
+
+    /** 待处理申请的数量直接写在按钮文案上，省得管理员每天去翻 */
+    private fun refreshPendingBadge() {
+        lifecycleScope.launch {
+            repository.getAdminRequests("pending").onSuccess { list ->
+                binding.btnAdminRequests.text =
+                    if (list.isEmpty()) "待处理的管理员申请" else "待处理的管理员申请（${list.size}）"
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // 申请成为管理员
+    // -----------------------------------------------------------------------
+
+    private fun confirmApplyAdmin() {
+        val note = EditText(requireContext()).apply {
+            hint = "简单说明你是谁、为什么要管理权限"
+            minLines = 2
+        }
+        val wrap = android.widget.FrameLayout(requireContext()).apply {
+            setPadding(48, 16, 48, 0)
+            addView(note)
+        }
+
+        AlertDialog.Builder(requireContext())
+            .setTitle("申请成为管理员")
+            .setMessage(
+                "提交后需要现有管理员批准才能生效。\n\n" +
+                    "管理员可以封禁用户、重置他人密码、管理群聊 —— " +
+                    "你的说明会展示给审批人，写清楚更容易通过。",
+            )
+            .setView(wrap)
+            .setPositiveButton("提交申请") { _, _ ->
+                val text = note.text.toString().trim()
+                if (text.isEmpty()) {
+                    Toast.makeText(requireContext(), "请填写申请说明", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                doApplyAdmin(text)
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun doApplyAdmin(note: String) {
+        binding.progressBar.visibility = View.VISIBLE
+        lifecycleScope.launch {
+            val device = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}"
+            val result = repository.applyForAdmin(note, device)
+            binding.progressBar.visibility = View.GONE
+            result.onSuccess {
+                AlertDialog.Builder(requireContext())
+                    .setTitle("申请已提交")
+                    .setMessage(
+                        "请等待现有管理员批准。\n\n" +
+                            "你可以随时在「设置」里查看状态 —— 批准后这里会出现管理入口。",
+                    )
+                    .setPositiveButton("好的", null)
+                    .show()
+                loadAdminState()
+            }.onFailure { e ->
+                Toast.makeText(requireContext(), "提交失败：${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // 审批申请（管理员）
+    // -----------------------------------------------------------------------
+
+    private fun showAdminRequestsDialog() {
+        binding.progressBar.visibility = View.VISIBLE
+        lifecycleScope.launch {
+            val result = repository.getAdminRequests("pending")
+            binding.progressBar.visibility = View.GONE
+
+            result.onSuccess { list ->
+                if (list.isEmpty()) {
+                    AlertDialog.Builder(requireContext())
+                        .setTitle("待处理的管理员申请")
+                        .setMessage("目前没有人申请。")
+                        .setPositiveButton("知道了", null)
+                        .show()
+                    return@launch
+                }
+
+                // 每条申请渲染成「用户名 · 时间 · 说明」，点进去做批准/拒绝
+                val items = list.map { r ->
+                    buildString {
+                        append(r.username)
+                        append("  ")
+                        append(friendlyTime(r.createdAt))
+                        r.note?.takeIf { it.isNotBlank() }?.let { append("\n$it") }
+                    }
+                }.toTypedArray()
+
+                AlertDialog.Builder(requireContext())
+                    .setTitle("待处理的管理员申请（${list.size}）")
+                    .setItems(items) { _, which -> showDecisionDialog(list[which]) }
+                    .setNegativeButton("关闭", null)
+                    .show()
+            }.onFailure { e ->
+                Toast.makeText(requireContext(), "读取失败：${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    /** 单条申请的批准 / 拒绝 */
+    private fun showDecisionDialog(req: com.openboard.nativeapp.data.model.AdminRequest) {
+        val detail = buildString {
+            append("用户名：${req.username}\n")
+            append("申请时间：${friendlyTime(req.createdAt)}\n")
+            if (!req.deviceInfo.isNullOrBlank()) append("设备：${req.deviceInfo}\n")
+            if (!req.note.isNullOrBlank()) append("\n说明：\n${req.note}")
+            append("\n\n批准后该账号可以：\n")
+            append("· 登录管理端 App\n")
+            append("· 封禁其他用户、重置他人密码\n")
+            append("· 继续授予或撤销其他人的管理权限\n\n")
+            append("只在确认对方身份可信时才批准。")
+        }
+
+        AlertDialog.Builder(requireContext())
+            .setTitle("处理申请：${req.username}")
+            .setMessage(detail)
+            .setPositiveButton("批准为管理员") { _, _ -> decideAdmin(req, approve = true) }
+            .setNeutralButton("拒绝") { _, _ -> decideAdmin(req, approve = false) }
+            .setNegativeButton("稍后再说", null)
+            .show()
+    }
+
+    private fun decideAdmin(
+        req: com.openboard.nativeapp.data.model.AdminRequest,
+        approve: Boolean,
+    ) {
+        binding.progressBar.visibility = View.VISIBLE
+        lifecycleScope.launch {
+            val result = if (approve) {
+                repository.approveAdmin(req.username, req.id)
+            } else {
+                repository.rejectAdmin(req.username, req.id)
+            }
+            binding.progressBar.visibility = View.GONE
+            result.onSuccess {
+                Toast.makeText(
+                    requireContext(),
+                    if (approve) "已授予 ${req.username} 管理权限" else "已拒绝该申请",
+                    Toast.LENGTH_SHORT,
+                ).show()
+                refreshPendingBadge()
+            }.onFailure { e ->
+                Toast.makeText(requireContext(), "操作失败：${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // 管理员名单（管理员）
+    // -----------------------------------------------------------------------
+
+    private fun showAdminListDialog() {
+        binding.progressBar.visibility = View.VISIBLE
+        lifecycleScope.launch {
+            val result = repository.getAdminList()
+            binding.progressBar.visibility = View.GONE
+
+            result.onSuccess { admins ->
+                if (admins.isEmpty()) {
+                    Toast.makeText(requireContext(), "管理员名单为空", Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+
+                val labels = admins.map { a ->
+                    val tag = if (a.builtin) "（服务器保底）" else ""
+                    val me = if (a.username == SessionManager.username) "  ← 你" else ""
+                    "${a.username}$tag$me"
+                }.toTypedArray()
+
+                AlertDialog.Builder(requireContext())
+                    .setTitle("管理员名单（${admins.size}）")
+                    .setItems(labels) { _, which -> showAdminActionDialog(admins[which]) }
+                    .setNegativeButton("关闭", null)
+                    .show()
+            }.onFailure { e ->
+                Toast.makeText(requireContext(), "读取失败：${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun showAdminActionDialog(entry: com.openboard.nativeapp.data.model.AdminEntry) {
+        // 自己和保底名单不给撤销入口 —— 与客户端无关，服务端也会拦，这里只是少让人白点
+        if (entry.username == SessionManager.username) {
+            Toast.makeText(requireContext(), "这是你自己的账号", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (entry.builtin) {
+            AlertDialog.Builder(requireContext())
+                .setTitle(entry.username)
+                .setMessage(
+                    "该账号在服务器的保底管理员名单里（wrangler.toml 的 ALLOWED_ADMINS）。\n\n" +
+                        "这是「就算数据库出问题也还能进管理端」的兜底通道，因此不能在 App 里撤销。",
+                )
+                .setPositiveButton("知道了", null)
+                .show()
+            return
+        }
+
+        AlertDialog.Builder(requireContext())
+            .setTitle("撤销 ${entry.username} 的管理权限")
+            .setMessage("撤销后 TA 将无法登录管理端，也不能再执行任何管理操作。")
+            .setPositiveButton("撤销") { _, _ ->
+                binding.progressBar.visibility = View.VISIBLE
+                lifecycleScope.launch {
+                    val r = repository.revokeAdmin(entry.username)
+                    binding.progressBar.visibility = View.GONE
+                    r.onSuccess {
+                        Toast.makeText(requireContext(), "已撤销", Toast.LENGTH_SHORT).show()
+                        refreshPendingBadge()
+                    }.onFailure { e ->
+                        Toast.makeText(requireContext(), "撤销失败：${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    /** 把 ISO 时间戳转成「3 分钟前」。解析失败就原样返回，不抛异常 */
+    private fun friendlyTime(iso: String?): String {
+        if (iso.isNullOrBlank()) return ""
+        return try {
+            val cleaned = iso.replace("T", " ").removeSuffix("Z")
+            val fmt = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
+            fmt.isLenient = true
+            val t = fmt.parse(cleaned.substring(0, minOf(19, cleaned.length))) ?: return iso
+            val diff = System.currentTimeMillis() - t.time
+            when {
+                diff < 60_000 -> "刚刚"
+                diff < 3_600_000 -> "${diff / 60_000} 分钟前"
+                diff < 86_400_000 -> "${diff / 3_600_000} 小时前"
+                else -> "${diff / 86_400_000} 天前"
+            }
+        } catch (e: Exception) {
+            iso
+        }
     }
 
     /**

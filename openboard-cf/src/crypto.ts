@@ -180,6 +180,33 @@ export function isUnsupportedHash(stored: string | null): boolean {
   return algo !== 'pbkdf2';
 }
 
+/**
+ * 该哈希在当前迭代预算下能否验证通过。
+ *
+ * ⚠️ 这里是**唯一权威**的判定，登录路径与管理端用户列表都必须用它。
+ *
+ * 之前管理端用户列表只调 isUnsupportedHash（只看算法名），结果
+ * `pbkdf2:sha256:260000` 这种"算法对但迭代数超预算"的哈希被标成
+ * 可正常登录 —— 而实际登录时会走到 PASSWORD_RESET_REQUIRED。
+ * 管理员照着列表去找人重置，会漏掉一批，而且列表和实际行为对不上。
+ *
+ * 判定条件与 routes/auth.ts 的登录检查逐条对应：
+ *   1. 算法不是 pbkdf2          → 当前套餐跑不动（scrypt 单次 ~75ms > 10ms）
+ *   2. 迭代次数高于当前预算     → PBKDF2 也会超时
+ *
+ * @param stored 数据库里的哈希串
+ * @param targetIterations 当前套餐允许的迭代上限（见 env.passwordIterations）
+ */
+export function needsPasswordReset(
+  stored: string | null,
+  targetIterations: number,
+): boolean {
+  if (!stored) return false;
+  if (isUnsupportedHash(stored)) return true;
+  const storedIter = iterationsOf(stored);
+  return storedIter !== null && storedIter > targetIterations;
+}
+
 // ---------------------------------------------------------------------------
 // JWT（HS256）
 // ---------------------------------------------------------------------------

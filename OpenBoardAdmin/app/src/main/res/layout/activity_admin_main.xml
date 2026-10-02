@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical">
+
+    <!-- 顶部栏 -->
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="@color/brand"
+        app:title="OpenBoard 管理端"
+        app:titleTextColor="@color/white" />
+
+    <!-- 迁移未完成的提示条 -->
+    <TextView
+        android:id="@+id/tvMigrationBanner"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="12dp"
+        android:textSize="13sp"
+        android:lineSpacingExtra="3dp"
+        android:background="#FFF7ED"
+        android:textColor="#B45309"
+        android:visibility="gone"
+        android:text="数据库尚未完成管理员功能初始化，部分功能不可用。" />
+
+    <com.google.android.material.tabs.TabLayout
+        android:id="@+id/tabs"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:tabMode="scrollable"
+        app:tabGravity="start"
+        app:tabIndicatorColor="@color/brand"
+        app:tabSelectedTextColor="@color/brand" />
+
+    <androidx.viewpager2.widget.ViewPager2
+        android:id="@+id/pager"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+</LinearLayout>

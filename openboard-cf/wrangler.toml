@@ -80,7 +80,7 @@ directory = "public"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
 # /upload 与 /api/import 也必须走 Worker（否则会被 SPA 回退吞成 index.html）
-run_worker_first = ["/api/*", "/ws", "/ws/*", "/upload", "/uploads", "/uploads/*"]
+run_worker_first = ["/api/*", "/ws", "/ws/*", "/upload", "/uploads", "/uploads/*", "/contact-admin"]
 
 # ---------------------------------------------------------------------------
 # D1 数据库（原 SQLite board.db）
@@ -140,14 +140,19 @@ new_sqlite_classes = ["ChatHub"]
 #    若在 [vars] 里也声明同名变量，secret put 会报
 #    "Binding name 'JWT_SECRET' already in use" [code: 10053]。
 #    本文件也不该出现真实密钥（会进 git 历史）。
-CURRENT_VERSION = "v9.0.0"
+CURRENT_VERSION = "v10.0.0"
 # PBKDF2 迭代次数。Free 计划 CPU 上限 10ms，210000 次必然超限导致
 # 登录/注册全部 500，故 Free 套餐请留空（用代码内 10000 的默认值）；
 # 升级到 Paid（CPU 上限 30s）后可设为 210000 提升安全性。
 # 已存在的哈希自带迭代次数，调整此值不会让已有密码失效。
 PASSWORD_ITERATIONS = ""
-# 逗号分隔的管理员用户名
-ALLOWED_ADMINS = "官方账号,Forest_siri,Forest_Brian_Birch"
+# 逗号分隔的管理员用户名。
+#
+# ⚠️ 这是**保底通道**：权限判定顺序是 role=1 → 本名单 → D1 users.is_admin。
+#    本名单必须在 D1 之前，否则一旦误删 is_admin 就再没有人能进管理端。
+#    正常增删管理员请用管理端 App（写 D1），这里只保留"绝对不能再进不去"的账号。
+#    注意用户名必须与 users.username 完全一致（含大小写）。
+ALLOWED_ADMINS = "官方账号,Forest_siri,Brian_Birch"
 MAX_CONNECTIONS_PER_USER = "4"
 # 是否允许免鉴权读取 R2 中的上传文件（图片直链需要），设 false 则强制登录
 PUBLIC_UPLOADS = "true"

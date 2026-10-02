@@ -281,3 +281,51 @@ CREATE INDEX IF NOT EXISTS idx_user_devices_user_login ON user_devices(user_id, 
 CREATE INDEX IF NOT EXISTS idx_revoked_sessions_user ON revoked_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 CREATE INDEX IF NOT EXISTS idx_notifications_target ON notifications(target_user, id DESC);
+
+-- ===========================================================================
+-- 管理员授权（管理端 App 用）
+-- ===========================================================================
+--
+-- 背景：早期管理员名单硬编码在 wrangler.toml 的 ALLOWED_ADMINS 里，
+-- 增删一个管理员要改配置并重新部署。管理端 App 需要动态授权，因此改存 D1。
+--
+-- 设计：
+--   · is_admin = 1 表示该账号拥有管理权限（与原 role=1 等价，但独立成列，
+--     避免和"版主/普通用户"这类业务角色语义混淆）
+--   · granted_by 记录是谁授予的，形成审计链
+--   · 首次授权走"申请 → 批准"：被授权人先登录管理端提交申请，
+--     现有管理员在聊天端或管理端点「批准」才真正生效，
+--     防止误点把陌生人提权
+-- ---------------------------------------------------------------------------
+
+-- 管理员申请表
+CREATE TABLE IF NOT EXISTS admin_requests (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    username    TEXT NOT NULL,
+    -- 申请人填写的说明（如"我是 XX，负责内容审核"），供管理员判断
+    note        TEXT,
+    -- pending / approved / rejected
+    status      TEXT NOT NULL DEFAULT 'pending',
+    -- 申请人设备信息，便于管理员识别
+    device_info TEXT,
+    created_at  TEXT NOT NULL,
+    handled_at  TEXT,
+    handled_by  TEXT,
+    UNIQUE(username, status)
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_requests_status
+    ON admin_requests(status, id DESC);
+
+-- 管理员操作审计日志（谁在什么时候对谁做了什么）
+CREATE TABLE IF NOT EXISTS admin_audit_logs (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    actor      TEXT NOT NULL,
+    action     TEXT NOT NULL,
+    target     TEXT,
+    detail     TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_audit_created
+    ON admin_audit_logs(id DESC);

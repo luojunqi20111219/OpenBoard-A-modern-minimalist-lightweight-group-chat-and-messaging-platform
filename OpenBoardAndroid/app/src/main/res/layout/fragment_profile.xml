@@ -191,7 +191,7 @@
                     android:id="@+id/btn_check_update"
                     android:layout_width="match_parent"
                     android:layout_height="52dp"
-                    android:text="🚀 检查系统软件更新 (V9.0.0)"
+                    android:text="🚀 检查系统软件更新 (V10.0.0)"
                     android:textAllCaps="false"
                     android:textSize="15sp"
                     android:layout_marginBottom="12dp"
@@ -230,6 +230,56 @@
                     android:layout_marginBottom="12dp"
                     android:visibility="gone"
                     style="@style/Widget.MaterialComponents.Button.OutlinedButton"/>
+
+                <!-- ======== 管理员入口（非管理员隐藏） ======== -->
+                <LinearLayout
+                    android:id="@+id/box_admin"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="8dp"
+                        android:text="管理"
+                        android:textColor="#8A9099"
+                        android:textSize="13sp" />
+
+                    <!-- 待处理的管理员申请 —— 有数据时才显示 -->
+                    <Button
+                        android:id="@+id/btn_admin_requests"
+                        android:layout_width="match_parent"
+                        android:layout_height="52dp"
+                        android:layout_marginBottom="12dp"
+                        android:text="待处理的管理员申请"
+                        android:textAllCaps="false"
+                        android:textSize="15sp"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+
+                    <Button
+                        android:id="@+id/btn_admin_panel"
+                        android:layout_width="match_parent"
+                        android:layout_height="52dp"
+                        android:layout_marginBottom="12dp"
+                        android:text="管理员名单"
+                        android:textAllCaps="false"
+                        android:textSize="15sp"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+                </LinearLayout>
+
+                <!-- 申请成为管理员（非管理员且未申请时显示） -->
+                <Button
+                    android:id="@+id/btn_apply_admin"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginBottom="12dp"
+                    android:text="申请成为管理员"
+                    android:textAllCaps="false"
+                    android:textSize="15sp"
+                    android:visibility="gone"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
 
                 <!-- Logout Button -->
                 <Button
