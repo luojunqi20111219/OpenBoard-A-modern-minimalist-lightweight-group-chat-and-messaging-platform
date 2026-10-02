@@ -46,6 +46,9 @@ OpenBoardHarmony/entry/build/
 OpenBoardHarmony/entry/oh_modules/
 OpenBoardHarmony/entry/local.properties
 
+# 发布产物（APK 走 GitHub Release 附件，不入库）
+releases/
+
 # Cloudflare 版构建产物
 node_modules/
 .wrangler/
