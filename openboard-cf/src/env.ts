@@ -46,8 +46,15 @@ export function jwtSecret(env: Env): string {
   return (env.JWT_SECRET && env.JWT_SECRET.length > 0) ? env.JWT_SECRET : DEV_FALLBACK_SECRET;
 }
 
+/**
+ * 硬编码的管理员保底名单（逗号分隔）。
+ *
+ * ⚠️ 这两处默认值必须与 wrangler.toml 的 ALLOWED_ADMINS 保持一致，
+ *    否则"没配环境变量"的部署会走进一个名字对不上的名单里 ——
+ *    表现是管理员进不去管理端，但看配置又"明明配了"。
+ */
 export function adminList(env: Env): string[] {
-  return (env.ALLOWED_ADMINS || '官方账号,Forest_siri,Forest_Brian_Birch')
+  return (env.ALLOWED_ADMINS || '官方账号,Forest_siri,Brian_Birch')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);

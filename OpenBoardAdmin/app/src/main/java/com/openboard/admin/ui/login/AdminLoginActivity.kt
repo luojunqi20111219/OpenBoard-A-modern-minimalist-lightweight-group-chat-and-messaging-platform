@@ -86,6 +86,7 @@ class AdminLoginActivity : AppCompatActivity() {
         binding.tvMessage.visibility = View.GONE
         binding.btnApply.visibility = View.GONE
         binding.btnContact.visibility = View.GONE
+        binding.tvAdminNames.visibility = View.GONE
     }
 
     private fun doLogin() {
@@ -136,12 +137,12 @@ class AdminLoginActivity : AppCompatActivity() {
                     return@launch
                 }
                 session.token = token
-                session.username = body?.username ?: username
-                session.nickname = body?.nickname
+                session.username = body.username ?: username
+                session.nickname = body.nickname
                 AdminRetrofitClient.setToken(token)
 
                 // 是否管理员 —— 服务端返回 is_admin 优先，没有则退回 role==1
-                val isAdmin = body?.isAdmin == true || body?.role == 1
+                val isAdmin = body.isAdmin == true || body.role == 1
                 if (isAdmin) {
                     startActivity(Intent(this@AdminLoginActivity, AdminMainActivity::class.java))
                     finish()
@@ -158,13 +159,25 @@ class AdminLoginActivity : AppCompatActivity() {
             val body = parseError(r)
             when (body?.code) {
                 "PASSWORD_RESET_REQUIRED" -> {
-                    // 密码没输错，是旧版哈希算不动 —— 必须联系管理员重置
-                    val reason = body.reason ?: "该账号密码为旧版格式，当前环境无法校验"
+                    // 密码没输错，是旧版哈希算不动 —— 必须联系管理员重置。
+                    // 文案与聊天端 LoginActivity 保持一致，两端同一个说法，
+                    // 免得用户在不同 App 里看到两套解释。
+                    val reason = body.reason ?: "该账号的密码为旧版格式，当前服务器无法自动校验"
+                    binding.tvAdminNames.visibility = View.GONE
                     showMessage(
                         "该账号需要重置密码\n\n$reason\n\n" +
-                            "请联系现有管理员在管理端为你重置密码，重置后即可用新密码登录。",
+                            body.adminContact?.message.orEmpty().ifBlank {
+                                "您的密码没有输错。请联系管理员为您重置密码，重置后即可用新密码登录。"
+                            },
                         showContact = true,
                     )
+
+                    // 把管理员名字显出来，用户可以直接长按复制去联系人
+                    val names = body.adminContact?.admins?.filter { it.isNotBlank() }.orEmpty()
+                    if (names.isNotEmpty()) {
+                        binding.tvAdminNames.text = names.joinToString(" · ")
+                        binding.tvAdminNames.visibility = View.VISIBLE
+                    }
                 }
                 else -> {
                     showMessage(body?.detail ?: "登录失败（HTTP ${r.code()}）")

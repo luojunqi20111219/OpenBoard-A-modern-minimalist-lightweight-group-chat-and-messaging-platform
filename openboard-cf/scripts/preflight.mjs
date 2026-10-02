@@ -150,6 +150,50 @@ try {
     const bad = await post('/api/login', { username: U1, password: 'wrong-password' });
     ok('错误密码登录被拒', bad.status >= 400, `status=${bad.status}`);
 
+    // -----------------------------------------------------------------------
+    // 旧格式哈希 → 必须返回 400 + PASSWORD_RESET_REQUIRED + 联系管理员通道
+    //
+    // 这条路径的现实意义：werkzeug 默认 scrypt:32768:8:1 在 Free 计划下
+    // 算不动（需 75ms CPU，上限 10ms）。用户密码没输错，只是环境算不了，
+    // 所以不能笼统回「密码错误」——要明确告诉他去联系管理员重置。
+    // -----------------------------------------------------------------------
+    const scryptUser = `qa_scrypt_${stamp}`;
+    const qaDb = await mf.getD1Database('DB');
+    await qaDb.prepare(
+      'INSERT INTO users (username, password_hash, nickname, role, is_banned) VALUES (?,?,?,0,0)',
+    ).bind(
+      scryptUser,
+      // werkzeug 默认参数的真实格式：scrypt:N:r:p$salt$hash
+      'scrypt:32768:8:1$abcdefghijklmnop$' + 'a'.repeat(128),
+      scryptUser,
+    ).run();
+
+    const sr = await post('/api/login', { username: scryptUser, password: 'whatever' });
+    ok('旧 scrypt 账号登录返回 400（不是 401）', sr.status === 400, `status=${sr.status}`);
+    ok('响应含 PASSWORD_RESET_REQUIRED', sr.body?.code === 'PASSWORD_RESET_REQUIRED',
+      JSON.stringify(sr.body));
+    ok('响应带 reason 说明原因', typeof sr.body?.reason === 'string' && sr.body.reason.length > 0,
+      JSON.stringify(sr.body?.reason));
+    ok('响应带 admin_contact 联系通道',
+      !!sr.body?.admin_contact?.action_url && !!sr.body?.admin_contact?.action_label,
+      JSON.stringify(sr.body?.admin_contact));
+    ok('admin_contact 带管理员名单',
+      Array.isArray(sr.body?.admin_contact?.admins) && sr.body.admin_contact.admins.length > 0,
+      JSON.stringify(sr.body?.admin_contact?.admins));
+    // 名单里只能有用户名，不能夹带隐私字段
+    ok('管理员名单只含用户名字符串',
+      (sr.body?.admin_contact?.admins ?? []).every((a) => typeof a === 'string'),
+      JSON.stringify(sr.body?.admin_contact?.admins));
+    // 只能暴露算法标识（scrypt:32768:8:1 这类），绝不能带上 salt / hash 本体。
+    // 完整哈希形如 scrypt:32768:8:1$<salt>$<hash>，$ 之后的部分才是秘密。
+    const bodyStr = JSON.stringify(sr.body ?? {});
+    ok('不能把密码哈希的 salt/hash 回传给客户端',
+      !bodyStr.includes('abcdefghijklmnop') && !bodyStr.includes('a'.repeat(64)),
+      '响应体里出现了哈希的 salt 或 hash 段');
+    // 关键：旧格式账号不能因为密码被"猜对"就放行
+    ok('旧格式账号即使密码正确也不放行',
+      !sr.body?.token, JSON.stringify({ token: sr.body?.token }));
+
     const li = await post('/api/login', { username: U1, password: PW });
     ok('正确密码登录成功', li.status === 200 && !!li.body?.token, `status=${li.status}`);
     if (li.body?.token) t1 = li.body.token;

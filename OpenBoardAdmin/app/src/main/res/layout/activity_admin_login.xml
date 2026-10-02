@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fillViewport="true">
@@ -111,6 +112,25 @@
             android:visibility="gone"
             android:background="#FFF7ED"
             android:textColor="#B45309" />
+
+        <!--
+          管理员用户名列表 —— 只在「需要重置密码」时显示。
+          可长按复制，方便用户直接发给管理员。与聊天端保持一致的呈现方式。
+        -->
+        <TextView
+            android:id="@+id/tvAdminNames"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:fontFamily="monospace"
+            android:textIsSelectable="true"
+            android:visibility="gone"
+            android:textColor="#B45309"
+            tools:text="官方账号 · Forest_siri" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnApply"

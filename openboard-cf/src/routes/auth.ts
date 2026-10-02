@@ -330,6 +330,13 @@ authRoutes.post('/login', async (c) => {
           // 页面直接跳转的联系入口
           action_url: '/contact-admin',
           action_label: '查看联系方式',
+          // 管理员用户名列表 —— 让 App 不必跳浏览器就能把名字显示出来，
+          // 用户可以直接复制去发给对方。
+          //
+          // 这里只放**用户名**：它本来就在 /contact-admin 页面上明文展示，
+          // 也存在 ALLOWED_ADMINS 里，不构成新增信息泄露。
+          // ⚠️ 不要往这里加邮箱 / 手机号 / 任何隐私字段。
+          admins: adminList(e),
         },
         unavailable_since: phAlgo || null,
       },

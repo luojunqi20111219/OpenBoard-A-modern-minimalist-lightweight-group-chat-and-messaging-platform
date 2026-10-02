@@ -2,12 +2,29 @@ package com.openboard.nativeapp.data.repository
 
 import com.openboard.nativeapp.data.api.RetrofitClient
 import com.openboard.nativeapp.data.model.*
+import com.google.gson.Gson
 import okhttp3.MultipartBody
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
+
+/**
+ * 携带结构化错误体的 API 异常。
+ *
+ * ⚠️ 为什么需要它：登录失败不能只看 HTTP 状态码。
+ *    服务端在「账号需要重置密码」时返回 400 + `PASSWORD_RESET_REQUIRED`
+ *    + `admin_contact`（该找谁、怎么找）。如果只抛一个
+ *    `Exception("API error: 400")`，这些信息全丢了，用户看到的
+ *    就是一句没用的「网络错误」——而实际上他的密码根本没输错。
+ *
+ * 继承 [Exception] 是为了兼容既有代码：老调用方仍然可以照常读 `message`。
+ */
+class ApiErrorException(
+    val statusCode: Int,
+    val error: AuthErrorResponse?,
+) : Exception("API error: $statusCode")
 
 /**
  * 集中管理数据请求的 Repository 类，将 Retrofit 的异步 Callback 桥接为协程挂起函数
@@ -20,10 +37,18 @@ class ChatRepository {
             val c = call()
             c.enqueue(object : Callback<T> {
                 override fun onResponse(retroCall: Call<T>, response: Response<T>) {
-                    if (response.isSuccessful && response.body() != null)
+                    if (response.isSuccessful && response.body() != null) {
                         cont.resume(Result.success(response.body()!!))
-                    else
-                        cont.resume(Result.failure(Exception("API error: ${response.code()}")))
+                    } else {
+                        // 尽量把服务端的结构化错误带出去 —— 登录要靠它区分
+                        // 「密码错」和「账号需要重置密码」。
+                        // 解析失败（比如返回的是 HTML 错误页）也不能崩，退回纯状态码。
+                        val parsed = runCatching {
+                            response.errorBody()?.string()
+                                ?.let { Gson().fromJson(it, AuthErrorResponse::class.java) }
+                        }.getOrNull()
+                        cont.resume(Result.failure(ApiErrorException(response.code(), parsed)))
+                    }
                 }
                 override fun onFailure(retroCall: Call<T>, t: Throwable) {
                     cont.resume(Result.failure(t))

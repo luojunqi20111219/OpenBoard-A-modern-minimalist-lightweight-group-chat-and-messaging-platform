@@ -8,6 +8,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.openboard.nativeapp.data.local.SessionManager
 import com.openboard.nativeapp.data.model.User
+import com.openboard.nativeapp.data.repository.ApiErrorException
 import com.openboard.nativeapp.data.repository.ChatRepository
 import com.openboard.nativeapp.databinding.ActivityLoginBinding
 import com.openboard.nativeapp.ui.main.MainActivity
@@ -115,6 +116,9 @@ class LoginActivity : AppCompatActivity() {
             return
         }
 
+        // 清掉上一次的提示，避免用户改了输入框后旧提示还挂在页面上误导人
+        hideLoginError()
+
         binding.progressBar.visibility = View.VISIBLE
         binding.btnAction.isEnabled = false
 
@@ -137,14 +141,115 @@ class LoginActivity : AppCompatActivity() {
                     Toast.makeText(this@LoginActivity, resp.msg ?: "登录失败", Toast.LENGTH_SHORT).show()
                 }
             }.onFailure { e ->
-                val errorMsg = e.message ?: ""
-                val displayMsg = if (errorMsg.contains("401")) {
-                    "用户名或密码错误"
-                } else {
-                    "网络错误: $errorMsg"
-                }
-                Toast.makeText(this@LoginActivity, displayMsg, Toast.LENGTH_SHORT).show()
+                handleLoginFailure(e)
             }
+        }
+    }
+
+    /**
+     * 按失败原因给出**不同**的提示。
+     *
+     * 之前这里只把 401 特判成「用户名或密码错误」，其余一律显示
+     * 「网络错误: API error: 400」——而 400 恰恰是最需要解释清楚的一种：
+     * 用户的密码根本没输错，只是这个账号的密码是旧版格式，服务器算不动。
+     * 笼统报「网络错误」会让人反复重试密码，白白触发登录锁定。
+     */
+    private fun handleLoginFailure(e: Throwable) {
+        if (e !is ApiErrorException) {
+            Toast.makeText(this, "网络错误：${e.message}", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val err = e.error
+        when {
+            // 旧版哈希算不动 → 给出联系管理员重置密码的通道
+            err?.code == "PASSWORD_RESET_REQUIRED" -> {
+                val reason = err.reason ?: "该账号的密码为旧版格式，当前服务器无法自动校验"
+                showLoginError(
+                    title = err.adminContact?.title ?: "该账号需要重置密码",
+                    message = buildString {
+                        append(reason)
+                        append("\n\n")
+                        append(
+                            err.adminContact?.message
+                                ?: "您的密码没有输错。请联系管理员为您重置密码，重置后即可用新密码登录。"
+                        )
+                    },
+                    admins = err.adminContact?.admins,
+                    actionLabel = err.adminContact?.actionLabel,
+                )
+            }
+
+            e.statusCode == 401 ->
+                Toast.makeText(this, "用户名或密码错误", Toast.LENGTH_SHORT).show()
+
+            e.statusCode == 403 ->
+                Toast.makeText(this, err?.detail ?: "该账号已被封禁", Toast.LENGTH_LONG).show()
+
+            e.statusCode == 429 ->
+                Toast.makeText(this, err?.detail ?: "登录尝试过多，请稍后再试", Toast.LENGTH_LONG).show()
+
+            else ->
+                Toast.makeText(
+                    this,
+                    err?.detail ?: "登录失败（HTTP ${e.statusCode}）",
+                    Toast.LENGTH_SHORT,
+                ).show()
+        }
+    }
+
+    /**
+     * 在登录表单下方显示常驻提示。
+     *
+     * @param admins 管理员用户名列表；为空则不显示名字行
+     */
+    private fun showLoginError(
+        title: String,
+        message: String,
+        admins: List<String>?,
+        actionLabel: String?,
+    ) {
+        binding.boxLoginError.visibility = View.VISIBLE
+        binding.tvErrorTitle.text = title
+        binding.tvErrorMessage.text = message
+
+        val names = admins?.filter { it.isNotBlank() }.orEmpty()
+        if (names.isNotEmpty()) {
+            // 用 · 分隔，纯文本便于长按选中复制
+            binding.tvAdminNames.text = names.joinToString(" · ")
+            binding.tvAdminNames.visibility = View.VISIBLE
+        } else {
+            binding.tvAdminNames.visibility = View.GONE
+        }
+
+        binding.btnContactAdmin.text = actionLabel ?: "查看联系方式"
+        binding.btnContactAdmin.visibility = View.VISIBLE
+        binding.btnContactAdmin.setOnClickListener { openContactAdmin() }
+    }
+
+    private fun hideLoginError() {
+        binding.boxLoginError.visibility = View.GONE
+    }
+
+    /**
+     * 用系统浏览器打开服务端的 /contact-admin 页面。
+     *
+     * 不内嵌 WebView：那个页面本来就是给浏览器看的，交给系统浏览器
+     * 更省事，用户也能自己复制页面内容。
+     */
+    private fun openContactAdmin() {
+        // serverUrl 是可空的（尚未配置过服务器时就是 null）
+        val base = SessionManager.serverUrl?.trim()?.trimEnd('/').orEmpty()
+        if (base.isEmpty()) {
+            Toast.makeText(this, "请先填写服务器地址", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val url = "$base/contact-admin"
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)))
+        } catch (ex: Exception) {
+            // 没有浏览器 / 地址不合法时，至少把地址显示出来让用户手抄
+            Toast.makeText(this, "无法打开浏览器，请手动访问：$url", Toast.LENGTH_LONG).show()
         }
     }
 

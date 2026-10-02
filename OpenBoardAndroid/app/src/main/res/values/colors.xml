@@ -36,4 +36,9 @@
     <!-- 底部导航栏 -->
     <color name="nav_selected">#5C6BC0</color>
     <color name="nav_unselected">#B0BAC8</color>
+
+    <!-- 警示提示（登录失败 / 需要重置密码）——与服务端 /contact-admin 页面的 notice 同色系 -->
+    <color name="warning_bg">#FFFBEB</color>
+    <color name="warning_border">#B45309</color>
+    <color name="warning_text">#92400E</color>
 </resources>

@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/background"
@@ -154,6 +155,82 @@
                 android:textStyle="bold"
                 android:layout_marginBottom="16dp"
                 style="@style/Widget.MaterialComponents.Button"/>
+
+            <!--
+              登录错误提示区（默认隐藏）。
+
+              为什么不用 Toast：登录失败的说明比较长，而且「联系管理员」这个
+              场景下用户必须能把管理员名字记住/复制走，还要能回头再看一遍。
+              Toast 一闪而过且无法选中文字，做不到这些。
+
+              服务端在账号需要重置密码时返回 400 + PASSWORD_RESET_REQUIRED，
+              由 LoginActivity 填充这里的文案与联系人。
+            -->
+            <LinearLayout
+                android:id="@+id/box_login_error"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@drawable/bg_login_error"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:paddingTop="14dp"
+                android:paddingBottom="14dp"
+                android:layout_marginBottom="16dp"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/tv_error_title"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/warning_text"
+                    tools:text="该账号需要重置密码"/>
+
+                <TextView
+                    android:id="@+id/tv_error_message"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:textSize="13sp"
+                    android:lineSpacingExtra="3dp"
+                    android:textColor="@color/warning_text"
+                    tools:text="请联系管理员为你重置密码，重置后即可用新密码登录。"/>
+
+                <!--
+                  管理员名单：只显示用户名（服务端下发的本就是公开信息）。
+                  textIsSelectable 让用户能长按复制，方便直接发给管理员。
+                -->
+                <TextView
+                    android:id="@+id/tv_admin_names"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace"
+                    android:textColor="@color/warning_text"
+                    android:textIsSelectable="true"
+                    android:visibility="gone"
+                    tools:text="官方账号 · Forest_siri"/>
+
+                <Button
+                    android:id="@+id/btn_contact_admin"
+                    android:layout_width="wrap_content"
+                    android:layout_height="40dp"
+                    android:layout_marginTop="10dp"
+                    android:minWidth="0dp"
+                    android:paddingStart="18dp"
+                    android:paddingEnd="18dp"
+                    android:text="查看联系方式"
+                    android:textSize="13sp"
+                    android:backgroundTint="@color/warning_border"
+                    android:textColor="@android:color/white"
+                    android:visibility="gone"
+                    style="@style/Widget.MaterialComponents.Button"/>
+
+            </LinearLayout>
 
             <!-- Progress Bar -->
             <ProgressBar

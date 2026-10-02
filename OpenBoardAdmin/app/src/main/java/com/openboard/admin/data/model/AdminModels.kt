@@ -89,7 +89,15 @@ data class AdminContact(
     @SerializedName("title") val title: String? = null,
     @SerializedName("message") val message: String? = null,
     @SerializedName("action_url") val actionUrl: String? = null,
-    @SerializedName("action_label") val actionLabel: String? = null
+    @SerializedName("action_label") val actionLabel: String? = null,
+    /**
+     * 管理员用户名列表。
+     *
+     * 只含用户名（本来就在公开的 /contact-admin 页面上展示），
+     * 不含邮箱/手机号等隐私字段。让用户不必打开浏览器就能知道该找谁，
+     * 并能直接长按复制对方的名字。
+     */
+    @SerializedName("admins") val admins: List<String>? = null
 )
 
 /** 重置密码请求 */

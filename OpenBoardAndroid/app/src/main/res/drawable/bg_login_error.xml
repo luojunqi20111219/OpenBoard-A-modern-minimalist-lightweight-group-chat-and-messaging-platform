@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  登录警示卡片背景。
+
+  与网页端 /contact-admin 的 .notice 样式对齐：
+  浅琥珀色底 + 左侧一道深琥珀色竖条 + 圆角。
+
+  用 layer-list 实现「左边框」：底层是完整的圆角卡片，
+  上层盖一条 4dp 宽的左对齐色带，再用 clip 保持圆角。
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 卡片本体 -->
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/warning_bg"/>
+            <stroke android:width="1dp" android:color="@color/warning_border"/>
+            <corners android:radius="10dp"/>
+        </shape>
+    </item>
+
+    <!-- 左侧强调色带 -->
+    <item android:width="4dp" android:gravity="left|start">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/warning_border"/>
+            <corners
+                android:topLeftRadius="10dp"
+                android:bottomLeftRadius="10dp"/>
+        </shape>
+    </item>
+</layer-list>
