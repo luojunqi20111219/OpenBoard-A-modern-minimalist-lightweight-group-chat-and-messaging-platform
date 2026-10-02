@@ -96,6 +96,46 @@ class ChatRepository {
             cont.invokeOnCancellation { c.cancel() }
         }
 
+    /**
+     * 与 [apiCallVoid] 相同，但失败时**保留服务端的结构化错误体**。
+     *
+     * 为什么需要单独一个：原来的 apiCallVoid 失败时只抛
+     * `Exception("API error: 429 ")` —— 把 errorBody 整个丢了。
+     * 而自助重置接口的几个失败原因（今天已重置过 / 该账号无需重置 /
+     * 管理员账号不能自助重置）**全靠 detail 字段区分**，
+     * 丢掉之后用户只会看到一句没有信息量的 "API error: 429"。
+     */
+    private suspend fun apiCallVoidRaw(call: () -> Call<ApiResponse<Any>>): Result<Unit> =
+        suspendCancellableCoroutine { cont ->
+            val c = call()
+            c.enqueue(object : Callback<ApiResponse<Any>> {
+                override fun onResponse(retroCall: Call<ApiResponse<Any>>, response: Response<ApiResponse<Any>>) {
+                    val body = response.body()
+                    if (response.isSuccessful && body != null && (body.code == 200 || body.status == "success")) {
+                        cont.resume(Result.success(Unit))
+                    } else {
+                        // 失败响应可能是非 2xx（带 errorBody），也可能是 2xx 但业务码不对
+                        // （此时错误信息在 body.msg 里）。两种都要带上。
+                        val parsed = runCatching {
+                            response.errorBody()?.string()
+                                ?.let { Gson().fromJson(it, AuthErrorResponse::class.java) }
+                        }.getOrNull()
+                        val detail = parsed?.detail ?: body?.msg
+                        val withDetail = if (parsed != null && parsed.detail == null) {
+                            parsed.copy(detail = detail)
+                        } else {
+                            parsed ?: AuthErrorResponse(detail = detail)
+                        }
+                        cont.resume(Result.failure(ApiErrorException(response.code(), withDetail)))
+                    }
+                }
+                override fun onFailure(retroCall: Call<ApiResponse<Any>>, t: Throwable) {
+                    cont.resume(Result.failure(t))
+                }
+            })
+            cont.invokeOnCancellation { c.cancel() }
+        }
+
     private suspend fun apiCallVoid(call: () -> Call<ApiResponse<Any>>): Result<Unit> =
         suspendCancellableCoroutine { cont ->
             val c = call()
@@ -114,6 +154,35 @@ class ChatRepository {
             })
             cont.invokeOnCancellation { c.cancel() }
         }
+
+    /**
+     * 探测服务端能力。
+     *
+     * ⚠️ 这个函数**永不抛异常**：探测失败（404 / 超时 / 返回 HTML / 字段缺失）
+     *    一律返回一个"什么都不支持"的空能力对象。
+     *
+     *    这是刻意的 —— 调用方的语义是"能不能给用户看某个功能"，
+     *    而"问不出来"的正确答案是**不给看**，不是"先给看，出错了再说"。
+     *    老服务端上显示一个必点必失败的按钮，比不显示糟糕得多。
+     */
+    suspend fun getCapabilities(): ServerCapabilities =
+        try {
+            apiCallRaw { api.getCapabilities() }.getOrNull() ?: ServerCapabilities()
+        } catch (e: Exception) {
+            ServerCapabilities()
+        }
+
+    /**
+     * 自助把密码重置为默认密码（12345678）。
+     *
+     * 只对「旧格式哈希、当前套餐算不动校验」的账号有效；
+     * 正常账号、管理员账号、系统账号都会被服务端拒绝。
+     *
+     * 调用前应先用 [getCapabilities] 确认服务端支持 —— 普通版服务端
+     * 没有这个接口，直接调会拿到 404。
+     */
+    suspend fun resetToDefault(username: String): Result<Unit> =
+        apiCallVoidRaw { api.resetToDefault(mapOf("username" to username)) }
 
     suspend fun login(username: String, password: String): Result<AuthResponse> =
         apiCallRaw { api.login(LoginRequest(username, password)) }

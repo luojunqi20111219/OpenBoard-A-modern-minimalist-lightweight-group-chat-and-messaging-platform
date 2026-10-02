@@ -28,6 +28,17 @@ CREATE TABLE IF NOT EXISTS users (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- ⚠️ is_admin 与 must_change_password **刻意不写在上面**。
+--
+-- 这两列由 runAdminMigrations() 通过 ALTER TABLE 补齐（见 src/routes/migrations.ts），
+-- 那才是它们的唯一权威来源。写进 CREATE TABLE 会带来一个隐蔽的问题：
+-- schema.sql 同时被"全新安装"和"迁移后校验"两条路径使用，
+-- 一旦这里预先建好列，migration_status 就会在任何环境下都报 ready=true，
+-- 迁移是否真的跑过、要不要跑，就再也测不出来、也提示不出来了。
+--
+-- 新库的最终状态由 `npm run d1:init`（灌 schema）+ 一次 apply_migrations 共同决定，
+-- 两步都是幂等的。
+
 -- 消息 ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

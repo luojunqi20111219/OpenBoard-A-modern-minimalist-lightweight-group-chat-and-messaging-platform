@@ -215,20 +215,81 @@
                     android:visibility="gone"
                     tools:text="官方账号 · Forest_siri"/>
 
+                <!--
+                  自助重置：服务端 400 响应里带 self_service=true 时显示。
+
+                  这是「联系管理员」那句话的替代方案 —— admins 字段里只有
+                  站内用户名（不是微信/QQ/邮箱），用户拿到名字也无处可发，
+                  所以必须给一条自己能走通的路。
+                -->
+                <Button
+                    android:id="@+id/btn_reset_default"
+                    android:layout_width="match_parent"
+                    android:layout_height="44dp"
+                    android:layout_marginTop="12dp"
+                    android:minWidth="0dp"
+                    android:text="重置为默认密码"
+                    android:textSize="14sp"
+                    android:backgroundTint="@color/warning_border"
+                    android:textColor="@android:color/white"
+                    android:visibility="gone"
+                    style="@style/Widget.MaterialComponents.Button"/>
+
                 <Button
                     android:id="@+id/btn_contact_admin"
                     android:layout_width="wrap_content"
                     android:layout_height="40dp"
-                    android:layout_marginTop="10dp"
+                    android:layout_marginTop="8dp"
                     android:minWidth="0dp"
                     android:paddingStart="18dp"
                     android:paddingEnd="18dp"
                     android:text="查看联系方式"
                     android:textSize="13sp"
-                    android:backgroundTint="@color/warning_border"
-                    android:textColor="@android:color/white"
+                    android:backgroundTint="@android:color/transparent"
+                    android:textColor="@color/warning_text"
                     android:visibility="gone"
-                    style="@style/Widget.MaterialComponents.Button"/>
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"/>
+
+            </LinearLayout>
+
+            <!--
+              重置成功提示。
+
+              重置成功后原来的橙色警示卡片就过时了（用户已经知道怎么做了），
+              所以换成一块绿色卡片告诉他「下一步该干什么」：
+              密码是 12345678，去点登录，登录后必须改密码。
+            -->
+            <LinearLayout
+                android:id="@+id/box_login_success"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@drawable/bg_login_success"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:paddingTop="14dp"
+                android:paddingBottom="14dp"
+                android:layout_marginBottom="16dp"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/tv_success_title"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/success_text"
+                    tools:text="密码已重置"/>
+
+                <TextView
+                    android:id="@+id/tv_success_message"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:textSize="13sp"
+                    android:lineSpacingExtra="3dp"
+                    android:textColor="@color/success_text"
+                    tools:text="请用默认密码 12345678 登录，登录后系统会要求您立即设置新密码。"/>
 
             </LinearLayout>
 

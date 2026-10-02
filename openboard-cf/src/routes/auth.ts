@@ -5,13 +5,21 @@
 import { Hono } from 'hono';
 import { setCookie, deleteCookie } from 'hono/cookie';
 import type { HonoEnv, Env } from '../auth';
-import { requireAuth, requireAdmin, createAccessToken, revokeToken, isAdmin } from '../auth';
+import {
+  requireAuth,
+  requireAdmin,
+  createAccessToken,
+  revokeToken,
+  isAdmin,
+  isAdminAsync,
+} from '../auth';
 import { qAll, qOne, exec, getUserByName, publicUser, UserRow, nowIso } from '../db';
 import {
   hashPassword,
   verifyPassword,
   isUnsupportedHash,
   iterationsOf,
+  needsPasswordReset,
   randomId,
   generateTotpSecret,
   verifyTotp,
@@ -25,6 +33,7 @@ import {
   recordLoginFailure,
   resetLoginFailures,
 } from '../security';
+import { kvClaimDailyOnce, kvBumpDailyCount } from '../kv';
 import { cleanText, isValidUsername } from '../sanitize';
 import { kickUser } from '../realtime';
 
@@ -32,6 +41,23 @@ export const authRoutes = new Hono<HonoEnv>();
 
 const REMEMBER_SESSION_MINUTES = 60 * 24 * 30;
 const BROWSER_SESSION_MINUTES = 60 * 12;
+
+/**
+ * 自助重置用的默认密码。
+ *
+ * ⚠️ 这是一个**公开的弱密码**，它存在的唯一意义是「临时的、一次性的钥匙」——
+ *    让因为旧格式哈希而彻底登不上的用户能进来一次，然后**立刻改掉**。
+ *    所以它必须同时满足两点，缺一不可：
+ *      1. 重置后打 must_change_password 标记，客户端强制弹改密页
+ *      2. 改密码接口拒绝把新密码设成这个值（见 /user/password）
+ *    只做 1 不做 2，用户可以直接"改成"同一个密码，闭环就断了。
+ */
+const DEFAULT_PASSWORD = '12345678';
+
+/** 自助重置的频率上限 */
+const RESET_DAILY_PER_ACCOUNT = 1; // 每账号每天
+const RESET_DAILY_PER_IP = 10; // 每 IP 每天
+const RESET_WINDOW_SECONDS = 24 * 60 * 60;
 
 function env(c: { env: unknown }): Env {
   return c.env as Env;
@@ -238,6 +264,219 @@ authRoutes.post('/register', async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// 服务器能力探测
+//
+// ---------------------------------------------------------------------------
+// 为什么需要它
+// ---------------------------------------------------------------------------
+// 客户端要知道"对面这台服务器支不支持自助重置密码"，才能决定登录页上
+// 要不要显示那个按钮。
+//
+// 光靠"400 响应里有没有 self_service"不够：老版本服务端（v10.0.0 及更早）
+// 的 400 响应带 admin_contact 但**不带** self_service；而普通 FastAPI 版
+// 服务端连 admin_contact 都没有。这两种情况下客户端如果按"没说不支持就是
+// 支持"来推断，就会显示一个点了必然失败的按钮 —— 用户点下去拿到 404 或
+// 一坨 HTML，完全不知道发生了什么。
+//
+// 所以改成**由服务端显式声明能力**，客户端按"默认不支持"处理。
+//
+// ---------------------------------------------------------------------------
+// 安全
+// ---------------------------------------------------------------------------
+//   · 无需鉴权 —— 它在登录前就要用到，而且只暴露"有哪些功能"，
+//     不含版本号以外的任何环境信息（不暴露 D1 ID / KV ID / 密钥）
+//   · 版本号本身是公开的（更新检查接口早就在返回）
+// ---------------------------------------------------------------------------
+authRoutes.get('/capabilities', (c) => {
+  const e = env(c);
+  return c.json({
+    // 客户端据此区分部署形态：cloudflare-workers / fastapi / unknown
+    server: 'cloudflare-workers',
+    version: e.CURRENT_VERSION || 'unknown',
+    // 能力清单：客户端**只认显式为 true 的项**，缺省一律按不支持
+    features: {
+      self_reset_password: true,
+      must_change_password: true,
+      admin_grants: true,
+      // 旧格式（scrypt / 高迭代 pbkdf2）哈希在本部署上无法校验，
+      // 这正是"需要重置密码"这个状态的来源
+      legacy_hash_unsupported: true,
+    },
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 自助重置为默认密码
+//
+// ---------------------------------------------------------------------------
+// 为什么需要这个接口
+// ---------------------------------------------------------------------------
+// 旧库里 werkzeug 默认的 scrypt:32768:8:1 哈希，验证一次约 75ms CPU，
+// 而 Cloudflare Free 计划每请求上限 10ms —— 物理上算不完。
+// 这些账号的密码**任何人**都登录不了（服务器算不动校验），
+// 原来的做法是「请联系管理员」，但管理员是谁、怎么联系，客户端给不出答案，
+// 用户就卡死在这里了。
+//
+// 所以改成：让用户自己把这个废账号的密码重置成默认密码，
+// 登进去之后再强制改密。
+//
+// ---------------------------------------------------------------------------
+// 安全边界（三条，缺一不可）
+// ---------------------------------------------------------------------------
+//   1. 只能重置「当前就登不上」的账号 —— needsPasswordReset() 为真。
+//      这类账号本来无人可登录，重置它不构成窃取。
+//      密码正常的账号走这条路会被 400 拒掉，攻击者拿不到任何东西。
+//   2. 不能重置管理员（三层判定）与系统账号（role=2）。
+//      否则任何人把管理员密码设成 12345678 就能进管理端。
+//   3. 限流：每账号每天 1 次、每 IP 每天 10 次。
+//
+// ⚠️ 边界 1/2 是**真正的安全底线**，必须走 D1 判定，不能依赖 KV。
+//    边界 3 属于防骚扰，KV 未绑定时降级放行 —— 丢的是频率限制，不是安全。
+// ---------------------------------------------------------------------------
+authRoutes.post('/reset-to-default', async (c) => {
+  const e = env(c);
+  const data = (await c.req.json().catch(() => ({}))) as { username?: string };
+  const username = (data.username || '').trim();
+  const ip = clientIp(c.req.raw);
+
+  if (!username) return c.json({ detail: '缺少用户名' }, 400);
+
+  // ---- 边界 3：按 IP 限流（先查，避免无脑刷） ----
+  const ipKey = `reset:default:ip:${ip}`;
+  const ipCount = await kvBumpDailyCount(e, ipKey, RESET_WINDOW_SECONDS);
+  if (ipCount > RESET_DAILY_PER_IP) {
+    return c.json({ detail: '操作过于频繁，请明天再试' }, 429);
+  }
+
+  const user = await getUserByName(e.DB, username);
+  if (!user) return c.json({ detail: '用户不存在' }, 404);
+
+  // ---- 系统账号：永远是拒绝的第一优先级 ----
+  if (user.role === 2) {
+    return c.json({ detail: '系统账号不允许重置密码' }, 403);
+  }
+
+  if (user.is_banned === 1) {
+    return c.json({ detail: '您的账号已被封禁，请联系管理员' }, 403);
+  }
+
+  // ---- 边界 2：管理员拦截 ----
+  // 必须放在 needsPasswordReset 之前：管理员即使密码是旧格式也不能自助重置，
+  // 否则「枚举管理员用户名 → 重置成 12345678 → 登进管理端」就是一条完整的提权链。
+  if (await isAdminAsync(e, user)) {
+    return c.json(
+      { detail: '管理员账号不能自助重置密码，请联系其他管理员在管理端处理' },
+      403,
+    );
+  }
+
+  // ---- 边界 3：按账号限流（每天 1 次） ----
+  //
+  // ⚠️ 必须放在 needsPasswordReset 检查**之前**。
+  //    顺序反了的话，第一次重置成功后密码已变成 pbkdf2，"需要重置"不再成立，
+  //    第二次请求会走到「该账号可以正常登录，无需重置」这条 400 分支 ——
+  //    用户看到的是"无需重置"，而实际上他今天已经重置过了、且可能没记住
+  //    或者没拿到那次的密码。真正该说的是「今天重置过了，用 12345678 登录去」，
+  //    那条提示在 429 里。
+  //
+  // key 用**库里存的那个用户名**（user.username）而不是请求里的原始输入：
+  //    用户名查询是大小写敏感的精确匹配，但限流 key 如果也用原始输入，
+  //    大小写不同的请求会被算成不同的账号，等于限流可以被轻松绕过。
+  //    用库里的规范值归一化，同一账号不管怎么混大小写都共用一个计数器。
+  const accountKey = `reset:default:u:${user.username.toLowerCase()}`;
+  const firstToday = await kvClaimDailyOnce(e, accountKey);
+  if (!firstToday) {
+    return c.json(
+      {
+        detail:
+          `该账号今天已经重置过密码了。请直接用默认密码 ${DEFAULT_PASSWORD} 登录；` +
+          '如果仍然登录不上，请联系管理员。',
+      },
+      429,
+    );
+  }
+
+  // ---- 边界 1：只有"本来就算不动"的账号能被重置 ----
+  const needsReset = needsPasswordReset(user.password_hash, passwordIterations(e));
+  if (!needsReset) {
+    return c.json(
+      {
+        detail:
+          '该账号的密码可以正常登录，无需重置。' +
+          '如果您忘记了密码，请联系管理员在「管理端」为您重置。',
+      },
+      400,
+    );
+  }
+
+  // ---- 真正执行重置 ----
+  const iter = passwordIterations(e);
+  const hash = await hashPassword(DEFAULT_PASSWORD, iter);
+
+  // 记下旧算法，便于事后追溯"这个账号是从什么状态被救活的"
+  const oldAlgo = (user.password_hash || '').split('$')[0] || '';
+
+  // ⚠️ must_change_password 是迁移后加的列，**未跑迁移的部署上不存在**。
+  //
+  // 直接写会抛 D1_ERROR: no such column —— 请求变成 500，而用户看到的
+  // 只有「服务器内部错误」，完全不知道发生了什么。而"没跑迁移"在部署流程里
+  // 是很正常的一个中间状态（`d1:init` 之后、点「应用迁移」之前）。
+  //
+  // 策略：先试带标记的写法，失败就退回不带标记的写法。
+  // 退回时**功能仍然可用**（密码确实被重置了），只是少了"登录后强制改密"
+  // 这一层 —— 所以把这件事记进来，让调用方知道降级了。
+  let flagPersisted = true;
+  try {
+    await exec(
+      e.DB,
+      'UPDATE users SET password_hash=?, must_change_password=1 WHERE id=?',
+      hash,
+      user.id,
+    );
+  } catch {
+    flagPersisted = false;
+    await exec(e.DB, 'UPDATE users SET password_hash=? WHERE id=?', hash, user.id);
+  }
+
+  // 重置后强制下线：旧会话（如果有人持有）不能继续用
+  await kickUser(e, username);
+
+  // 审计留痕。表可能还没迁移，失败不阻断。
+  // actor 用 'self-service' 而不是用户名 —— 让管理员事后能一眼区分
+  // 「用户自己重置的」和「我替他重置的」。
+  try {
+    await exec(
+      e.DB,
+      'INSERT INTO admin_audit_logs (actor, action, target, detail, created_at) VALUES (?,?,?,?,?)',
+      'self-service',
+      'user.reset_to_default',
+      username,
+      `旧算法：${oldAlgo || '未知'}${flagPersisted ? '' : '；未迁移，未能写入强制改密标记'}`,
+      nowIso(),
+    );
+  } catch {
+    /* admin_audit_logs 未迁移，忽略 */
+  }
+
+  return c.json({
+    status: 'success',
+    username,
+    default_password: DEFAULT_PASSWORD,
+    // 未迁移时是 false —— 客户端据此不再期待"登录后会被强制改密"，
+    // 但仍应在界面上提醒用户尽快自行修改密码。
+    must_change_password: flagPersisted,
+    migration_required: !flagPersisted,
+    algorithm: `pbkdf2:sha256:${iter}`,
+    msg: flagPersisted
+      ? `密码已重置为默认密码 ${DEFAULT_PASSWORD}，请用它登录并立即修改新密码`
+      : `密码已重置为默认密码 ${DEFAULT_PASSWORD}，请用它登录并立即修改新密码` +
+        '（服务端尚未完成迁移，建议管理员尽快执行迁移）',
+    // 客户端据此直接填充输入框
+    login_hint: { username, password: DEFAULT_PASSWORD },
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 登录
 // ---------------------------------------------------------------------------
 authRoutes.post('/login', async (c) => {
@@ -322,14 +561,21 @@ authRoutes.post('/login', async (c) => {
         // 联系管理员的通道 —— 客户端与网页都据此渲染
         admin_contact: {
           // 管理端客户端名称与入口，前端可直接展示
-          title: '请联系管理员重置密码',
+          title: '该账号需要重置密码',
           message:
-            '您的密码本身没有输错，但该账号的密码是用旧版方式加密的，' +
-            '当前服务器无法自动校验。请联系管理员在「管理端」为您重置密码，' +
-            '重置后即可用新密码登录。',
+            '您的密码本身没有输错，只是该账号用的是旧版加密方式，' +
+            '当前服务器无法自动校验。' +
+            `您可以点下方按钮把密码重置为默认密码 ${DEFAULT_PASSWORD}，` +
+            '登录后请立即修改成自己的新密码。',
           // 页面直接跳转的联系入口
           action_url: '/contact-admin',
           action_label: '查看联系方式',
+          // ---- 自助重置通道 ----
+          // self_service 为 true 表示「这个 400 用户自己能解决」，
+          // 客户端据此把主按钮切成「重置为默认密码」，
+          // 而不是只显示一个找不到人的联系方式。
+          self_service: true,
+          default_password: DEFAULT_PASSWORD,
           // 管理员用户名列表 —— 让 App 不必跳浏览器就能把名字显示出来，
           // 用户可以直接复制去发给对方。
           //
@@ -465,6 +711,9 @@ authRoutes.post('/login', async (c) => {
     id: user.id,
     role: user.role,
     two_factor_enabled: !!user.two_factor_enabled,
+    // 用默认密码登录 → 客户端必须先弹改密页，改完才让进主界面。
+    // 列可能不存在（未迁移），用 !! 归一化，缺列时按 false 处理。
+    must_change_password: !!user.must_change_password,
   });
 });
 
@@ -547,9 +796,34 @@ authRoutes.put('/user/password', requireAuth, async (c) => {
   if (!data.new_password || data.new_password.length < 8) {
     return c.json({ detail: '新密码至少 8 位' }, 400);
   }
+  // 不允许把密码"改"成默认密码 —— 否则强制改密的闭环就断了：
+  // 用户大可以从 12345678 直接改成 12345678，永远停在这个弱密码上。
+  // 长度校验放在前面，所以这里只需比对值本身。
+  if (data.new_password === DEFAULT_PASSWORD) {
+    return c.json(
+      { detail: `新密码不能使用默认密码 ${DEFAULT_PASSWORD}，请换一个` },
+      400,
+    );
+  }
 
   const hashed = await hashPassword(data.new_password, targetIter);
-  await exec(e.DB, 'UPDATE users SET password_hash=? WHERE id=?', hashed, user.id);
+  // 顺带清掉 must_change_password：用户已经改过密码了，
+  // 再带着这个标记的话，下次登录又会被弹一次改密页。
+  //
+  // ⚠️ 该列是迁移后加的，未迁移的部署上不存在 —— 带上它会抛
+  //    D1_ERROR: no such column，把"改密码"这个基础功能变成 500。
+  //    未迁移时退回不带标记的写法：改密码依然成功（这才是主线），
+  //    只是那个可能不存在的标记没被清掉而已。
+  try {
+    await exec(
+      e.DB,
+      'UPDATE users SET password_hash=?, must_change_password=0 WHERE id=?',
+      hashed,
+      user.id,
+    );
+  } catch {
+    await exec(e.DB, 'UPDATE users SET password_hash=? WHERE id=?', hashed, user.id);
+  }
   // 换密码后所有旧会话失效
   await revokeToken(e, c.get('token'), user.id, 'password-change');
   await exec(e.DB, 'DELETE FROM user_devices WHERE user_id=?', user.id);

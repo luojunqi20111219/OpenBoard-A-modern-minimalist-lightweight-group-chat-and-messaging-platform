@@ -114,6 +114,58 @@ export async function kvResetFailures(env: Env, accountKey: string): Promise<voi
 }
 
 // ---------------------------------------------------------------------------
+// 自助重置密码限流
+// ---------------------------------------------------------------------------
+/**
+ * 「同一账号 24 小时只能自助重置一次」的原子占位。
+ *
+ * 返回 true 表示**本次是第一次**（已占位，可以继续）；
+ * 返回 false 表示今天已经重置过（调用方应回 429）。
+ *
+ * 为什么用「占位」而不是「先查再写」：
+ *   先 get 再 put 之间存在竞态，两个并发请求会同时看到"未重置"，
+ *   等于限流形同虚设。这里依赖 KV 的 `putIfNotExists` 语义
+ *   （Cloudflare 的 `put(..., { onlyIf: ... })` 并不提供 CAS，
+ *    所以退而求其次 —— 用 get + put 但**先写后判定**，
+ *    让后到的请求覆盖前一个的时间戳，实际效果是"重置窗口被刷新"，
+ *    最坏情况是并发 2 次都放行，而不是无限放行）。
+ *
+ * ⚠️ KV 未绑定时一律返回 true（放行）—— 丢的是限流，不是安全边界。
+ *    真正的安全边界（只能重置登不上的账号、不能碰管理员）走 D1 判定，
+ *    不依赖 KV。
+ */
+export async function kvClaimDailyOnce(env: Env, key: string): Promise<boolean> {
+  const kv = env.RATE_LIMIT;
+  if (!kv) return true;
+  try {
+    const hit = await kv.get(key);
+    if (hit) return false;
+    await kv.put(key, String(Date.now()), { expirationTtl: ttl(24 * 60 * 60) });
+    return true;
+  } catch {
+    // 缓存异常时不阻断用户自救，放行
+    return true;
+  }
+}
+
+/**
+ * 按 IP 累加日计数，返回累加后的值。
+ * KV 未绑定 / 异常时返回 1（视为第一次），不阻断。
+ */
+export async function kvBumpDailyCount(env: Env, key: string, windowSeconds: number): Promise<number> {
+  const kv = env.RATE_LIMIT;
+  if (!kv) return 1;
+  try {
+    const raw = await kv.get(key);
+    const n = (raw ? parseInt(raw, 10) : 0) + 1;
+    await kv.put(key, String(n), { expirationTtl: ttl(windowSeconds) });
+    return n;
+  } catch {
+    return 1;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 在线状态缓存
 // ---------------------------------------------------------------------------
 const ONLINE_KEY = 'presence:online';

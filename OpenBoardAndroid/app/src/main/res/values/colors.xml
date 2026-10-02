@@ -41,4 +41,9 @@
     <color name="warning_bg">#FFFBEB</color>
     <color name="warning_border">#B45309</color>
     <color name="warning_text">#92400E</color>
+
+    <!-- 成功提示（密码重置完成）—— 与警示区分开，让用户一眼看出"这一步过了" -->
+    <color name="success_bg">#ECFDF5</color>
+    <color name="success_border">#047857</color>
+    <color name="success_text">#065F46</color>
 </resources>

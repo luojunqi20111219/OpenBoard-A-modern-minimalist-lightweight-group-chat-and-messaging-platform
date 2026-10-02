@@ -13,7 +13,14 @@ data class AuthResponse(
     val avatar: String? = null,
     val id: Int = 0,
     val role: Int = 0,
-    val msg: String? = null
+    val msg: String? = null,
+    /**
+     * 服务端标记「该账号当前用的是自助重置出来的默认密码，必须先改密」。
+     *
+     * 为 true 时 MainActivity 会立刻跳转到强制改密页，不改完不让进主界面。
+     * 老服务端不返回此字段 → 默认 false，行为与之前完全一致。
+     */
+    @SerializedName("must_change_password") val mustChangePassword: Boolean = false
 )
 
 /**
@@ -51,6 +58,16 @@ data class AdminContact(
     /** 相对路径，如 /contact-admin；客户端需自行拼上服务器地址 */
     @SerializedName("action_url") val actionUrl: String? = null,
     @SerializedName("action_label") val actionLabel: String? = null,
+    /**
+     * 是否提供自助重置通道。
+     *
+     * 为 true 时客户端显示「重置为默认密码」主按钮 —— 用户不需要找任何人，
+     * 自己就能把这个账号救活。这是「联系管理员」那句话的替代方案：
+     * 因为 admins 里只有站内用户名，用户根本没有站外联系方式可用。
+     */
+    @SerializedName("self_service") val selfService: Boolean? = null,
+    /** 自助重置会用到的默认密码，用于按钮文案与登录框预填 */
+    @SerializedName("default_password") val defaultPassword: String? = null,
     /**
      * 管理员用户名列表。
      *

@@ -100,8 +100,29 @@ interface ApiService {
         @Body avatar: Map<String, String>
     ): Call<ApiResponse<Any>>
 
+    /**
+     * 服务器能力探测。
+     *
+     * 不需要鉴权 —— 登录页在用户登录前就要用它判断
+     * 要不要显示「重置为默认密码」按钮。
+     *
+     * 老服务端没有这个接口，会返回 404 或 HTML —— 调用方必须把
+     * "拿不到 / 解析不了" 一律当作「不支持」，绝不能当成"先试试"。
+     */
+    @GET("api/capabilities")
+    fun getCapabilities(): Call<ServerCapabilities>
+
     @PUT("api/user/password")
     fun updatePassword(@Body data: Map<String, String>): Call<ApiResponse<Any>>
+
+    /**
+     * 自助把密码重置为默认密码 —— 仅对「旧格式哈希、服务器算不动校验」的账号有效。
+     *
+     * 路径与 authRoutes 内注册的 '/reset-to-default' 对齐（挂在 /api 下）。
+     * ⚠️ 它不需要登录态：能走到这一步的用户恰恰是登不上的人。
+     */
+    @POST("api/reset-to-default")
+    fun resetToDefault(@Body data: Map<String, String>): Call<ApiResponse<Any>>
 
     @POST("api/user/block")
     fun blockUser(@Body data: Map<String, String>): Call<BlockUserResponse>

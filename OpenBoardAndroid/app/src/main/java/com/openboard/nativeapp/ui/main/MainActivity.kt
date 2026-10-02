@@ -13,6 +13,7 @@ import com.openboard.nativeapp.ui.chat.ChatActivity
 import android.os.Build
 import com.openboard.nativeapp.service.MessageService
 import com.openboard.nativeapp.ui.login.LoginActivity
+import com.openboard.nativeapp.ui.login.ForceChangePasswordActivity
 import com.openboard.nativeapp.OpenBoardApp
 import com.openboard.nativeapp.ui.theme.ThemeManager
 
@@ -43,6 +44,20 @@ class MainActivity : AppCompatActivity() {
 
         if (!SessionManager.isLoggedIn) {
             redirectToLogin()
+            return
+        }
+
+        // 服务端标记「还在用自助重置出来的默认密码」→ 先改密，别想进主界面。
+        //
+        // 放在这里而不是 LoginActivity 里：推送通知也能把 MainActivity 直接拉起，
+        // 那条路径不经过登录页；标记持久化在 SharedPreferences 里，
+        // 所以进程被杀后重新进入依然拦得住。
+        //
+        // 普通版 / 老版服务端不返回 must_change_password（Gson 反序列化成 false），
+        // 所以这个分支在那些服务器上永远不会命中 —— 不需要额外判断服务器类型。
+        if (SessionManager.mustChangePassword) {
+            startActivity(Intent(this, ForceChangePasswordActivity::class.java))
+            finish()
             return
         }
 

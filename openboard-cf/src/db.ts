@@ -86,6 +86,15 @@ export interface UserRow {
   two_factor_secret: string | null;
   two_factor_enabled: number;
   read_receipts_enabled: number;
+  /**
+   * 自助重置为默认密码后置 1，改完密码清 0。
+   *
+   * ⚠️ 该列由 migrations.ts 后加（老库没有），所以读到的值可能是 undefined。
+   *    所有消费方都必须用 `!!user.must_change_password` / `Number(... ?? 0)`，
+   *    不能直接当 0 用 —— 否则未迁移的部署上会出现 `undefined === 0` 为 false
+   *    这类诡异分支。
+   */
+  must_change_password?: number;
 }
 
 export async function getUserByName(db: D1Database, username: string): Promise<UserRow | null> {

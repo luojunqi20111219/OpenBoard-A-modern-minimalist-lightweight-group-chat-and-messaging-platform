@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.view.View
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.openboard.nativeapp.data.local.SessionManager
@@ -22,6 +23,17 @@ class LoginActivity : AppCompatActivity() {
     private val repository = ChatRepository()
     private var isLoginMode = true
 
+    companion object {
+        /**
+         * 自助重置用的默认密码，与服务端 DEFAULT_PASSWORD 保持一致。
+         *
+         * 仅作为**兜底文案**：正常情况下按钮上的密码取自服务端 400 响应里的
+         * default_password 字段，这样两边改密码时不会对不上。
+         * 只有服务端没下发（老版本）时才用这个值。
+         */
+        private const val DEFAULT_PASSWORD = "12345678"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
@@ -38,6 +50,11 @@ class LoginActivity : AppCompatActivity() {
         binding.etServerUrl.setText(SessionManager.serverUrl)
 
         setupListeners()
+
+        // 后台静默探测服务端能力 —— 决定"重置为默认密码"按钮能不能出现。
+        // 不阻塞 UI：探测结果回来之前用户可能已经点了登录，
+        // 那种情况下会由 400 响应里的 self_service 兜底判定。
+        probeServerCapabilities()
     }
 
     private fun setupListeners() {
@@ -78,6 +95,10 @@ class LoginActivity : AppCompatActivity() {
                 SessionManager.serverUrl = url
                 binding.etServerUrl.setText(url)
                 Toast.makeText(this, "服务器地址已更新", Toast.LENGTH_SHORT).show()
+                // 换了服务器 → 之前探测到的能力已经作废（serverUrl 的 setter 会清缓存），
+                // 这里对新地址重新探一次，否则「重置为默认密码」按钮的显隐
+                // 会一直停留在上一台服务器的结论上。
+                probeServerCapabilities()
             } else {
                 Toast.makeText(this, "地址不能为空", Toast.LENGTH_SHORT).show()
             }
@@ -136,6 +157,8 @@ class LoginActivity : AppCompatActivity() {
                         avatar = resp.avatar
                     )
                     SessionManager.saveUser(user)
+                    // 服务端说"这个账号还在用默认密码"→ 让主界面把用户拦下来改密
+                    SessionManager.mustChangePassword = resp.mustChangePassword
                     navigateToMain()
                 } else {
                     Toast.makeText(this@LoginActivity, resp.msg ?: "登录失败", Toast.LENGTH_SHORT).show()
@@ -162,21 +185,27 @@ class LoginActivity : AppCompatActivity() {
 
         val err = e.error
         when {
-            // 旧版哈希算不动 → 给出联系管理员重置密码的通道
+            // 旧版哈希算不动 → 给出「自助重置为默认密码」的主通道
             err?.code == "PASSWORD_RESET_REQUIRED" -> {
+                val contact = err.adminContact
                 val reason = err.reason ?: "该账号的密码为旧版格式，当前服务器无法自动校验"
                 showLoginError(
-                    title = err.adminContact?.title ?: "该账号需要重置密码",
+                    title = contact?.title ?: "该账号需要重置密码",
                     message = buildString {
                         append(reason)
                         append("\n\n")
                         append(
-                            err.adminContact?.message
-                                ?: "您的密码没有输错。请联系管理员为您重置密码，重置后即可用新密码登录。"
+                            contact?.message
+                                ?: ("您的密码没有输错。可以把密码重置为默认密码后登录，" +
+                                    "登录后请立即修改。")
                         )
                     },
-                    admins = err.adminContact?.admins,
-                    actionLabel = err.adminContact?.actionLabel,
+                    admins = contact?.admins,
+                    actionLabel = contact?.actionLabel,
+                    // 严格判定：只有服务端明确说支持（self_service === true），
+                    // 或者探测接口确认过这台服务器支持。见 showLoginError 里的说明。
+                    selfServiceFromServer = contact?.selfService == true,
+                    defaultPassword = contact?.defaultPassword,
                 )
             }
 
@@ -202,13 +231,18 @@ class LoginActivity : AppCompatActivity() {
      * 在登录表单下方显示常驻提示。
      *
      * @param admins 管理员用户名列表；为空则不显示名字行
+     * @param selfServiceFromServer 服务端在 400 响应里是否**明确**声明支持自助重置。
+     *        注意语义：只有 true 才算支持，null（老服务端）与 false 都按不支持处理。
      */
     private fun showLoginError(
         title: String,
         message: String,
         admins: List<String>?,
         actionLabel: String?,
+        selfServiceFromServer: Boolean,
+        defaultPassword: String?,
     ) {
+        hideLoginSuccess()
         binding.boxLoginError.visibility = View.VISIBLE
         binding.tvErrorTitle.text = title
         binding.tvErrorMessage.text = message
@@ -222,6 +256,33 @@ class LoginActivity : AppCompatActivity() {
             binding.tvAdminNames.visibility = View.GONE
         }
 
+        // ---- 自助重置按钮 ----
+        //
+        // 显示条件（两者都必须是"明确的 yes"，任一为否则不显示）：
+        //   1. 调用方明确传入 selfService=true（来自 400 响应里的 self_service）
+        //   2. 或者 探测接口确认过这台服务器支持（SessionManager 缓存）
+        //
+        // ⚠️ 这里没有 "?: true" 这种宽松兜底。
+        //    老服务端的 400 带 admin_contact 但不带 self_service；
+        //    普通版服务端连 admin_contact 都没有。这两种情况下如果按
+        //    "没说不支持就是支持"来推断，就会显示一个点了必然失败的按钮 ——
+        //    用户点下去拿到 404 或一坨 HTML，完全不知道发生了什么。
+        //    所以：说不清楚 = 不支持。
+        val selfService = selfServiceFromServer || SessionManager.supportsSelfReset
+
+        // 默认密码优先用服务端下发的值，避免客户端与服务端硬编码不一致时按钮文案对不上
+        val pwd = defaultPassword?.takeIf { it.isNotBlank() } ?: DEFAULT_PASSWORD
+        if (selfService) {
+            binding.btnResetDefault.text = "重置为默认密码 $pwd"
+            binding.btnResetDefault.visibility = View.VISIBLE
+            binding.btnResetDefault.isEnabled = true
+            binding.btnResetDefault.setOnClickListener { confirmResetToDefault(pwd) }
+        } else {
+            binding.btnResetDefault.visibility = View.GONE
+        }
+
+        // 「查看联系方式」降为次要选项：admins 里只有站内用户名，
+        // 用户其实很难用上，但留着总比没有强（比如他认识管理员本人）。
         binding.btnContactAdmin.text = actionLabel ?: "查看联系方式"
         binding.btnContactAdmin.visibility = View.VISIBLE
         binding.btnContactAdmin.setOnClickListener { openContactAdmin() }
@@ -229,6 +290,104 @@ class LoginActivity : AppCompatActivity() {
 
     private fun hideLoginError() {
         binding.boxLoginError.visibility = View.GONE
+    }
+
+    /** 重置成功后的提示（绿色），替换掉原来的橙色警示卡片 */
+    private fun showLoginSuccess(title: String, message: String) {
+        hideLoginError()
+        binding.boxLoginSuccess.visibility = View.VISIBLE
+        binding.tvSuccessTitle.text = title
+        binding.tvSuccessMessage.text = message
+    }
+
+    private fun hideLoginSuccess() {
+        binding.boxLoginSuccess.visibility = View.GONE
+    }
+
+    /**
+     * 二次确认后再重置。
+     *
+     * 为什么一定要确认：这个操作**不可逆** —— 旧密码会立刻作废，
+     * 而且新版是密码哈希，服务端也"算不回"原密码。
+     * 误触的代价是用户彻底登不上，所以必须让他明确知道自己在做什么。
+     */
+    private fun confirmResetToDefault(password: String) {
+        val username = binding.etUsername.text.toString().trim()
+        if (username.isEmpty()) {
+            Toast.makeText(this, "请先填写用户名", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("确认重置密码？")
+            .setMessage(
+                "将把「$username」的密码设为 $password。\n\n" +
+                    "• 原来的密码会立即失效，无法找回\n" +
+                    "• 登录后系统会要求您马上设置新密码\n" +
+                    "• 每个账号每天只能重置一次"
+            )
+            .setNegativeButton("取消", null)
+            .setPositiveButton("确认重置") { _, _ -> doResetToDefault(username, password) }
+            .show()
+    }
+
+    private fun doResetToDefault(username: String, password: String) {
+        binding.btnResetDefault.isEnabled = false
+        binding.btnResetDefault.text = "正在重置…"
+
+        lifecycleScope.launch {
+            val result = repository.resetToDefault(username)
+            result.onSuccess {
+                showLoginSuccess(
+                    "密码已重置",
+                    "请用默认密码 $password 登录。登录后系统会要求您立即设置新密码，" +
+                        "否则无法进入聊天界面。"
+                )
+                // 直接把密码填进去，用户点一下「登录」就能走完 —— 少一步手抄
+                binding.etPassword.setText(password)
+                binding.etPassword.setSelection(password.length)
+                binding.btnAction.requestFocus()
+                Toast.makeText(
+                    this@LoginActivity,
+                    "已重置，请点「登录」",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }.onFailure { e ->
+                // 四个失败原因（今天重置过 / 账号无需重置 / 管理员账号 / 不存在）
+                // 全靠 detail 区分，所以这里优先展示服务端原文
+                val msg = (e as? ApiErrorException)?.error?.detail
+                    ?: e.message
+                    ?: "重置失败"
+                Toast.makeText(this@LoginActivity, msg, Toast.LENGTH_LONG).show()
+                // 恢复按钮，允许用户重试（尤其是"今天已重置过"之外的瞬时错误）
+                binding.btnResetDefault.isEnabled = true
+                binding.btnResetDefault.text = "重置为默认密码 $password"
+            }
+        }
+    }
+
+    /**
+     * 静默探测服务端是否支持「自助重置为默认密码」。
+     *
+     * 为什么要探测：这个能力**只存在于 Cloudflare Workers 版服务端**。
+     * 普通版（FastAPI）或老版本 CF 版都没有这个接口，如果客户端不问一句
+     * 就把按钮显示出来，用户在那些服务器上点下去只会拿到 404 或 HTML 错误页。
+     *
+     * 失败即不支持 —— [ChatRepository.getCapabilities] 内部已经保证不抛异常，
+     * 拿不到就返回空能力对象，[SessionManager.supportsSelfReset] 默认也是 false。
+     *
+     * 探测是"尽力而为"：它只影响按钮显不显示，失败没有任何副作用，
+     * 所以这里不提示用户、也不重试。
+     */
+    private fun probeServerCapabilities() {
+        // 已经针对当前服务器地址探测过就不重复探（省一次请求）
+        if (SessionManager.capabilitiesProbed) return
+
+        lifecycleScope.launch {
+            val caps = repository.getCapabilities()
+            SessionManager.serverKind = caps.server ?: "unknown"
+            SessionManager.supportsSelfReset = caps.supportsSelfReset
+        }
     }
 
     /**

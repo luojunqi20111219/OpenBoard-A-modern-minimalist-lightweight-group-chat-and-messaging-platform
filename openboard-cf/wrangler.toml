@@ -140,7 +140,7 @@ new_sqlite_classes = ["ChatHub"]
 #    若在 [vars] 里也声明同名变量，secret put 会报
 #    "Binding name 'JWT_SECRET' already in use" [code: 10053]。
 #    本文件也不该出现真实密钥（会进 git 历史）。
-CURRENT_VERSION = "v10.0.0"
+CURRENT_VERSION = "v10.1.0"
 # PBKDF2 迭代次数。Free 计划 CPU 上限 10ms，210000 次必然超限导致
 # 登录/注册全部 500，故 Free 套餐请留空（用代码内 10000 的默认值）；
 # 升级到 Paid（CPU 上限 30s）后可设为 210000 提升安全性。

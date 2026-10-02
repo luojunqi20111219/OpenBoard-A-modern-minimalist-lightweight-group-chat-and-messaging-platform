@@ -63,6 +63,16 @@
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
 
+        <!--
+          强制改密页：用默认密码登录后必须走完的一关。
+          exported=false —— 只能由 App 内部拉起，不允许被外部 Intent 调起。
+          windowSoftInputMode=adjustResize 让密码框在键盘弹出时保持可见。
+        -->
+        <activity
+            android:name=".ui.login.ForceChangePasswordActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
         <activity
             android:name=".ui.chat.ChatActivity"
             android:exported="false"

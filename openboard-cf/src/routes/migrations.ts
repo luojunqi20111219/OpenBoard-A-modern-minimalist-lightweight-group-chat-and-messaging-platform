@@ -142,6 +142,25 @@ export async function runAdminMigrations(e: Env): Promise<{
     }
   }
 
+  // 5) users.must_change_password
+  //
+  // 「自助重置为默认密码 12345678」之后打上这个标记，
+  // 客户端登录成功看到它就必须先改密码才能进主界面。
+  if (await hasColumn(e, 'users', 'must_change_password')) {
+    skipped.push('users.must_change_password 已存在');
+  } else {
+    try {
+      await e.DB.prepare(
+        'ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0',
+      ).run();
+      applied.push('users.must_change_password 已添加');
+    } catch (err) {
+      errors.push(
+        `添加 users.must_change_password 失败：${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
   return { applied, skipped, errors };
 }
 
@@ -163,15 +182,17 @@ migrationRoutes.post('/admin/apply_migrations', requireAuth, requireAdmin, async
 /** 迁移状态查询 —— 客户端首页据此提示"需要初始化" */
 migrationRoutes.get('/admin/migration_status', requireAuth, async (c) => {
   const e = c.env as unknown as Env;
-  const [hasFlag, hasReq, hasAudit] = await Promise.all([
+  const [hasFlag, hasReq, hasAudit, hasMustChange] = await Promise.all([
     hasColumn(e, 'users', 'is_admin'),
     hasTable(e, 'admin_requests'),
     hasTable(e, 'admin_audit_logs'),
+    hasColumn(e, 'users', 'must_change_password'),
   ]);
   return c.json({
     users_is_admin: hasFlag,
     admin_requests: hasReq,
     admin_audit_logs: hasAudit,
-    ready: hasFlag && hasReq && hasAudit,
+    users_must_change_password: hasMustChange,
+    ready: hasFlag && hasReq && hasAudit && hasMustChange,
   });
 });

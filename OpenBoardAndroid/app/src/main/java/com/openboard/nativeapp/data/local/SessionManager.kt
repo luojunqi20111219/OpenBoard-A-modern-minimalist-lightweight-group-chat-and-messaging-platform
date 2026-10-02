@@ -24,6 +24,11 @@ object SessionManager {
     private const val KEY_ROLE = "role"
     private const val KEY_BLOCKED_USERS = "blocked_users"
     private const val KEY_HMS_TOKEN = "hms_token"
+    private const val KEY_MUST_CHANGE_PASSWORD = "must_change_password"
+    private const val KEY_CAP_SERVER = "cap_server"
+    private const val KEY_CAP_URL = "cap_url"
+    private const val KEY_CAP_SELF_RESET = "cap_self_reset"
+    private const val KEY_CAP_PROBED = "cap_probed"
 
     private lateinit var context: Context
     private lateinit var prefs: SharedPreferences
@@ -56,8 +61,13 @@ object SessionManager {
             if (finalValue != null && finalValue.contains("liuyan.luojunqi.xyz") && finalValue.startsWith("http://")) {
                 finalValue = "https://liuyan.luojunqi.xyz/"
             }
+            // 换了服务器 → 之前探测到的能力全部作废。
+            // 否则会出现"在 CF 版上探测通过 → 改成普通版地址 → 按钮还在"
+            // 这种点了必然失败的残留状态。
+            val changed = !finalValue.isNullOrEmpty() && finalValue != prefs.getString(KEY_SERVER_URL, null)
             prefs.edit().putString(KEY_SERVER_URL, finalValue).apply()
             finalValue?.let { RetrofitClient.setBaseUrl(it) }
+            if (changed) invalidateCapabilities()
         }
 
     var token: String?
@@ -89,6 +99,74 @@ object SessionManager {
 
     val isLoggedIn: Boolean
         get() = !token.isNullOrEmpty()
+
+    /**
+     * 服务端要求「必须先改密码」。
+     *
+     * 场景：用户因为旧格式哈希登不上，走自助重置把密码改成了默认密码 12345678。
+     * 用这个密码登录成功后服务端下发 must_change_password=true，
+     * MainActivity 据此立刻跳强制改密页，不改完不让进主界面 ——
+     * 否则所有人都会一直停留在 12345678 这个弱密码上。
+     *
+     * 持久化是必要的：进程被杀后（或推送把 MainActivity 重新拉起时）
+     * 内存标记会丢，而用户还没改密码，必须继续拦。
+     * SessionManager.clear() 会一并清掉，不会把标记泄漏到下一次登录。
+     */
+    var mustChangePassword: Boolean
+        get() = prefs.getBoolean(KEY_MUST_CHANGE_PASSWORD, false)
+        set(value) = prefs.edit().putBoolean(KEY_MUST_CHANGE_PASSWORD, value).apply()
+
+    // -------------------------------------------------------------------------
+    // 服务端能力缓存
+    //
+    // 探测结果按**服务器地址**缓存：换了服务器地址就必须重新探测，
+    // 否则会把"这台支持"的结论用到另一台不支持的服务器上。
+    // -------------------------------------------------------------------------
+
+    /**
+     * 是否已经针对当前服务器地址探测过能力。
+     *
+     * 没探测过时调用方应该去探一次，而不是拿默认值当真。
+     */
+    val capabilitiesProbed: Boolean
+        get() = prefs.getBoolean(KEY_CAP_PROBED, false) && prefs.getString(KEY_CAP_URL, null) == serverUrl
+
+    /**
+     * 该服务器是否支持「自助重置为默认密码」。
+     *
+     * **默认 false** —— 没探测过、探测失败、老服务端，一律当作不支持。
+     * 这是刻意的保守默认：在不支持的服务器上显示这个按钮，
+     * 用户点下去必然失败，体验比"少一个按钮"差得多。
+     */
+    var supportsSelfReset: Boolean
+        get() = capabilitiesProbed && prefs.getBoolean(KEY_CAP_SELF_RESET, false)
+        set(value) {
+            prefs.edit()
+                .putBoolean(KEY_CAP_SELF_RESET, value)
+                .putBoolean(KEY_CAP_PROBED, true)
+                .putString(KEY_CAP_URL, serverUrl)
+                .apply()
+        }
+
+    /** 服务端自报的部署形态（cloudflare-workers / fastapi / unknown） */
+    var serverKind: String?
+        get() = prefs.getString(KEY_CAP_SERVER, null)
+        set(value) = prefs.edit().putString(KEY_CAP_SERVER, value).apply()
+
+    /**
+     * 换服务器地址时清掉能力缓存。
+     *
+     * ⚠️ 漏了这一步会出现"在支持的服务上探测成功 → 换成普通服务 →
+     *    按钮还在、点了必失败"的情况。
+     */
+    private fun invalidateCapabilities() {
+        prefs.edit()
+            .remove(KEY_CAP_SELF_RESET)
+            .remove(KEY_CAP_PROBED)
+            .remove(KEY_CAP_URL)
+            .remove(KEY_CAP_SERVER)
+            .apply()
+    }
 
     fun saveUser(user: User) {
         userId = user.id
