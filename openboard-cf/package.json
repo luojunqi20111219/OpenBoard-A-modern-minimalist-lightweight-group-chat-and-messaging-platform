@@ -26,7 +26,8 @@
     "test:ui": "npm run bundle && node scripts/upload-ui-test.mjs",
     "test:admin": "npm run bundle && node scripts/admin-grants-test.mjs",
     "test:reset": "npm run bundle && node scripts/reset-default-test.mjs",
-    "test:all": "npm run test:import && npm run test:admin && npm run test:reset && npm run preflight && npm run check:android && npm run test:ui"
+    "test:live": "npm run bundle && node scripts/live-verify.mjs",
+    "test:all": "npm run test:import && npm run test:admin && npm run test:reset && npm run test:live && npm run preflight && npm run check:android && npm run test:ui"
   },
   "dependencies": {
     "@noble/hashes": "^2.4.0",
