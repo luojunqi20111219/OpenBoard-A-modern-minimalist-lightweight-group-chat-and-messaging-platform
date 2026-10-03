@@ -41,7 +41,7 @@
 ┌────────────────────────────────────────────────────┐
 │  WebSocket ──▶ ChatHub Durable Object（全局广播）   │
 │  /api/*    ──▶ Hono 路由（D1 + R2 + KV）            │
-│  其它路径   ──▶ Assets（index.html / admin.html）    │
+│  其它路径   ──▶ Assets（index.html / game/）        │
 └────────────────────────────────────────────────────┘
          ▲                          ▲
     openboard.luojunqi.xyz    liuyan.luojunqi.xyz
@@ -369,7 +369,6 @@ npm run d1:dump-local        # 产出 ./.local_d1_dump.sql
 openboard-cf/
 ├── public/                 # 静态资源（前端，与原项目一致）
 │   ├── index.html          # 聊天主页（仅增强 WebSocket 重连，业务逻辑未动）
-│   ├── admin.html          # 管理后台（改为 fetch 渲染）
 │   ├── game/               # 内置离线小游戏
 │   ├── static/vendor/      # 本地化的 fontawesome、emoji-picker
 │   └── favicon.ico

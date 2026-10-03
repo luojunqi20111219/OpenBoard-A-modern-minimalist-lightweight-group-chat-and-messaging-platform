@@ -4,7 +4,7 @@
 import { Hono } from 'hono';
 import type { HonoEnv, Env } from '../auth';
 import { requireAuth } from '../auth';
-import { qAll, qOne, exec, UserRow } from '../db';
+import { qAll, qOne, exec, nowIso, UserRow } from '../db';
 import {
   canViewGroup,
   isGroupManager,
@@ -83,14 +83,32 @@ groupRoutes.post('/groups', requireAuth, async (c) => {
   const name = cleanText(data.name || '', 64);
   if (!name) return c.json({ detail: '群名称不能为空' }, 400);
 
-  const res = await exec(
-    e.DB,
-    'INSERT INTO groups (name, is_public, owner_id, avatar) VALUES (?, ?, ?, ?)',
-    name,
-    data.is_public === false ? 0 : 1,
-    user.id,
-    data.avatar ? await storeAvatar(e, data.avatar, 'group') : null,
-  );
+  // created_at 由 migrations 后加（历史群为 NULL）。这里显式写入 ——
+  // 不写的话即使列存在，新群的 created_at 也一直是 NULL，
+  // 数据看板的「每日新增群聊」就会恒为 0，看着像功能坏了。
+  //
+  // 列可能不存在（未迁移的库），所以包一层 catch：建群本身不能因此失败。
+  let res;
+  try {
+    res = await exec(
+      e.DB,
+      'INSERT INTO groups (name, is_public, owner_id, avatar, created_at) VALUES (?, ?, ?, ?, ?)',
+      name,
+      data.is_public === false ? 0 : 1,
+      user.id,
+      data.avatar ? await storeAvatar(e, data.avatar, 'group') : null,
+      nowIso(),
+    );
+  } catch {
+    res = await exec(
+      e.DB,
+      'INSERT INTO groups (name, is_public, owner_id, avatar) VALUES (?, ?, ?, ?)',
+      name,
+      data.is_public === false ? 0 : 1,
+      user.id,
+      data.avatar ? await storeAvatar(e, data.avatar, 'group') : null,
+    );
+  }
   const groupId = Number(res.meta?.last_row_id ?? 0);
   await exec(
     e.DB,

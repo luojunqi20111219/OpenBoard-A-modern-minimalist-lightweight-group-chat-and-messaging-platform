@@ -95,6 +95,14 @@ export interface UserRow {
    *    这类诡异分支。
    */
   must_change_password?: number;
+  /**
+   * 站点级禁言的解禁时间（UTC 'YYYY-MM-DD HH:MM:SS'），NULL 表示未被禁言。
+   *
+   * ⚠️ 同 must_change_password：该列由 migrations.ts 后加，老库读到的是
+   *    undefined。判定时用 `?? null` 归一，**不要**写 `!== null`——
+   *    `undefined !== null` 为 true，会把所有人都判成被禁言。
+   */
+  muted_until?: string | null;
 }
 
 export async function getUserByName(db: D1Database, username: string): Promise<UserRow | null> {

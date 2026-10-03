@@ -208,6 +208,26 @@ messageRoutes.post('/messages', requireAuth, async (c) => {
   const cleanContent = clampText(cleanText(data.content || ''));
   if (!cleanContent.trim()) return c.json({ detail: '消息内容不能为空' }, 400);
 
+  // 站点级禁言（管理端「用户管理」里设的）
+  //
+  // 放在这里而不是群聊分支内，是因为它是**全站**的：私聊、群聊、任何
+  // 频道都不该漏。对管理员不豁免 —— 这是站点最高级别的惩罚，
+  // 如果需要豁免某个人，就别禁言他。
+  //
+  // ⚠️ 用 `?? null` 而不是 `!== null`：列未迁移时该字段是 undefined，
+  //    而 `undefined !== null` 为 true，会把所有人都判成被禁言。
+  const mutedUntil = (user as { muted_until?: string | null }).muted_until ?? null;
+  if (mutedUntil) {
+    const active = await qOne<{ active: number }>(
+      e.DB,
+      'SELECT datetime(?) > CURRENT_TIMESTAMP AS active',
+      mutedUntil,
+    );
+    if (active?.active) {
+      return c.json({ detail: `您当前处于全站禁言状态（解禁时间 ${mutedUntil}）` }, 403);
+    }
+  }
+
   // 私聊：拉黑 / 好友校验
   if (receiver) {
     const target = await qOne<{ blocked_users: string | null }>(

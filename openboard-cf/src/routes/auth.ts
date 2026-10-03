@@ -1111,28 +1111,12 @@ authRoutes.post('/qr/authorize', requireAuth, async (c) => {
 });
 
 // ---------------------------------------------------------------------------
-// 管理员：重置他人密码
+// 注意：这里原本还有一个 `POST /admin/reset-password`（连字符），
+// 与 routes/admin.ts 的 `/admin/reset_password`（下划线）功能重复，
+// 且缺少 audit、强度校验、role=2 保护、自锁保护和 kickUser —— 已删除。
+//
+// 为什么删这个而不是那个：admin.ts 那份是管理端 App 唯一在用的入口
+// （AdminApiService 里写的是下划线版本），校验也完整。留一个更弱的
+// 同名接口只会给未来埋雷：某天有人照文档调连字符版，绕过所有保护。
 // ---------------------------------------------------------------------------
-authRoutes.post('/admin/reset-password', requireAuth, requireAdmin, async (c) => {
-  const e = env(c);
-  const data = (await c.req.json()) as {
-    username?: string;
-    user_id?: number | string;
-    new_password?: string;
-  };
-  let target = (data.username || '').trim();
-  if (!target && data.user_id) {
-    const row = await qOne<{ username: string }>(
-      e.DB,
-      'SELECT username FROM users WHERE id=?',
-      Number(data.user_id),
-    );
-    target = row?.username || '';
-  }
-  if (!target || !data.new_password || data.new_password.length < 8) {
-    return c.json({ detail: '参数不完整' }, 400);
-  }
-  const hashed = await hashPassword(data.new_password, passwordIterations(e));
-  await exec(e.DB, 'UPDATE users SET password_hash=? WHERE username=?', hashed, target);
-  return c.json({ status: 'success', msg: `已重置 ${target} 的密码` });
-});
+

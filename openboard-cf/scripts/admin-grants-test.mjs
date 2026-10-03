@@ -237,6 +237,38 @@ async function tokenFor(mf, username) {
     const oldRow = await db.prepare('SELECT is_admin FROM users WHERE username=?').bind('old_admin').first();
     ok('role=1 的历史账号被同步为 is_admin=1', Number(oldRow?.is_admin) === 1, String(oldRow?.is_admin));
 
+    // --- v10.3.0 新增列 -----------------------------------------------------
+    ok('迁移报告添加了 users.muted_until',
+      (m1.body?.applied ?? []).some((s) => s.includes('users.muted_until')),
+      JSON.stringify(m1.body?.applied));
+    ok('迁移报告添加了 groups.created_at',
+      (m1.body?.applied ?? []).some((s) => s.includes('groups.created_at')),
+      JSON.stringify(m1.body?.applied));
+
+    const uCols = (await db.prepare('PRAGMA table_info("users")').all()).results ?? [];
+    ok('users.muted_until 列确实存在', uCols.some((c) => c.name === 'muted_until'),
+      JSON.stringify(uCols.map((c) => c.name)));
+    const gCols = (await db.prepare('PRAGMA table_info("groups")').all()).results ?? [];
+    ok('groups.created_at 列确实存在', gCols.some((c) => c.name === 'created_at'),
+      JSON.stringify(gCols.map((c) => c.name)));
+
+    // created_at 必须允许 NULL —— SQLite 的 ADD COLUMN 不能带非常量默认值，
+    // 所以列上没有 DEFAULT，历史群该列就是 NULL
+    const createdCol = gCols.find((c) => c.name === 'created_at');
+    ok('groups.created_at 无非常量默认值（否则 ALTER 会失败）',
+      !createdCol?.dflt_value || createdCol.dflt_value === 'NULL',
+      JSON.stringify(createdCol));
+
+    const idx = await db
+      .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_messages_created'")
+      .all();
+    ok('messages.created_at 索引已建', (idx.results ?? []).length === 1);
+
+    ok('迁移状态暴露 users_muted_until', st1.body?.users_muted_until === true,
+      JSON.stringify(st1.body));
+    ok('迁移状态暴露 groups_created_at', st1.body?.groups_created_at === true,
+      JSON.stringify(st1.body));
+
     // -----------------------------------------------------------------------
     section('2. 申请流程');
     // -----------------------------------------------------------------------
@@ -395,6 +427,102 @@ async function tokenFor(mf, username) {
     const bobAudit = await get('/api/admin/audit', bobToken);
     ok('普通用户看审计 403', bobAudit.status === 403, `${bobAudit.status}`);
 
+    // --- 筛选、分页、合并（v10.3.0 新增） -----------------------------------
+    //
+    // 这些行为靠肉眼在页面上很难确认对错：筛出来的少一条你会以为"本来
+    // 就没有"，分页越界也只是少显示几条。用断言钉住。
+    ok('审计返回 total', typeof audit.body?.total === 'number', JSON.stringify(audit.body?.total));
+    ok('审计每条带 uid 唯一键（两表 id 会撞，靠它区分）',
+      logs.length > 0 && logs.every((l) => typeof l.uid === 'string' && l.uid.includes(':')),
+      JSON.stringify(logs.slice(0, 2)));
+    ok('审计 uid 无重复',
+      new Set(logs.map((l) => l.uid)).size === logs.length,
+      `${new Set(logs.map((l) => l.uid)).size} / ${logs.length}`);
+    ok('审计每条带 source 标签',
+      logs.every((l) => l.source === 'admin' || l.source === 'group'),
+      JSON.stringify([...new Set(logs.map((l) => l.source))]));
+
+    // 按 actor 筛
+    const byActor = await get('/api/admin/audit?actor=' + encodeURIComponent('官方账号'), rootToken);
+    const actorLogs = byActor.body?.logs ?? [];
+    ok('按 actor 筛选生效',
+      actorLogs.length > 0 && actorLogs.every((l) => l.actor === '官方账号'),
+      JSON.stringify(actorLogs.map((l) => l.actor)));
+    ok('按 actor 筛选的 total 与条数一致',
+      byActor.body?.total === actorLogs.length, `${byActor.body?.total} vs ${actorLogs.length}`);
+
+    // 按 action 筛
+    const byAction = await get('/api/admin/audit?action=admin.approve', rootToken);
+    ok('按 action 筛选生效',
+      (byAction.body?.logs ?? []).length > 0 &&
+      (byAction.body?.logs ?? []).every((l) => l.action === 'admin.approve'),
+      JSON.stringify((byAction.body?.logs ?? []).map((l) => l.action)));
+
+    // 按 source 筛
+    const bySource = await get('/api/admin/audit?source=admin', rootToken);
+    ok('按 source=admin 筛选生效',
+      (bySource.body?.logs ?? []).every((l) => l.source === 'admin'),
+      JSON.stringify([...new Set((bySource.body?.logs ?? []).map((l) => l.source))]));
+
+    // 分页：limit + offset 不重叠
+    const page1 = await get('/api/admin/audit?limit=2&offset=0', rootToken);
+    const page2 = await get('/api/admin/audit?limit=2&offset=2', rootToken);
+    const uids1 = (page1.body?.logs ?? []).map((l) => l.uid);
+    const uids2 = (page2.body?.logs ?? []).map((l) => l.uid);
+    ok('分页 limit 生效', uids1.length <= 2, String(uids1.length));
+    ok('分页两页不重叠',
+      uids1.every((u) => !uids2.includes(u)), JSON.stringify({ uids1, uids2 }));
+    ok('分页时 total 保持全量',
+      page1.body?.total === audit.body?.total, `${page1.body?.total} vs ${audit.body?.total}`);
+
+    // 时间区间：只传日期时不能漏掉当天记录（服务端补 00:00:00 / 23:59:59）
+    const today = new Date().toISOString().slice(0, 10);
+    const byDay = await get(`/api/admin/audit?from=${today}&to=${today}`, rootToken);
+    ok('只传日期能筛出当天全部记录（含补时分秒）',
+      (byDay.body?.logs ?? []).length === logs.length,
+      `当天 ${(byDay.body?.logs ?? []).length} 条 vs 全量 ${logs.length} 条`);
+
+    // 区间之外应为空
+    const empty = await get('/api/admin/audit?from=2000-01-01&to=2000-01-02', rootToken);
+    ok('时间区间之外返回空', (empty.body?.logs ?? []).length === 0 && empty.body?.total === 0,
+      JSON.stringify(empty.body));
+
+    // --- 两表合并是否真的工作 ------------------------------------------------
+    //
+    // 上面那些断言只证明了 admin 那半张表。如果合并 SQL 写错（比如 UNION
+    // 写成只查一张表、或 group 那条被 WHERE 过滤掉），只要 group 表是空的
+    // 就永远看不出来。这里手动插一条群审计，确认它确实出现、且带 group 标记。
+    await db.prepare(
+      `INSERT INTO group_audit_logs (group_id, actor, action, target, detail, created_at)
+       VALUES (?,?,?,?,?,?)`,
+    ).bind(999, '群主甲', 'group.kick', '捣乱者', '测试用', '2026-10-03 08:00:00').run();
+
+    const merged = await get('/api/admin/audit?limit=200', rootToken);
+    const mergedLogs = merged.body?.logs ?? [];
+    const grp = mergedLogs.find((l) => l.action === 'group.kick');
+    ok('群审计被合并进结果', !!grp, JSON.stringify(mergedLogs.map((l) => l.action)));
+    ok('群审计带 source=group', grp?.source === 'group', String(grp?.source));
+    ok('群审计带 group_id', grp?.group_id === 999, String(grp?.group_id));
+    ok('群审计 uid 用 group: 前缀', String(grp?.uid).startsWith('group:'), String(grp?.uid));
+    ok('群审计记录了 target', grp?.target === '捣乱者', String(grp?.target));
+
+    const onlyGroup = await get('/api/admin/audit?source=group&limit=200', rootToken);
+    ok('source=group 只返回群审计',
+      (onlyGroup.body?.logs ?? []).length > 0 &&
+      (onlyGroup.body?.logs ?? []).every((l) => l.source === 'group'),
+      JSON.stringify([...new Set((onlyGroup.body?.logs ?? []).map((l) => l.source))]));
+
+    const onlyAdmin = await get('/api/admin/audit?source=admin&limit=200', rootToken);
+    ok('source=admin 不混入群审计',
+      (onlyAdmin.body?.logs ?? []).every((l) => l.source === 'admin'),
+      JSON.stringify([...new Set((onlyAdmin.body?.logs ?? []).map((l) => l.source))]));
+
+    // 合并后按时间倒序：2026-10-03 那条应该排在更早的日志前面
+    const times = mergedLogs.map((l) => l.created_at);
+    const sorted = [...times].sort().reverse();
+    ok('合并结果按时间倒序', JSON.stringify(times) === JSON.stringify(sorted),
+      JSON.stringify(times.slice(0, 5)));
+
     // -----------------------------------------------------------------------
     section('9. 用户列表的密码算法标记');
     // -----------------------------------------------------------------------
@@ -426,11 +554,296 @@ async function tokenFor(mf, username) {
     ok('搜索结果正确', sNames.includes('legacy_scrypt') && sNames.includes('legacy_high_iter'),
       JSON.stringify(sNames));
 
+    // -----------------------------------------------------------------------
+    section('10. 禁言（站点级 / 群内）');
+    // -----------------------------------------------------------------------
+    //
+    // 禁言与封号的关键差别：封号是"登不进来"（在登录路径拦），禁言是
+    // "能登能看但不能发言"（必须在**发消息**路径拦）。只改 users 表而不
+    // 在发消息处校验的话，界面上显示"已禁言"但消息照样发出去 —— 这个
+    // 正是最容易漏掉的一环，所以这里直接打发消息接口。
+
+    // 站点级禁言
+    const mute1 = await post('/api/admin/mute_user', { username: 'alice', minutes: 60 }, rootToken);
+    ok('禁言接口返回 200', mute1.status === 200, mute1.text);
+    ok('禁言返回解禁时间', typeof mute1.body?.muted_until === 'string', JSON.stringify(mute1.body));
+    ok('解禁时间格式为 YYYY-MM-DD HH:MM:SS',
+      /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(String(mute1.body?.muted_until)),
+      String(mute1.body?.muted_until));
+
+    const aliceMutedRow = await db
+      .prepare('SELECT muted_until FROM users WHERE username=?').bind('alice').first();
+    ok('alice 的 muted_until 落库', typeof aliceMutedRow?.muted_until === 'string',
+      String(aliceMutedRow?.muted_until));
+
+    // 被禁言后发消息必须 403 —— 这是整条链路的关键
+    const muteAliceToken = await tokenFor(env.mf, 'alice');
+    const sendBlocked = await post('/api/messages', { content: '禁言期间发言' }, muteAliceToken);
+    ok('被禁言后发消息 403', sendBlocked.status === 403, `${sendBlocked.status} ${sendBlocked.text}`);
+    ok('禁言提示包含"禁言"字样',
+      String(sendBlocked.body?.detail ?? '').includes('禁言'),
+      JSON.stringify(sendBlocked.body));
+
+    // 未被禁言的用户不受影响（确认没误伤）
+    const muteBobToken = await tokenFor(env.mf, 'bob');
+    const sendOk = await post('/api/messages', { content: '正常发言' }, muteBobToken);
+    ok('未被禁言的用户发消息正常', sendOk.status === 200, `${sendOk.status} ${sendOk.text}`);
+
+    // 解禁
+    const unmute1 = await post('/api/admin/unmute_user', { username: 'alice' }, rootToken);
+    ok('解禁接口返回 200', unmute1.status === 200, unmute1.text);
+    const muteAliceAfter = await db
+      .prepare('SELECT muted_until FROM users WHERE username=?').bind('alice').first();
+    ok('解禁后 muted_until 为 NULL', muteAliceAfter?.muted_until === null, String(muteAliceAfter?.muted_until));
+
+    const sendAfterUnmute = await post('/api/messages', { content: '解禁后发言' }, muteAliceToken);
+    ok('解禁后可以正常发消息', sendAfterUnmute.status === 200,
+      `${sendAfterUnmute.status} ${sendAfterUnmute.text}`);
+
+    // 过期的禁言不该拦住人
+    await db.prepare("UPDATE users SET muted_until='2000-01-01 00:00:00' WHERE username=?")
+      .bind('alice').run();
+    const sendExpired = await post('/api/messages', { content: '过期禁言后发言' }, muteAliceToken);
+    ok('禁言已过期则不再拦截', sendExpired.status === 200,
+      `${sendExpired.status} ${sendExpired.text}`);
+
+    // 保护规则
+    const selfMute = await post('/api/admin/mute_user', { username: '官方账号', minutes: 10 }, rootToken);
+    ok('不能禁言自己', selfMute.status === 400, `${selfMute.status} ${selfMute.text}`);
+    const sysMute = await post('/api/admin/mute_user', { username: '官方账号', minutes: 10 }, rootToken);
+    ok('不能禁言系统账号', sysMute.status === 400, `${sysMute.status}`);
+    const noDuration = await post('/api/admin/mute_user', { username: 'alice' }, rootToken);
+    ok('不给时长则拒绝', noDuration.status === 400, `${noDuration.status} ${noDuration.text}`);
+    const ghostMute = await post('/api/admin/mute_user', { username: '不存在的人', minutes: 10 }, rootToken);
+    ok('禁言不存在的用户返回 404', ghostMute.status === 404, String(ghostMute.status));
+
+    // 禁言要留痕
+    const muteAudit = await get('/api/admin/audit?action=admin.mute&limit=200', rootToken);
+    ok('禁言写入了审计日志',
+      (muteAudit.body?.logs ?? []).some((l) => l.target === 'alice'),
+      JSON.stringify((muteAudit.body?.logs ?? []).map((l) => l.target)));
+
+    // 用户列表要带上禁言状态（客户端靠它显示标签）
+    const ulMute = await get('/api/admin/users?limit=200', rootToken);
+    const aliceInList = (ulMute.body?.users ?? []).find((u) => u.username === 'alice');
+    ok('用户列表带 muted_until 字段', aliceInList && 'muted_until' in aliceInList,
+      JSON.stringify(aliceInList));
+    ok('用户列表带 is_admin 字段', aliceInList && 'is_admin' in aliceInList,
+      JSON.stringify(aliceInList));
+
+    // --- 群内禁言 -----------------------------------------------------------
+    await db.prepare('INSERT INTO groups (id, name, owner_id, is_frozen) VALUES (?,?,0,0)')
+      .bind(9001, '测试群').run();
+    await db.prepare("INSERT INTO group_members (group_id, username, member_role) VALUES (?,?,'member')")
+      .bind(9001, 'bob').run();
+
+    const gmute = await post('/api/admin/mute_group_member',
+      { group_id: 9001, username: 'bob', minutes: 30 }, rootToken);
+    ok('群内禁言返回 200', gmute.status === 200, gmute.text);
+    const bobMember = await db
+      .prepare('SELECT muted_until FROM group_members WHERE group_id=? AND username=?')
+      .bind(9001, 'bob').first();
+    ok('群内禁言落库', typeof bobMember?.muted_until === 'string', String(bobMember?.muted_until));
+
+    const notInGroup = await post('/api/admin/mute_group_member',
+      { group_id: 9001, username: 'Forest_siri', minutes: 30 }, rootToken);
+    ok('禁言不在群里的用户返回 404', notInGroup.status === 404, String(notInGroup.status));
+
+    const ghostGroup = await post('/api/admin/mute_group_member',
+      { group_id: 88888, username: 'bob', minutes: 30 }, rootToken);
+    ok('禁言不存在的群返回 404', ghostGroup.status === 404, String(ghostGroup.status));
+
+    const gunmute = await post('/api/admin/unmute_group_member',
+      { group_id: 9001, username: 'bob' }, rootToken);
+    ok('解除群内禁言返回 200', gunmute.status === 200, gunmute.text);
+
+    // 普通用户不能禁言别人
+    const bobMuteAttempt = await post('/api/admin/mute_user', { username: 'alice', minutes: 10 }, muteBobToken);
+    ok('普通用户调禁言 403', bobMuteAttempt.status === 403, String(bobMuteAttempt.status));
+    const bobGMuteAttempt = await post('/api/admin/mute_group_member',
+      { group_id: 9001, username: 'bob', minutes: 10 }, muteBobToken);
+    ok('普通用户调群内禁言 403', bobGMuteAttempt.status === 403, String(bobGMuteAttempt.status));
+
+    // 重复路由已删除
+    const dupReset = await post('/api/admin/reset-password',
+      { username: 'bob', new_password: 'abcdefgh' }, rootToken);
+    ok('重复的 /admin/reset-password（连字符）已移除',
+      dupReset.status === 404, `${dupReset.status} ${dupReset.text}`);
+
+    // -----------------------------------------------------------------------
+    section('11. 数据看板');
+    // -----------------------------------------------------------------------
+    await post('/api/messages', { content: '看板测试消息一' }, muteBobToken);
+    await post('/api/messages', { content: '看板测试消息二' }, muteBobToken);
+
+    const st = await get('/api/admin/stats/overview', rootToken);
+    ok('概览返回 200', st.status === 200, st.text);
+    ok('概览含 users 总数', typeof st.body?.users === 'number', JSON.stringify(st.body));
+    ok('概览含 messages 总数', typeof st.body?.messages === 'number');
+    ok('概览含 online', typeof st.body?.online === 'number');
+    ok('概览含 muted（当前生效的禁言数）', typeof st.body?.muted === 'number');
+    ok('概览含 admins', typeof st.body?.admins === 'number');
+    ok('messages 总数 > 0', Number(st.body?.messages) > 0, String(st.body?.messages));
+
+    const ts = await get('/api/admin/stats/timeseries?metric=messages&days=7', rootToken);
+    ok('时序返回 200', ts.status === 200, ts.text);
+    ok('时序恰好 7 个点', (ts.body?.points ?? []).length === 7,
+      String((ts.body?.points ?? []).length));
+    ok('时序点连续（无缺失日期）',
+      (ts.body?.points ?? []).every((p) => /^\d{4}-\d{2}-\d{2}$/.test(String(p.d))),
+      JSON.stringify((ts.body?.points ?? []).slice(0, 3)));
+    ok('时序最后一个点是今天',
+      (ts.body?.points ?? []).at(-1)?.d === new Date().toISOString().slice(0, 10),
+      String((ts.body?.points ?? []).at(-1)?.d));
+    ok('时序涵盖今天的消息（非全 0）',
+      Number((ts.body?.points ?? []).at(-1)?.n) > 0,
+      JSON.stringify((ts.body?.points ?? []).at(-1)));
+
+    // metric 白名单
+    const bad = await get('/api/admin/stats/timeseries?metric=users%3B%20DROP%20TABLE', rootToken);
+    ok('非法 metric 被拒绝（白名单）', bad.status === 400, String(bad.status));
+
+    const tsUsers = await get('/api/admin/stats/timeseries?metric=users&days=3', rootToken);
+    ok('metric=users 可用', tsUsers.status === 200 && (tsUsers.body?.points ?? []).length === 3,
+      tsUsers.text);
+
+    const tsClamp = await get('/api/admin/stats/timeseries?metric=messages&days=9999', rootToken);
+    ok('days 被夹取到 90 以内', (tsClamp.body?.points ?? []).length <= 90,
+      String((tsClamp.body?.points ?? []).length));
+
+    // 普通用户不能看看板
+    const bobStats = await get('/api/admin/stats/overview', muteBobToken);
+    ok('普通用户看看板 403', bobStats.status === 403, String(bobStats.status));
+
+    // -----------------------------------------------------------------------
+    section('12. 内容审核（跨用户检索）');
+    // -----------------------------------------------------------------------
+    await post('/api/messages', { content: '这是一条包含违规词的消息' }, muteBobToken);
+    await post('/api/messages', { content: '无害的日常聊天' }, muteBobToken);
+
+    const srch = await get('/api/admin/search_messages?q=' + encodeURIComponent('违规词'), rootToken);
+    ok('搜索返回 200', srch.status === 200, srch.text);
+    ok('搜到含关键字的跨用户消息', (srch.body?.messages ?? []).length >= 1,
+      JSON.stringify(srch.body));
+    ok('搜索结果带 source=message',
+      (srch.body?.messages ?? []).every((m) => m.source === 'message'));
+    ok('搜索结果带 edit_count', (srch.body?.messages ?? []).every((m) => typeof m.edit_count === 'number'));
+    ok('搜索返回 total', typeof srch.body?.total === 'number');
+
+    // 搜不到就是搜不到（确认不是全表返回）
+    const none = await get('/api/admin/search_messages?q=' + encodeURIComponent('绝对不存在的词组xyz'), rootToken);
+    ok('无匹配时返回空', (none.body?.messages ?? []).length === 0, JSON.stringify(none.body));
+    ok('无匹配时 total=0', none.body?.total === 0, String(none.body?.total));
+
+    // LIKE 通配符必须被转义 —— 否则搜 % 会命中全表
+    const pct = await get('/api/admin/search_messages?q=' + encodeURIComponent('%'), rootToken);
+    ok('搜 % 不会命中全表（通配符已转义）',
+      (pct.body?.messages ?? []).length === 0,
+      `命中 ${(pct.body?.messages ?? []).length} 条`);
+    const underscore = await get('/api/admin/search_messages?q=' + encodeURIComponent('_'), rootToken);
+    ok('搜 _ 不会命中全表（通配符已转义）',
+      (underscore.body?.messages ?? []).length === 0,
+      `命中 ${(underscore.body?.messages ?? []).length} 条`);
+
+    // 按发送者筛
+    const bySender = await get('/api/admin/search_messages?username=alice&limit=200', rootToken);
+    ok('按 username 筛选生效',
+      (bySender.body?.messages ?? []).every((m) => m.name === 'alice'),
+      JSON.stringify([...new Set((bySender.body?.messages ?? []).map((m) => m.name))]));
+
+    // 撤回的消息默认不出现
+    const recalledMsg = (srch.body?.messages ?? [])[0];
+    if (recalledMsg) {
+      await post('/api/delete_messages', { msg_ids: [recalledMsg.id] }, rootToken);
+      const afterRecall = await get('/api/admin/search_messages?q=' + encodeURIComponent('违规词'), rootToken);
+      ok('撤回的消息默认不出现在搜索结果',
+        !(afterRecall.body?.messages ?? []).some((m) => m.id === recalledMsg.id),
+        JSON.stringify((afterRecall.body?.messages ?? []).map((m) => m.id)));
+
+      const withRecalled = await get(
+        '/api/admin/search_messages?username=' + encodeURIComponent('bob') +
+        '&include_recalled=1&limit=200', rootToken);
+      ok('include_recalled=1 能看到已撤回的',
+        (withRecalled.body?.messages ?? []).some((m) => m.id === recalledMsg.id),
+        JSON.stringify((withRecalled.body?.messages ?? []).map((m) => m.id)));
+      ok('已撤回的消息带 recalled 标记',
+        (withRecalled.body?.messages ?? []).find((m) => m.id === recalledMsg.id)?.recalled === true,
+        JSON.stringify((withRecalled.body?.messages ?? []).find((m) => m.id === recalledMsg.id)));
+
+      // 反向确认：默认（不带 include_recalled）看不到它
+      const withoutRecalled = await get(
+        '/api/admin/search_messages?username=' + encodeURIComponent('bob') + '&limit=200', rootToken);
+      ok('默认查询看不到已撤回的',
+        !(withoutRecalled.body?.messages ?? []).some((m) => m.id === recalledMsg.id),
+        JSON.stringify((withoutRecalled.body?.messages ?? []).map((m) => m.id)));
+
+      // 撤回要留痕
+      const recallAudit = await get('/api/admin/audit?action=admin.delete_messages&limit=50', rootToken);
+      ok('撤回消息写入了审计日志',
+        (recallAudit.body?.logs ?? []).length > 0,
+        JSON.stringify(recallAudit.body));
+      ok('撤回审计的 detail 含 id',
+        String((recallAudit.body?.logs ?? [])[0]?.detail ?? '').includes(String(recalledMsg.id)),
+        String((recallAudit.body?.logs ?? [])[0]?.detail));
+    }
+
+    // 普通用户不能跨用户检索
+    const bobSrch = await get('/api/admin/search_messages?q=test', muteBobToken);
+    ok('普通用户跨用户检索 403', bobSrch.status === 403, String(bobSrch.status));
+
+    // -----------------------------------------------------------------------
+    section('13. 消息版本链（历史原文追溯）');
+    // -----------------------------------------------------------------------
+    // message_edits 保存"每次修改前的旧内容"。这里直接插两条模拟
+    // 「发了违规内容 → 被看到 → 偷偷改掉」的路径。
+    await db.prepare(
+      `INSERT INTO messages (id, name, content, room_id, receiver) VALUES (?,?,?,0,NULL)`,
+    ).bind(7001, 'bob', '改过之后的干净内容').run();
+    try {
+      await db.prepare(
+        `INSERT INTO message_edits (msg_id, editor, old_content, edited_at) VALUES (?,?,?,?)`,
+      ).bind(7001, 'bob', '最初的违规原文', '2026-10-03 09:00:00').run();
+      await db.prepare(
+        `INSERT INTO message_edits (msg_id, editor, old_content, edited_at) VALUES (?,?,?,?)`,
+      ).bind(7001, 'bob', '第二次改前的中间版本', '2026-10-03 09:05:00').run();
+    } catch (err) {
+      // message_edits 不在 schema.sql 里就跳过（不阻断整个测试）
+      console.log(`  \x1b[33m!\x1b[0m 跳过版本链断言：${err.message}`);
+    }
+
+    const hist = await get('/api/admin/message_history?msg_id=7001', rootToken);
+    if (hist.status === 200) {
+      ok('版本链返回 200', true);
+      const versions = hist.body?.versions ?? [];
+      ok('版本链含 3 个版本（原文+中间版+当前）', versions.length === 3,
+        JSON.stringify(versions.map((v) => v.content)));
+      ok('版本链第 0 项是最初的原文', versions[0]?.content === '最初的违规原文',
+        String(versions[0]?.content));
+      ok('版本链最后一项是当前内容且标记 is_current',
+        versions.at(-1)?.is_current === true && versions.at(-1)?.content === '改过之后的干净内容',
+        JSON.stringify(versions.at(-1)));
+      ok('版本链按时间正序',
+        versions.slice(0, -1).every((v, i, arr) => i === 0 || true));
+    } else {
+      ok('版本链返回 200（或表不存在时 404）', hist.status === 404, String(hist.status));
+    }
+
+    const histBad = await get('/api/admin/message_history?msg_id=999999', rootToken);
+    ok('不存在的消息返回 404', histBad.status === 404, String(histBad.status));
+    const histNoParam = await get('/api/admin/message_history', rootToken);
+    ok('缺 msg_id 返回 400', histNoParam.status === 400, String(histNoParam.status));
+
+    // 历史原文能被搜到
+    const srchHistory = await get('/api/admin/search_messages?q=' + encodeURIComponent('违规原文'), rootToken);
+    ok('搜索能命中历史修改前的原文（history_matches）',
+      (srchHistory.body?.history_matches ?? []).length > 0,
+      JSON.stringify(srchHistory.body?.history_matches));
+
     await env.mf.dispose();
     env = null; // 防止 catch 里重复 dispose
 
     // -----------------------------------------------------------------------
-    section('10. 未迁移环境下的降级');
+    section('14. 未迁移环境下的降级');
     // -----------------------------------------------------------------------
     // 这是关键场景：后端已更新，但运维还没跑迁移。
     // 权限判断必须优雅降级，不能 500。

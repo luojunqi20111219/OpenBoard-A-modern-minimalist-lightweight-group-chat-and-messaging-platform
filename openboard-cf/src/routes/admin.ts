@@ -10,6 +10,7 @@ import { broadcast, kickUser, onlineUsers } from '../realtime';
 import { randomId, hashPassword, needsPasswordReset } from '../crypto';
 import { passwordIterations } from '../env';
 import { cleanText } from '../sanitize';
+import { audit, summarizeIds } from '../audit';
 
 export const adminRoutes = new Hono<HonoEnv>();
 
@@ -17,34 +18,9 @@ function env(c: { env: unknown }): Env {
   return c.env as Env;
 }
 
-/**
- * 写审计日志。
- *
- * 管理端新增的写操作（重置密码、批量封禁）也要留痕 —— 动态授权
- * 之后任何管理员都能提权别人，没有日志就无从追溯。
- * 失败不阻断主流程，审计表可能还没迁移。
- */
-async function audit(
-  e: Env,
-  actor: string | undefined,
-  action: string,
-  target: string | null,
-  detail?: string,
-): Promise<void> {
-  if (!actor) return;
-  try {
-    await exec(
-      e.DB,
-      'INSERT INTO admin_audit_logs (actor, action, target, detail, created_at) VALUES (?,?,?,?,?)',
-      actor, action, target, detail ?? null, nowIso(),
-    );
-  } catch {
-    /* 表未迁移，忽略 */
-  }
-}
-
 adminRoutes.post('/admin/toggle_freeze_group', requireAuth, requireAdmin, async (c) => {
   const e = env(c);
+  const me = c.get('user');
   const data = (await c.req.json()) as { group_id?: number };
   const groupId = Number(data.group_id);
   const group = await qOne<{ is_frozen: number }>(e.DB, 'SELECT is_frozen FROM groups WHERE id=?', groupId);
@@ -52,6 +28,7 @@ adminRoutes.post('/admin/toggle_freeze_group', requireAuth, requireAdmin, async 
 
   const next = group.is_frozen ? 0 : 1;
   await exec(e.DB, 'UPDATE groups SET is_frozen=? WHERE id=?', next, groupId);
+  await audit(e, me?.username, 'admin.freeze_group', String(groupId), next ? '冻结' : '解冻');
   return c.json({ status: 'success', is_frozen: next, msg: next ? '群聊已冻结' : '群聊已解冻' });
 });
 
@@ -69,8 +46,57 @@ async function resolveTargetUsername(
   return row?.username ?? null;
 }
 
+/**
+ * 探测 users 表是否有某列。
+ *
+ * 为什么需要：`is_admin` / `muted_until` 都是迁移才加的列，在**未迁移
+ * 的库**上直接 `SELECT is_admin FROM users` 会让整个接口 500 —— 而
+ * 用户列表恰恰是管理端首页就要调的东西，一挂全挂。
+ * 与其 try/catch 整条查询（分不清是列缺失还是别的错），不如先探测。
+ */
+async function usersColumnExists(e: Env, column: string): Promise<boolean> {
+  try {
+    const info = await e.DB.prepare('PRAGMA table_info("users")').all<{ name: string }>();
+    return (info.results ?? []).some((r) => r.name === column);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 把「禁言分钟数」换算成 UTC 时间戳字符串。
+ *
+ * ⚠️ 时间一律由**服务端**算，不接受客户端传绝对时间 —— 手机时区
+ * 千奇百怪，客户端算出来的时间可能差几小时，结果就是刚点上禁言
+ * 就已经过期，或者多禁了一整天。
+ *
+ * 输出格式必须与 group_members.muted_until 一致
+ * （'YYYY-MM-DD HH:MM:SS'），因为判定逻辑都是
+ * `datetime(?) > CURRENT_TIMESTAMP`。
+ *
+ * @param minutes 时长；<=0 或非数字时返回 null（表示"永久"由调用方另处理）
+ * @param until   客户端显式指定的时间（仅当没给 minutes 时使用，服务端不校验时区）
+ */
+function computeMutedUntil(minutes: unknown, until: unknown): string | null {
+  const m = Number(minutes);
+  if (Number.isFinite(m) && m > 0) {
+    // 上限一年，防止误传一个巨大的数字把时间算到几百年后
+    const capped = Math.min(m, 365 * 24 * 60);
+    const d = new Date(Date.now() + capped * 60_000);
+    return d.toISOString().slice(0, 19).replace('T', ' ');
+  }
+  if (typeof until === 'string' && until.trim()) {
+    // 只接受 'YYYY-MM-DD HH:MM:SS' 或 'YYYY-MM-DD'，其余丢弃
+    const t = until.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return `${t} 23:59:59`;
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(t)) return t;
+  }
+  return null;
+}
+
 adminRoutes.post('/admin/update_user_avatar', requireAuth, requireAdmin, async (c) => {
   const e = env(c);
+  const me = c.get('user');
   const data = (await c.req.json()) as {
     username?: string;
     user_id?: number | string;
@@ -95,11 +121,13 @@ adminRoutes.post('/admin/update_user_avatar', requireAuth, requireAdmin, async (
   }
 
   await exec(e.DB, 'UPDATE users SET avatar=? WHERE username=?', avatar, username);
+  await audit(e, me?.username, 'admin.update_user_avatar', username);
   return c.json({ status: 'success', avatar, msg: '头像已更新' });
 });
 
 adminRoutes.post('/admin/update_group_avatar', requireAuth, requireAdmin, async (c) => {
   const e = env(c);
+  const me = c.get('user');
   const data = (await c.req.json()) as { group_id?: number; avatar?: string; avatar_base64?: string };
   let avatar = ((data.avatar_base64 || data.avatar) || '').slice(0, 4_000_000);
 
@@ -116,6 +144,7 @@ adminRoutes.post('/admin/update_group_avatar', requireAuth, requireAdmin, async 
   }
 
   await exec(e.DB, 'UPDATE groups SET avatar=? WHERE id=?', avatar, Number(data.group_id));
+  await audit(e, me?.username, 'admin.update_group_avatar', String(Number(data.group_id)));
   return c.json({ status: 'success', avatar, msg: '群头像已更新' });
 });
 
@@ -148,8 +177,11 @@ adminRoutes.post('/admin/delete_user', requireAuth, requireAdmin, async (c) => {
 
 adminRoutes.post('/admin/delete_group', requireAuth, requireAdmin, async (c) => {
   const e = env(c);
+  const me = c.get('user');
   const data = (await c.req.json()) as { group_id?: number };
   const groupId = Number(data.group_id);
+  const group = await qOne<{ name: string | null }>(e.DB, 'SELECT name FROM groups WHERE id=?', groupId);
+  await audit(e, me?.username, 'admin.delete_group', String(groupId), group?.name ?? undefined);
   await exec(e.DB, 'DELETE FROM messages WHERE room_id=?', groupId);
   await exec(e.DB, 'DELETE FROM group_members WHERE group_id=?', groupId);
   await exec(e.DB, 'DELETE FROM groups WHERE id=?', groupId);
@@ -159,6 +191,7 @@ adminRoutes.post('/admin/delete_group', requireAuth, requireAdmin, async (c) => 
 
 adminRoutes.post('/admin/delete_groups', requireAuth, requireAdmin, async (c) => {
   const e = env(c);
+  const me = c.get('user');
   const data = (await c.req.json()) as { group_ids?: number[] };
   const ids = Array.isArray(data.group_ids) ? data.group_ids.slice(0, 200) : [];
   for (const id of ids) {
@@ -166,22 +199,28 @@ adminRoutes.post('/admin/delete_groups', requireAuth, requireAdmin, async (c) =>
     await exec(e.DB, 'DELETE FROM group_members WHERE group_id=?', id);
     await exec(e.DB, 'DELETE FROM groups WHERE id=?', id);
   }
+  // 汇总一条而不是逐条 —— 一次删 200 个群写 200 条日志会淹没审计表
+  if (ids.length) await audit(e, me?.username, 'admin.delete_groups', null, summarizeIds(ids, '删除群'));
   return c.json({ status: 'success', deleted: ids.length });
 });
 
 adminRoutes.post('/delete_messages', requireAuth, requireAdmin, async (c) => {
   const e = env(c);
+  const me = c.get('user');
   const data = (await c.req.json()) as { msg_ids?: number[] };
   const ids = Array.isArray(data.msg_ids) ? data.msg_ids.slice(0, 500) : [];
   for (const id of ids) {
     await exec(e.DB, "UPDATE messages SET content='[system_recalled]' WHERE id=?", id);
   }
+  // 同上：汇总一条，detail 里留前若干 id 供追查
+  if (ids.length) await audit(e, me?.username, 'admin.delete_messages', null, summarizeIds(ids, '撤回消息'));
   await broadcast(e, { message: { type: 'recall', data: { ids } } });
   return c.json({ status: 'success', deleted: ids.length });
 });
 
 adminRoutes.post('/toggle_ban_user', requireAuth, requireAdmin, async (c) => {
   const e = env(c);
+  const me = c.get('user');
   const data = (await c.req.json()) as { username?: string; user_id?: number | string };
   const username = await resolveTargetUsername(e, data);
   if (!username) return c.json({ detail: '用户不存在' }, 404);
@@ -190,8 +229,131 @@ adminRoutes.post('/toggle_ban_user', requireAuth, requireAdmin, async (c) => {
 
   const next = user.is_banned ? 0 : 1;
   await exec(e.DB, 'UPDATE users SET is_banned=? WHERE username=?', next, username);
+  await audit(e, me?.username, next === 1 ? 'admin.ban' : 'admin.unban', username);
   if (next === 1) await kickUser(e, username);
   return c.json({ status: 'success', is_banned: next, msg: next ? '已封禁该用户' : '已解除封禁' });
+});
+
+// ---------------------------------------------------------------------------
+// 禁言（站点级）
+//
+// 与封号的区别是惩罚强度：封号 = 登不进来，禁言 = 能进能看但不能发言。
+// 对刷屏、骂战这类行为，封号过重（会直接让人流失），禁言才合适。
+// ---------------------------------------------------------------------------
+
+adminRoutes.post('/admin/mute_user', requireAuth, requireAdmin, async (c) => {
+  const e = env(c);
+  const me = c.get('user');
+  const data = (await c.req.json()) as {
+    username?: string; user_id?: number | string; minutes?: number; until?: string;
+  };
+
+  const username = await resolveTargetUsername(e, data);
+  if (!username) return c.json({ detail: '用户不存在' }, 404);
+
+  if (!(await usersColumnExists(e, 'muted_until'))) {
+    return c.json({ detail: '服务端尚未初始化（缺少 users.muted_until），请先执行迁移' }, 400);
+  }
+
+  const target = await qOne<{ role: number }>(
+    e.DB, 'SELECT role FROM users WHERE username=?', username,
+  );
+  if (!target) return c.json({ detail: '用户不存在' }, 404);
+
+  // 两道保护：不能禁自己（会把自己也封口，需要另一个人来解），
+  // 不能禁系统账号（role=2 是播报/机器人，封了会静默失效）
+  if (me && me.username === username) {
+    return c.json({ detail: '不能禁言自己' }, 400);
+  }
+  if (target.role === 2) {
+    return c.json({ detail: '不能禁言系统账号' }, 400);
+  }
+
+  const until = computeMutedUntil(data.minutes, data.until);
+  if (!until) return c.json({ detail: '请提供禁言时长（minutes）或解禁时间（until）' }, 400);
+
+  await exec(e.DB, 'UPDATE users SET muted_until=? WHERE username=?', until, username);
+  await audit(e, me?.username, 'admin.mute', username, `至 ${until}`);
+  return c.json({ status: 'success', muted_until: until, msg: `已禁言至 ${until}` });
+});
+
+adminRoutes.post('/admin/unmute_user', requireAuth, requireAdmin, async (c) => {
+  const e = env(c);
+  const me = c.get('user');
+  const data = (await c.req.json()) as { username?: string; user_id?: number | string };
+
+  const username = await resolveTargetUsername(e, data);
+  if (!username) return c.json({ detail: '用户不存在' }, 404);
+
+  if (!(await usersColumnExists(e, 'muted_until'))) {
+    return c.json({ detail: '服务端尚未初始化（缺少 users.muted_until），请先执行迁移' }, 400);
+  }
+
+  await exec(e.DB, 'UPDATE users SET muted_until=NULL WHERE username=?', username);
+  await audit(e, me?.username, 'admin.unmute', username);
+  return c.json({ status: 'success', muted_until: null, msg: '已解除禁言' });
+});
+
+// ---------------------------------------------------------------------------
+// 禁言（群内）
+//
+// 为什么不复用 PUT /groups/:id/members/:username —— 它内部走
+// isGroupManager()，而那个函数用的是**同步** isAdmin（只看 role=1 和
+// 硬编码名单，不查 D1）。结果是：通过「申请→批准」拿到权限的动态管理员
+// 在群里不算管理员，会 403。管理端不该受这个历史缺陷拖累，所以单开接口。
+// ---------------------------------------------------------------------------
+
+adminRoutes.post('/admin/mute_group_member', requireAuth, requireAdmin, async (c) => {
+  const e = env(c);
+  const me = c.get('user');
+  const data = (await c.req.json()) as {
+    group_id?: number; username?: string; minutes?: number; until?: string;
+  };
+
+  const groupId = Number(data.group_id);
+  const username = (data.username || '').trim();
+  if (!Number.isFinite(groupId) || groupId <= 0) return c.json({ detail: '缺少 group_id' }, 400);
+  if (!username) return c.json({ detail: '缺少 username' }, 400);
+
+  const group = await qOne<{ id: number }>(e.DB, 'SELECT id FROM groups WHERE id=?', groupId);
+  if (!group) return c.json({ detail: '群聊不存在' }, 404);
+
+  // 不自动拉人进群 —— 管理端「禁言」的语义是惩罚已有成员，
+  // 把不在群里的人拉进来再禁言是两件不同的事，容易误操作
+  const member = await qOne<{ username: string }>(
+    e.DB, 'SELECT username FROM group_members WHERE group_id=? AND username=?', groupId, username,
+  );
+  if (!member) return c.json({ detail: '该用户不在这个群里' }, 404);
+
+  const until = computeMutedUntil(data.minutes, data.until);
+  if (!until) return c.json({ detail: '请提供禁言时长（minutes）或解禁时间（until）' }, 400);
+
+  await exec(
+    e.DB,
+    'UPDATE group_members SET muted_until=? WHERE group_id=? AND username=?',
+    until, groupId, username,
+  );
+  await audit(e, me?.username, 'admin.mute_group_member', username, `群 ${groupId} 至 ${until}`);
+  return c.json({ status: 'success', muted_until: until, msg: `已在群内禁言至 ${until}` });
+});
+
+adminRoutes.post('/admin/unmute_group_member', requireAuth, requireAdmin, async (c) => {
+  const e = env(c);
+  const me = c.get('user');
+  const data = (await c.req.json()) as { group_id?: number; username?: string };
+
+  const groupId = Number(data.group_id);
+  const username = (data.username || '').trim();
+  if (!Number.isFinite(groupId) || groupId <= 0) return c.json({ detail: '缺少 group_id' }, 400);
+  if (!username) return c.json({ detail: '缺少 username' }, 400);
+
+  await exec(
+    e.DB,
+    'UPDATE group_members SET muted_until=NULL WHERE group_id=? AND username=?',
+    groupId, username,
+  );
+  await audit(e, me?.username, 'admin.unmute_group_member', username, `群 ${groupId}`);
+  return c.json({ status: 'success', muted_until: null, msg: '已解除群内禁言' });
 });
 
 adminRoutes.post('/admin/broadcast', requireAuth, requireAdmin, async (c) => {
@@ -208,7 +370,7 @@ adminRoutes.post('/admin/broadcast', requireAuth, requireAdmin, async (c) => {
   return c.json({ status: 'success' });
 });
 
-/** 管理后台概览数据（admin.html 改造为纯前端 fetch 后从这里取数） */
+/** 管理后台概览数据（管理端 App 的概览页从这里取数） */
 adminRoutes.get('/admin/overview', requireAuth, requireAdmin, async (c) => {
   const e = env(c);
   const [users, messages, groups] = await Promise.all([
@@ -244,12 +406,19 @@ adminRoutes.get('/admin/users', requireAuth, requireAdmin, async (c) => {
   const like = `%${q}%`;
   const params: unknown[] = q ? [like, like, limit, offset] : [limit, offset];
 
+  // 可选列：未迁移的库里没有这些列，硬 SELECT 会让整个接口 500。
+  // 一次探测后决定 SQL 里带不带，比 try/catch 整个查询干净。
+  const hasFlagCol = await usersColumnExists(e, 'is_admin');
+  const hasMutedCol = await usersColumnExists(e, 'muted_until');
+  const optCols = `${hasFlagCol ? ', is_admin' : ''}${hasMutedCol ? ', muted_until' : ''}`;
+
   const users = await qAll<{
     id: number; username: string; nickname: string | null; avatar: string | null;
     role: number; is_banned: number; password_hash: string | null; created_at: string;
+    is_admin?: number; muted_until?: string | null;
   }>(
     e.DB,
-    `SELECT id, username, nickname, avatar, role, is_banned, password_hash, created_at
+    `SELECT id, username, nickname, avatar, role, is_banned, password_hash, created_at${optCols}
        FROM users ${where} ORDER BY id ASC LIMIT ? OFFSET ?`,
     ...params,
   );
@@ -272,6 +441,9 @@ adminRoutes.get('/admin/users', requireAuth, requireAdmin, async (c) => {
       avatar: u.avatar,
       role: u.role,
       is_banned: u.is_banned,
+      // 动态授权标记 —— 客户端靠它显示「管理员」而不是「普通用户」
+      is_admin: hasFlagCol ? Number(u.is_admin ?? 0) === 1 : u.role === 1,
+      muted_until: hasMutedCol ? (u.muted_until ?? null) : null,
       created_at: u.created_at,
       password_algorithm: algo,
       // 与登录路径用**同一个**判定函数，保证列表与实际行为一致
@@ -288,12 +460,17 @@ adminRoutes.get('/admin/user', requireAuth, requireAdmin, async (c) => {
   const username = (c.req.query('username') || '').trim();
   if (!username) return c.json({ detail: '缺少 username' }, 400);
 
+  const hasFlagCol = await usersColumnExists(e, 'is_admin');
+  const hasMutedCol = await usersColumnExists(e, 'muted_until');
+  const optCols = `${hasFlagCol ? ', is_admin' : ''}${hasMutedCol ? ', muted_until' : ''}`;
+
   const user = await qOne<{
     id: number; username: string; nickname: string | null; avatar: string | null;
     role: number; is_banned: number; password_hash: string | null;
     created_at: string; two_factor_enabled: number; read_receipts_enabled: number;
+    is_admin?: number; muted_until?: string | null;
   }>(e.DB, `SELECT id, username, nickname, avatar, role, is_banned, password_hash,
-                   created_at, two_factor_enabled, read_receipts_enabled
+                   created_at, two_factor_enabled, read_receipts_enabled${optCols}
               FROM users WHERE username=?`, username);
   if (!user) return c.json({ detail: '用户不存在' }, 404);
 
@@ -322,6 +499,8 @@ adminRoutes.get('/admin/user', requireAuth, requireAdmin, async (c) => {
       created_at: user.created_at,
       two_factor_enabled: user.two_factor_enabled,
       read_receipts_enabled: user.read_receipts_enabled,
+      is_admin: hasFlagCol ? Number(user.is_admin ?? 0) === 1 : user.role === 1,
+      muted_until: hasMutedCol ? (user.muted_until ?? null) : null,
       password_algorithm: ph.split('$')[0] || '',
       needs_password_reset: needsPasswordReset(ph, passwordIterations(e)),
     },

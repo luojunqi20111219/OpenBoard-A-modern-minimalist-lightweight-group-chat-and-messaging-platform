@@ -11,6 +11,8 @@ import { groupRoutes } from './routes/groups';
 import { friendRoutes } from './routes/friends';
 import { adminRoutes } from './routes/admin';
 import { adminGrantRoutes } from './routes/admin-grants';
+import { adminStatsRoutes } from './routes/admin-stats';
+import { adminReviewRoutes } from './routes/admin-review';
 import { migrationRoutes } from './routes/migrations';
 import { importRoutes, MAX_DB_BYTES } from './routes/import';
 import { MAX_ARCHIVE_BYTES } from './import/archive';
@@ -47,6 +49,9 @@ export function createApp() {
   app.route('/api', friendRoutes);
   app.route('/api', adminRoutes);
   app.route('/api', adminGrantRoutes);
+  // 数据看板（统计/时序）与内容审核（跨用户检索/版本链）
+  app.route('/api', adminStatsRoutes);
+  app.route('/api', adminReviewRoutes);
   app.route('/api', migrationRoutes);
   // 数据导入（一次性初始化用，见 src/routes/import.ts）
   app.route('/api', importRoutes);
@@ -329,7 +334,7 @@ export type AppEnv = Env;
 // 导入页面 HTML
 //
 // 内联在 Worker 里（而非 public/*.html）的理由见 /upload 路由的注释。
-// 页面本身无框架、无外部依赖，风格与项目其余页面（admin.html）保持一致。
+// 页面本身无框架、无外部依赖，风格与项目其余页面保持一致。
 // ---------------------------------------------------------------------------
 function renderUploadPage(opts: { available: boolean; importedAt: string | null }): string {
   // 初始状态直接注入，避免页面先闪一下"可导入"再变成"已关闭"

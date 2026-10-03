@@ -31,30 +31,12 @@ import { qAll, qOne, exec } from '../db';
 import { nowIso } from '../db';
 import { adminList } from '../env';
 import { cleanText } from '../sanitize';
+import { audit } from '../audit';
 
 export const adminGrantRoutes = new Hono<HonoEnv>();
 
 function envOf(c: { env: unknown }): Env {
   return c.env as unknown as Env;
-}
-
-/** 写审计日志。失败不阻断主流程 —— 审计是附属能力，不该拖垮操作本身 */
-async function audit(
-  e: Env,
-  actor: string,
-  action: string,
-  target: string | null,
-  detail?: string,
-): Promise<void> {
-  try {
-    await exec(
-      e.DB,
-      'INSERT INTO admin_audit_logs (actor, action, target, detail, created_at) VALUES (?,?,?,?,?)',
-      actor, action, target, detail ?? null, nowIso(),
-    );
-  } catch {
-    /* 审计表可能尚未迁移，忽略 */
-  }
 }
 
 /** 该账号是否在硬编码保底名单里（这批人不可被撤销管理权限） */
@@ -330,22 +312,95 @@ adminGrantRoutes.get('/admin/list', requireAuth, async (c) => {
   return c.json({ admins: merged });
 });
 
-/** 审计日志（管理端「操作记录」页） */
+/**
+ * 审计日志（管理端「操作记录」页）
+ *
+ * ---------------------------------------------------------------------------
+ * 为什么要合并两张表
+ * ---------------------------------------------------------------------------
+ * 项目里有两处审计：`admin_audit_logs`（全局管理操作，如提权/封禁/撤回）
+ * 和 `group_audit_logs`（群内管理操作，如踢人/禁言）。排查一次纠纷时
+ * 往往需要**按时间顺序看全**——某个管理员先在群里静音了某人、随后又
+ * 把他封号，这两条分别在两张表里，分开查根本串不起来。
+ *
+ * 两表的 created_at 格式恰好一致：
+ *   · admin_audit_logs  —— TEXT，由 nowIso() 写入 'YYYY-MM-DD HH:MM:SS'
+ *   · group_audit_logs   —— DATETIME DEFAULT CURRENT_TIMESTAMP，SQLite
+ *                           读出来也是 'YYYY-MM-DD HH:MM:SS'
+ * 都是 UTC，所以可以直接字符串比较、UNION 排序，不需要时间转换。
+ *
+ * ---------------------------------------------------------------------------
+ * uid 字段的由来（踩过的坑）
+ * ---------------------------------------------------------------------------
+ * 两张表 id 各自自增，UNION 之后 **id 必然重复**。Android 端
+ * AuditAdapter 的 DiffUtil 用 id 判断「是否同一个条目」，id 重复会导致
+ * 列表项错位闪烁（内容明明变了却复用旧 ViewHolder）。
+ * 因此这里给每条拼一个 `uid = "来源:自增id"`，客户端 DIFF 改用它。
+ *
+ * @param actor  按操作者精确筛选（等值，非模糊）
+ * @param action 按动作名精确筛选，如 admin.ban
+ * @param from   起始时间，可只传 'YYYY-MM-DD'（服务端补 00:00:00）
+ * @param to     结束时间，可只传 'YYYY-MM-DD'（服务端补 23:59:59）
+ * @param source all | admin | group
+ */
 adminGrantRoutes.get('/admin/audit', requireAuth, requireAdmin, async (c) => {
   const e = envOf(c);
-  const limit = Math.min(Math.max(Number(c.req.query('limit') || 100), 1), 500);
+
+  const actor = (c.req.query('actor') || '').trim().slice(0, 64);
+  const action = (c.req.query('action') || '').trim().slice(0, 64);
+  const source = (c.req.query('source') || 'all').trim();
+  const limit = Math.min(Math.max(Number(c.req.query('limit') || 50), 1), 200);
+  const offset = Math.max(Number(c.req.query('offset') || 0), 0);
+
+  /**
+   * 只传日期时补全时分秒。
+   * 不补的话 `created_at <= '2026-10-03'` 会把当天 00:00:00 之后的全部漏掉
+   * —— 用户选「截止到今天」却发现今天的记录一条都没有，非常反直觉。
+   */
+  const normalizeFrom = (v: string) => (v.length === 10 ? `${v} 00:00:00` : v);
+  const normalizeTo = (v: string) => (v.length === 10 ? `${v} 23:59:59` : v);
+
+  const from = normalizeFrom((c.req.query('from') || '').trim().slice(0, 19));
+  const to = normalizeTo((c.req.query('to') || '').trim().slice(0, 19));
+
+  // 动态拼 WHERE，值一律走绑定参数，不拼接用户输入
+  const where: string[] = [];
+  const params: unknown[] = [];
+  if (actor) { where.push('t.actor = ?'); params.push(actor); }
+  if (action) { where.push('t.action = ?'); params.push(action); }
+  if (from) { where.push('t.created_at >= ?'); params.push(from); }
+  if (to) { where.push('t.created_at <= ?'); params.push(to); }
+  if (source === 'admin' || source === 'group') { where.push('t.source = ?'); params.push(source); }
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+  const unionSql = `
+    SELECT id, actor, action, target, detail, created_at, 'admin' AS source, NULL AS group_id
+      FROM admin_audit_logs
+    UNION ALL
+    SELECT id, actor, action, target, detail, created_at, 'group' AS source, group_id
+      FROM group_audit_logs`;
+
   try {
     const rows = await qAll<{
       id: number; actor: string; action: string; target: string | null;
-      detail: string | null; created_at: string;
+      detail: string | null; created_at: string; source: string; group_id: number | null;
     }>(
       e.DB,
-      `SELECT id, actor, action, target, detail, created_at
-         FROM admin_audit_logs ORDER BY id DESC LIMIT ?`,
-      limit,
+      `SELECT * FROM (${unionSql}) t ${whereSql}
+        ORDER BY t.created_at DESC, t.source ASC, t.id DESC
+        LIMIT ? OFFSET ?`,
+      ...params, limit, offset,
     );
-    return c.json({ logs: rows });
+
+    const totalRow = await qOne<{ n: number }>(
+      e.DB, `SELECT COUNT(*) AS n FROM (${unionSql}) t ${whereSql}`, ...params,
+    );
+
+    // uid：来源 + 自增 id，客户端 DiffUtil 的唯一键
+    const logs = rows.map((r) => ({ ...r, uid: `${r.source}:${r.id}` }));
+    return c.json({ logs, total: Number(totalRow?.n ?? logs.length) });
   } catch {
-    return c.json({ logs: [] });
+    // 表未迁移：保持向后兼容的返回形状（旧客户端只读 logs）
+    return c.json({ logs: [], total: 0 });
   }
 });

@@ -161,6 +161,69 @@ export async function runAdminMigrations(e: Env): Promise<{
     }
   }
 
+  // 6) users.muted_until —— 站点级禁言
+  //
+  // 与 is_banned 的区别是惩罚强度：封号是「登不进来」，禁言是
+  // 「能进能看但不能发言」。对刷屏、骂战这类行为，封号过重（会让人
+  // 直接流失），禁言才是合适的工具。
+  //
+  // 存 UTC 的 'YYYY-MM-DD HH:MM:SS'，与 group_members.muted_until
+  // 保持同一格式 —— 判定逻辑都是 `datetime(?) > CURRENT_TIMESTAMP`。
+  // 不带 DEFAULT：默认 NULL 表示从未被禁言。
+  if (await hasColumn(e, 'users', 'muted_until')) {
+    skipped.push('users.muted_until 已存在');
+  } else {
+    try {
+      await e.DB.prepare('ALTER TABLE users ADD COLUMN muted_until DATETIME').run();
+      applied.push('users.muted_until 已添加');
+    } catch (err) {
+      errors.push(
+        `添加 users.muted_until 失败：${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  // 7) groups.created_at —— 数据看板的「每日新增群聊」曲线
+  //
+  // ⚠️ 这里**不能**写 DEFAULT CURRENT_TIMESTAMP。SQLite 的
+  // ALTER TABLE ADD COLUMN 只接受常量默认值，带非常量默认值会直接报
+  //   Cannot add a column with non-constant default
+  // 于是历史群的 created_at 保持 NULL —— 曲线只能从本次迁移生效后
+  // 开始计，这是已知且可接受的代价（历史数据没法凭空造出来）。
+  if (await hasColumn(e, 'groups', 'created_at')) {
+    skipped.push('groups.created_at 已存在');
+  } else {
+    try {
+      await e.DB.prepare('ALTER TABLE groups ADD COLUMN created_at DATETIME').run();
+      applied.push('groups.created_at 已添加（历史群为 NULL）');
+    } catch (err) {
+      errors.push(
+        `添加 groups.created_at 失败：${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+  // 补齐建群时未写入的时间戳（只能补一个近似值，至少让曲线不为空）
+  try {
+    const r = await e.DB.prepare(
+      "UPDATE groups SET created_at = datetime('now') WHERE created_at IS NULL OR created_at = ''",
+    ).run();
+    const n = Number(r.meta?.changes ?? 0);
+    if (n > 0) applied.push(`已为 ${n} 个历史群补上 created_at（取当前时间）`);
+  } catch { /* 列未加成功就跳过 */ }
+
+  // 8) messages.created_at 索引
+  //
+  // 看板要按天聚合消息量。messages 是这两张表里唯一会长到几十万行的，
+  // 没索引的话 `date(created_at)` 每次都是全表扫描。
+  // 幂等：IF NOT EXISTS。
+  try {
+    await e.DB.prepare(
+      'CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at)',
+    ).run();
+  } catch (err) {
+    errors.push(`创建 idx_messages_created 失败：${err instanceof Error ? err.message : String(err)}`);
+  }
+
   return { applied, skipped, errors };
 }
 
@@ -182,17 +245,21 @@ migrationRoutes.post('/admin/apply_migrations', requireAuth, requireAdmin, async
 /** 迁移状态查询 —— 客户端首页据此提示"需要初始化" */
 migrationRoutes.get('/admin/migration_status', requireAuth, async (c) => {
   const e = c.env as unknown as Env;
-  const [hasFlag, hasReq, hasAudit, hasMustChange] = await Promise.all([
+  const [hasFlag, hasReq, hasAudit, hasMustChange, hasMuted, hasGroupCreated] = await Promise.all([
     hasColumn(e, 'users', 'is_admin'),
     hasTable(e, 'admin_requests'),
     hasTable(e, 'admin_audit_logs'),
     hasColumn(e, 'users', 'must_change_password'),
+    hasColumn(e, 'users', 'muted_until'),
+    hasColumn(e, 'groups', 'created_at'),
   ]);
   return c.json({
     users_is_admin: hasFlag,
     admin_requests: hasReq,
     admin_audit_logs: hasAudit,
     users_must_change_password: hasMustChange,
-    ready: hasFlag && hasReq && hasAudit && hasMustChange,
+    users_muted_until: hasMuted,
+    groups_created_at: hasGroupCreated,
+    ready: hasFlag && hasReq && hasAudit && hasMustChange && hasMuted && hasGroupCreated,
   });
 });
