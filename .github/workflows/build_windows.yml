@@ -31,8 +31,44 @@ jobs:
     runs-on: windows-latest
 
     steps:
+      # ⚠️ Windows 默认路径上限 260 字符，而仓库里有游戏资源
+      # （tomalbran-pacman 的 animations、08-Rock-Paper-Scissors 的 images 等）
+      # 会超过这个限制，checkout 阶段就报 "Filename too long" 直接失败。
+      #
+      # 已经踩过两个坑，记下来免得再踩：
+      #  1. 注册表 LongPathsEnabled **必须重启/重开进程**才对已运行的进程生效。
+      #     GitHub 的 run 步骤调度器是常驻服务，跑到后面 checkout 时它仍然是
+      #     旧策略，所以只写注册表**并不够**。
+      #  2. `git config --system core.longpaths true` 在 hosted runner 上会因
+      #     权限问题静默不生效（runner 用户对全局 gitconfig 不一定可写）。
+      #
+      # 真正稳的做法是**用环境变量**：GIT_CONFIG_COUNT / GIT_CONFIG_KEY_0 /
+      # GIT_CONFIG_VALUE_0。Git ≥2.31 原生支持，对所有 git 子进程生效、
+      # 不依赖写文件、不依赖权限，且**先于 checkout 生效**。
+      # 三重保险一起上。
+      - name: Enable long paths (Windows)
+        shell: pwsh
+        run: |
+          # (1) 环境变量：立即对所有后续 git 进程生效
+          "GIT_CONFIG_COUNT=1"          | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "GIT_CONFIG_KEY_0=core.longpaths" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "GIT_CONFIG_VALUE_0=true"     | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+          # (2) 注册表：让 Win32 API 也接受长路径（工具链可能依赖）
+          New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" `
+            -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force | Out-Null
+
+          # (3) 顺手写一下 gitconfig（失败不致命，前面两条已经兜住了）
+          try { git config --system core.longpaths true } catch { Write-Host "系统级 gitconfig 写入被拒，已有环境变量兜底" }
+
+          Write-Host "已启用长路径支持（环境变量 + 注册表 + gitconfig）"
+          git config --list --show-origin 2>$null | Select-String "longpaths"
+
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          # 再兜一层：checkout action 内部也读这块配置
+          fetch-depth: 1
 
       - name: Resolve version
         id: ver

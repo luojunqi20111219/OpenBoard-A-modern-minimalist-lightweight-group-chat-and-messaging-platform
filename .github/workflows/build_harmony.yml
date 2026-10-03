@@ -65,19 +65,60 @@ jobs:
 
       # DevEco 的命令行构建工具（含 hvigorw / ohpm）。
       # 官方提供 Linux 版 command-line-tools，用它的构建链即可，不必装完整的 IDE。
+      #
+      # ⚠️ 为什么不用 contentcenter-vali-drcn.dbankcdn.cn 的"官方直链"
+      # ------------------------------------------------------------------
+      # 那个 dbankcdn 链接带防盗链/时效签名，CI 里裸 curl 直接 403：
+      #   curl: (22) The requested URL returned error: 403
+      # 而且链接里的 hash 段会随华为后台发版而变，属于"今天能下明天必挂"的写法。
+      #
+      # 改用**华为云开源镜像站**，无防盗链、支持 Range 续传、长期稳定：
+      #   https://mirrors.huaweicloud.com/harmonyos/ohpm/<ver>/commandline-tools-linux-x64-<ver>.zip
+      # 同目录还带 .sha256，顺手校验一下，避免下到半截的坏包。
+      # 主源失败自动回退到备用版本目录。
       - name: Set up HarmonyOS command-line tools
         run: |
           set -euo pipefail
-          URL="https://contentcenter-vali-drcn.dbankcdn.cn/pvt_2/DeveloperAlliance_package_901_9/9d/v3/9rKtWJ0uQ2-PjWnQ3oOy8Q/commandline-tools-linux-x64-5.0.3.900.zip"
-          # 官方直链偶尔会变。失败了就明确报错，不要静默继续
-          curl -fL --retry 3 --retry-delay 5 -o clt.zip "$URL" || {
-            echo "::error::鸿蒙命令行工具下载失败。请检查工具链直链是否已更新，或改用手动方式提供缓存。"
+          BASE="https://mirrors.huaweicloud.com/harmonyos/ohpm"
+          CANDIDATES="5.0.3/commandline-tools-linux-x64-5.0.3.906.zip
+          5.1.0/commandline-tools-linux-x64-5.1.0.840.zip"
+
+          ok=0
+          for rel in $CANDIDATES; do
+            URL="$BASE/$rel"
+            echo "尝试下载：$URL"
+            if curl -fL --retry 3 --retry-delay 5 --connect-timeout 20 -o clt.zip "$URL"; then
+              # 校验 sha256（镜像同目录提供，缺失时不阻断）
+              if curl -fsL -o clt.zip.sha256 "$URL.sha256"; then
+                want=$(tr -d ' \n\r\t' < clt.zip.sha256 | head -c 64)
+                got=$(sha256sum clt.zip | cut -d' ' -f1)
+                if [ -n "$want" ] && [ "$want" != "$got" ]; then
+                  echo "::warning::sha256 不匹配（want=$want got=$got），换下一个源"
+                  continue
+                fi
+                echo "sha256 校验通过：$got"
+              fi
+              ok=1
+              break
+            fi
+            echo "::warning::该源不可用，继续尝试下一个"
+          done
+
+          if [ "$ok" != "1" ]; then
+            echo "::error::鸿蒙命令行工具下载失败（所有镜像源均不可用）。"
+            echo "::error::请访问 https://mirrors.huaweicloud.com/harmonyos/ohpm/ 查看最新版本目录并更新本步骤的 CANDIDATES。"
             exit 1
-          }
+          fi
+
           unzip -q clt.zip -d clt
           # 目录名带版本号，用通配符定位，避免写死版本
           TOOLS=$(find clt -maxdepth 3 -type d -name "command-line-tools" | head -1)
           echo "工具链目录：$TOOLS"
+          if [ -z "$TOOLS" ]; then
+            echo "::error::解压后没找到 command-line-tools 目录，压缩包结构可能变了"
+            find clt -maxdepth 3 -type d | head -30
+            exit 1
+          fi
           echo "$PWD/$TOOLS/bin" >> "$GITHUB_PATH"
           chmod +x "$TOOLS/bin/"* 2>/dev/null || true
           ls -la "$TOOLS/bin" | head -20
