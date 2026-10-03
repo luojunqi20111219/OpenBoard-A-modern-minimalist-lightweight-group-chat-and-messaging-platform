@@ -117,40 +117,47 @@ jobs:
         run: |
           # 用 vswhere 定位 VS 自带的编译环境，再调 cl.exe。
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          # ⚠️ 必须 [string] 强转 + Trim()。
+          # vswhere 的输出在被 PowerShell 捕获时是**字符串数组**（每行一个元素），
+          # 即使只有一行也是数组。数组参与字符串拼接时 PowerShell 默认用
+          # **换行**当分隔符，于是
+          #     'set "VCVARS=' + $vcvars + '"'
+          # 会写成三行：
+          #     set "VCVARS=
+          #     C:\Program Files\...\vcvars64.bat
+          #     "
+          # cmd 拿到就报 'C:\Program' is not recognized as an internal
+          # or external command —— 这轮排查里坑了两次的元凶。
+          $vsRaw = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $vsPath = ([string]$vsRaw).Trim()
           Write-Host "Visual Studio: $vsPath"
-          if (-not $vsPath) { throw "没有找到带 C++ 工具集的 Visual Studio" }
+          if ([string]::IsNullOrWhiteSpace($vsPath)) { throw "没有找到带 C++ 工具集的 Visual Studio" }
 
-          $vcvars = Join-Path $vsPath "VC\Auxiliary\Build\vcvars64.bat"
+          $vcvars = ([string](Join-Path $vsPath "VC\Auxiliary\Build\vcvars64.bat")).Trim()
           if (-not (Test-Path $vcvars)) { throw "找不到 vcvars64.bat：$vcvars" }
           Write-Host "vcvars64: $vcvars"
 
-          # ⚠️ 这段 .bat 的引号用得很有讲究，别"简化"
-          # ---------------------------------------------------------------
-          # 上一版写成 'call "' + $vcvars + '" || exit /b 1'，云端报：
-          #   '"' is not recognized as an internal or external command
-          #   'C:\Program' is not recognized as an internal or external command
-          # 原因：PowerShell 把带引号的字符串写进文件(ASCII编码)后，
-          # cmd 拿到的行是   call "C:\Program Files\...\vcvars64.bat"
-          # 这是对的，但 `|| exit /b 1` 紧跟在引号后面时，cmd 的
-          # 引号配对/转义解析会把引号剥错位，于是把 " 和 C:\Program
-          # 分别当成命令名去执行。
+          # main.cpp 里 LoadIconW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(101))
+          # 要求把 resource.rc 一起编进去，否则 exe 没有图标。
+          # rc.exe 在 vcvars 环境里已可用。
           #
-          # 两个改法一起用，确保任何环境都稳：
-          #   1) `call "%V%"` —— 变量带引号展开，避免空格路径被拆
-          #   2) 不用 `||`，改 `if errorlevel 1` —— 不依赖管道/引号解析
-          #   3) `set "V=..."` 的等号左侧整体加引号 —— 这是 set 的规范写法，
-          #      能容忍值里的空格与特殊字符
+          # ⚠️ 这段 .bat 的引号也用得很有讲究，别"简化"：
+          #   1) `set "VCVARS=<path>"` 等号左侧整体加引号 —— set 的规范写法，
+          #      能容纳含空格的路径
+          #   2) `call "%VCVARS%"` —— 变量带引号展开
+          #   3) `if errorlevel 1 (...)` 取代 `||` —— `||` 紧跟在引号后面时
+          #      cmd 的引号配对会剥错位，把 " 和 C:\Program 当成两条命令
+          #   4) 不写中文错误文案 —— .bat 以 ASCII 落盘，中文会变 ???
           $bat = @(
             '@echo off',
             'setlocal enableextensions',
             'set "VCVARS=' + $vcvars + '"',
             'echo === vcvars64 ===',
             'call "%VCVARS%"',
-            'if errorlevel 1 ( echo ::error::vcvars64 初始化失败 & exit /b 1 )',
+            'if errorlevel 1 ( echo ::error::vcvars64 init failed & exit /b 1 )',
             'echo === rc.exe ===',
             'rc /nologo resource.rc',
-            'if errorlevel 1 ( echo ::error::rc 编译资源失败 & exit /b 1 )',
+            'if errorlevel 1 ( echo ::error::rc failed & exit /b 1 )',
             'echo === cl.exe ===',
             'cl /nologo /std:c++17 /O2 /EHsc /DUNICODE /D_UNICODE ' +
               '/I"webview2_sdk\build\native\include" ' +
@@ -160,11 +167,14 @@ jobs:
               '/LIBPATH:"webview2_sdk\build\native\x64" ' +
               'WebView2LoaderStatic.lib ' +
               'user32.lib shell32.lib ole32.lib oleaut32.lib advapi32.lib gdi32.lib',
-            'if errorlevel 1 ( echo ::error::cl 编译链接失败 & exit /b 1 )',
-            'echo === cl 完成 ===',
+            'if errorlevel 1 ( echo ::error::cl failed & exit /b 1 )',
+            'echo === cl done ===',
             'exit /b 0'
           )
-          Set-Content -Path build_exe.bat -Value $bat -Encoding ASCII
+          # ⚠️ 编码用 OEM(437)，不是 ASCII。
+          # cmd.exe 在中文/其他代码页下读 UTF-8 或 ANSI 落盘的 .bat 可能
+          # 把路径里的字符读坏；OEM 是 cmd 的原生编码，最稳。
+          $bat -join "`r`n" | Set-Content -Path build_exe.bat -Encoding OEM
           Write-Host "--- build_exe.bat ---"
           Get-Content build_exe.bat | ForEach-Object { Write-Host "  $_" }
           Write-Host "---------------------"
