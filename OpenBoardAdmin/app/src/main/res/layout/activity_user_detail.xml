@@ -224,6 +224,18 @@
                     android:textSize="14sp"
                     android:textStyle="bold" />
 
+                <TextView
+                    android:id="@+id/tvMuteStatus"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:background="@drawable/bg_card"
+                    android:padding="10dp"
+                    android:textColor="@color/muted"
+                    android:textSize="12.5sp"
+                    android:text="禁言状态：正常"
+                    android:visibility="gone" />
+
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnResetPassword"
                     style="@style/Widget.Material3.Button.TonalButton"
@@ -231,6 +243,23 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="10dp"
                     android:text="重置密码" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnMuteUser"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="禁言该用户" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnUnmuteUser"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="解除禁言"
+                    android:visibility="gone" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnToggleBan"

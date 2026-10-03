@@ -11,6 +11,7 @@ import androidx.lifecycle.lifecycleScope
 import com.openboard.admin.R
 import com.openboard.admin.data.AdminSession
 import com.openboard.admin.data.api.AdminRetrofitClient
+import com.openboard.admin.data.model.AdminApplyRequest
 import com.openboard.admin.data.model.AdminLoginRequest
 import com.openboard.admin.data.model.AdminLoginResponse
 import com.openboard.admin.databinding.ActivityAdminLoginBinding
@@ -285,11 +286,11 @@ class AdminLoginActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val ok = withContext(Dispatchers.IO) {
                 try {
-                    val body = mapOf(
-                        "note" to "通过管理端 App 申请",
-                        "device_info" to "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}",
+                    val req = AdminApplyRequest(
+                        note = "通过管理端 App 申请",
+                        deviceInfo = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}",
                     )
-                    val r = AdminRetrofitClient.api().applyAdmin(body).execute()
+                    val r = AdminRetrofitClient.api().applyAdmin(req).execute()
                     r.isSuccessful
                 } catch (e: Exception) {
                     false

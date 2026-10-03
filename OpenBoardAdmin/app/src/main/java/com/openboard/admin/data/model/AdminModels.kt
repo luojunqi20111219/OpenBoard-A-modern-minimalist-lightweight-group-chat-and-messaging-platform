@@ -25,15 +25,32 @@ data class AdminUser(
     @SerializedName("avatar") val avatar: String? = null,
     @SerializedName("role") val role: Int = 0,
     @SerializedName("is_banned") val isBanned: Int = 0,
+    /** 动态授权标记（服务端 users.is_admin）。未迁移的旧后端不返回该字段 → false */
+    @SerializedName("is_admin") val isAdminFlag: Boolean = false,
+    /** 站点级禁言的解禁时间，null 表示未被禁言 */
+    @SerializedName("muted_until") val mutedUntil: String? = null,
     @SerializedName("created_at") val createdAt: String? = null,
     /** 密码哈希算法标识，如 pbkdf2:sha256:10000 / scrypt:32768:8:1 */
     @SerializedName("password_algorithm") val passwordAlgorithm: String? = null,
     /** true 表示旧格式哈希，当前套餐无法验证，必须重置密码才能登录 */
     @SerializedName("needs_password_reset") val needsPasswordReset: Boolean = false
 ) {
-    val isAdmin: Boolean get() = role == 1
     val isSystem: Boolean get() = role == 2
     val isBannedBool: Boolean get() = isBanned == 1
+
+    /**
+     * 是否具有管理权限。
+     *
+     * ⚠️ 不要叫 isAdmin —— 那会与 Gson 的字段名 isAdminFlag 在
+     * 序列化/反序列化上产生歧义，且与旧的 `isAdmin = role == 1` 计算属性
+     * 冲突。这里把两条来源合并：
+     *   · role == 1        —— 硬编码时代的最高权限
+     *   · isAdminFlag      —— 通过「申请→批准」拿到的动态权限
+     * 只看 role 的话，动态管理员在 App 里会显示成「普通用户」。
+     */
+    val isAdminEffective: Boolean get() = role == 1 || isAdminFlag
+
+    val isMuted: Boolean get() = !mutedUntil.isNullOrBlank()
 
     /** 列表里的显示名：优先昵称 */
     val displayName: String get() = nickname?.takeIf { it.isNotBlank() } ?: username
@@ -148,12 +165,74 @@ data class SkippedUser(
     @SerializedName("reason") val reason: String = ""
 )
 
+// ---------------------------------------------------------------------------
+// 请求体（具名 data class）
+//
+// ⚠️ 全部用具名 data class，**不要**用 Map<String, ...>。
+//
+// 之前有 8 个接口用 Map 当 @Body，运行时抛：
+//   "Parameter type must not include a type variable or wildcard"
+// 原因：Retrofit 需要为 body 找到具体的转换器，而泛型 Map 的类型参数
+// 在反射阶段被擦除成上界，Gson 找不到适配器。而且 Kotlin 泛型**不变**，
+// 调用方传 Map<String, String> 与声明 Map<String, Any> 并非同一类型，
+// 编译器只在局部推断通过，到反射取类型时才炸 —— 所以这类问题
+// 编译期查不出来，只有真机跑到那个接口才暴露。
+// ---------------------------------------------------------------------------
+
+/** 只带一个 username 的请求（封禁/解封、删除用户、撤销权限、解除禁言） */
+data class UsernameRequest(
+    @SerializedName("username") val username: String
+)
+
+/** 全站广播 */
+data class ContentRequest(
+    @SerializedName("content") val content: String
+)
+
+/** 只带 group_id 的请求（冻结群聊、删除群聊） */
+data class GroupIdRequest(
+    @SerializedName("group_id") val groupId: Int
+)
+
+/** 撤回消息 */
+data class DeleteMessagesRequest(
+    @SerializedName("msg_ids") val msgIds: List<Int>
+)
+
+/** 提交管理员申请 */
+data class AdminApplyRequest(
+    @SerializedName("note") val note: String? = null,
+    @SerializedName("device_info") val deviceInfo: String? = null
+)
+
+/**
+ * 站点级禁言。
+ *
+ * `minutes` 与 `until` 二选一：服务端优先用 minutes 自己算时间。
+ * 之所以不建议客户端传 until —— 手机时区不一致会让禁言立即失效
+ * 或禁言时长翻倍。until 只在需要精确指定时用。
+ */
+data class MuteUserRequest(
+    @SerializedName("username") val username: String,
+    @SerializedName("minutes") val minutes: Int? = null,
+    @SerializedName("until") val until: String? = null
+)
+
+/** 群内禁言 */
+data class MuteGroupMemberRequest(
+    @SerializedName("group_id") val groupId: Int,
+    @SerializedName("username") val username: String,
+    @SerializedName("minutes") val minutes: Int? = null,
+    @SerializedName("until") val until: String? = null
+)
+
 /** 通用操作结果 */
 data class SimpleResult(
     @SerializedName("status") val status: String? = null,
     @SerializedName("msg") val msg: String? = null,
     @SerializedName("detail") val detail: String? = null,
-    @SerializedName("is_banned") val isBanned: Int? = null
+    @SerializedName("is_banned") val isBanned: Int? = null,
+    @SerializedName("muted_until") val mutedUntil: String? = null
 )
 
 /** 概览（管理端首页大数字） */
@@ -230,15 +309,32 @@ data class AdminListResponse(
 /** GET /api/admin/audit 的单项 */
 data class AuditLogItem(
     @SerializedName("id") val id: Int = 0,
+    /**
+     * 全局唯一键，形如 "admin:12" / "group:7"。
+     *
+     * ⚠️ 不要用 id 做 DiffUtil 的 areItemsTheSame —— 审计结果合并了
+     * admin_audit_logs 与 group_audit_logs 两张表，两边的 id 各自自增，
+     * 合并后必然重复。用 id 判断"是不是同一条"会导致列表项串位、
+     * 内容变了却复用旧 ViewHolder（表现为闪烁）。
+     */
+    @SerializedName("uid") val uid: String? = null,
+    /** "admin"（全局管理操作）或 "group"（群内管理操作） */
+    @SerializedName("source") val source: String? = null,
+    @SerializedName("group_id") val groupId: Int? = null,
     @SerializedName("actor") val actor: String = "",
     @SerializedName("action") val action: String = "",
     @SerializedName("target") val target: String? = null,
     @SerializedName("detail") val detail: String? = null,
     @SerializedName("created_at") val createdAt: String? = null
-)
+) {
+    /** DiffUtil 用的稳定键；老后端不返回 uid 时退化为 source+id */
+    val stableKey: String get() = uid ?: "${source ?: "admin"}:$id"
+    val isGroupSource: Boolean get() = source == "group"
+}
 
 data class AuditLogResponse(
-    @SerializedName("logs") val logs: List<AuditLogItem> = emptyList()
+    @SerializedName("logs") val logs: List<AuditLogItem> = emptyList(),
+    @SerializedName("total") val total: Int = 0
 )
 
 /** GET /api/admin/migration_status */
@@ -246,8 +342,28 @@ data class MigrationStatus(
     @SerializedName("users_is_admin") val usersIsAdmin: Boolean = false,
     @SerializedName("admin_requests") val adminRequests: Boolean = false,
     @SerializedName("admin_audit_logs") val adminAuditLogs: Boolean = false,
+    /**
+     * 自助重置为默认密码后置 1，改完密码清 0。
+     * 老后端不返回该字段 → false。
+     */
+    @SerializedName("users_must_change_password") val usersMustChangePassword: Boolean = false,
+    /** 站点级禁言支持（users.muted_until） */
+    @SerializedName("users_muted_until") val usersMutedUntil: Boolean = false,
+    /** 数据看板的群新增曲线需要它（groups.created_at） */
+    @SerializedName("groups_created_at") val groupsCreatedAt: Boolean = false,
     @SerializedName("ready") val ready: Boolean = false
-)
+) {
+    /** 缺哪些项 —— 首页提示"需要初始化"时列出具体缺什么 */
+    val missing: List<String>
+        get() = buildList {
+            if (!usersIsAdmin) add("users.is_admin")
+            if (!adminRequests) add("admin_requests")
+            if (!adminAuditLogs) add("admin_audit_logs")
+            if (!usersMustChangePassword) add("users.must_change_password")
+            if (!usersMutedUntil) add("users.muted_until")
+            if (!groupsCreatedAt) add("groups.created_at")
+        }
+}
 
 /** POST /api/admin/apply_migrations */
 data class MigrationResult(
@@ -255,5 +371,96 @@ data class MigrationResult(
     @SerializedName("applied") val applied: List<String> = emptyList(),
     @SerializedName("skipped") val skipped: List<String> = emptyList(),
     @SerializedName("errors") val errors: List<String> = emptyList(),
+    @SerializedName("detail") val detail: String? = null
+)
+
+// ---------------------------------------------------------------------------
+// 数据看板
+// ---------------------------------------------------------------------------
+
+/** GET /api/admin/stats/overview */
+data class StatsOverviewResponse(
+    @SerializedName("users") val users: Int = 0,
+    @SerializedName("groups") val groups: Int = 0,
+    @SerializedName("messages") val messages: Int = 0,
+    @SerializedName("new_users_today") val newUsersToday: Int = 0,
+    @SerializedName("new_messages_today") val newMessagesToday: Int = 0,
+    @SerializedName("new_groups_today") val newGroupsToday: Int = 0,
+    @SerializedName("banned") val banned: Int = 0,
+    /** 当前仍生效的禁言数（已过期的不计） */
+    @SerializedName("muted") val muted: Int = 0,
+    @SerializedName("admins") val admins: Int = 0,
+    @SerializedName("online") val online: Int = 0
+)
+
+/** GET /api/admin/stats/timeseries 的点 */
+data class TimeseriesPoint(
+    @SerializedName("d") val date: String = "",
+    @SerializedName("n") val count: Int = 0
+)
+
+data class TimeseriesResponse(
+    @SerializedName("metric") val metric: String? = null,
+    @SerializedName("days") val days: Int = 0,
+    @SerializedName("points") val points: List<TimeseriesPoint> = emptyList()
+)
+
+// ---------------------------------------------------------------------------
+// 内容审核
+// ---------------------------------------------------------------------------
+
+/** GET /api/admin/search_messages 的消息项 */
+data class AuditMessage(
+    @SerializedName("id") val id: Int = 0,
+    @SerializedName("name") val name: String = "",
+    @SerializedName("content") val content: String? = null,
+    @SerializedName("room_id") val roomId: Int? = null,
+    @SerializedName("receiver") val receiver: String? = null,
+    @SerializedName("group_name") val groupName: String? = null,
+    @SerializedName("created_at") val createdAt: String? = null,
+    @SerializedName("source") val source: String? = null,
+    /** 是否已被撤回（内容已替换为 [system_recalled]） */
+    @SerializedName("recalled") val recalled: Boolean = false,
+    /** 被改过几次 —— >0 时显示「查看历史」入口 */
+    @SerializedName("edit_count") val editCount: Int = 0
+) {
+    /** 会话归属的展示文案 */
+    val conversationLabel: String
+        get() = when {
+            !groupName.isNullOrBlank() -> groupName
+            !receiver.isNullOrBlank() -> "私聊 → $receiver"
+            roomId != null && roomId > 0 -> "群 #$roomId"
+            else -> "未知会话"
+        }
+}
+
+/** 历史修改命中项 */
+data class HistoryMatch(
+    @SerializedName("msg_id") val msgId: Int = 0,
+    @SerializedName("editor") val editor: String? = null,
+    @SerializedName("old_content") val oldContent: String? = null,
+    @SerializedName("edited_at") val editedAt: String? = null,
+    @SerializedName("source") val source: String? = null
+)
+
+data class SearchMessagesResponse(
+    @SerializedName("messages") val messages: List<AuditMessage> = emptyList(),
+    @SerializedName("total") val total: Int = 0,
+    @SerializedName("history_matches") val historyMatches: List<HistoryMatch> = emptyList(),
+    @SerializedName("detail") val detail: String? = null
+)
+
+/** 版本链里的一环 */
+data class MessageVersion(
+    @SerializedName("editor") val editor: String? = null,
+    @SerializedName("content") val content: String? = null,
+    @SerializedName("edited_at") val editedAt: String? = null,
+    /** true = 当前生效的版本 */
+    @SerializedName("is_current") val isCurrent: Boolean = false
+)
+
+data class MessageHistoryResponse(
+    @SerializedName("message") val message: AuditMessage? = null,
+    @SerializedName("versions") val versions: List<MessageVersion> = emptyList(),
     @SerializedName("detail") val detail: String? = null
 )

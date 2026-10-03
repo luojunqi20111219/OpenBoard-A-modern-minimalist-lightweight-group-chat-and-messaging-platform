@@ -15,8 +15,10 @@ import com.openboard.admin.data.api.AdminRetrofitClient
 import com.openboard.admin.databinding.ActivityAdminMainBinding
 import com.openboard.admin.ui.auth.AdminRequestsFragment
 import com.openboard.admin.ui.common.AuditFragment
+import com.openboard.admin.ui.dashboard.DashboardFragment
 import com.openboard.admin.ui.login.AdminLoginActivity
 import com.openboard.admin.ui.overview.OverviewFragment
+import com.openboard.admin.ui.review.ReviewFragment
 import com.openboard.admin.ui.user.UserListFragment
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -25,19 +27,27 @@ import kotlinx.coroutines.withContext
 /**
  * 管理端主界面。
  *
- * 五个标签页：
- *   概览 | 用户 | 授权 | 操作记录 | 服务器
+ * 七个标签页：
+ *   概览 | 用户 | 审核 | 看板 | 授权 | 操作记录 | 服务器
  *
- * 进入时先检查迁移状态 —— 若 users.is_admin 列还没加，所有管理功能
- * 都会静默失效（权限判断查不到列）。与其让用户遇到一堆莫名其妙的
- * 403，不如在首页直接给一个「一键初始化」。
+ * 进入时先检查迁移状态 —— 若新加的列还不存在，相关功能会静默失效
+ * （比如禁言写不进 users.muted_until）。与其让用户遇到一堆莫名其妙的
+ * 报错，不如在首页直接给一个「一键初始化」。
+ *
+ * ⚠️ 页签顺序一旦调整，[jumpToAuth] 里硬编码的索引必须同步改 ——
+ *    否则概览页点「去处理」会跳到错误的页。
  */
 class AdminMainActivity : AppCompatActivity(), OverviewFragment.OnJumpToAuth {
 
     private lateinit var binding: ActivityAdminMainBinding
     private lateinit var session: AdminSession
 
-    private val titles = listOf("概览", "用户", "授权", "操作记录", "服务器")
+    private val titles = listOf("概览", "用户", "审核", "看板", "授权", "操作记录", "服务器")
+
+    /** 授权页在 titles 里的下标 —— 与 [titles] 必须一起改 */
+    private companion object {
+        const val TAB_AUTH = 4
+    }
 
     /** 授权页 Fragment 的引用 —— 概览页点「去处理」后要让它刷新 */
     private var authFragment: AdminRequestsFragment? = null
@@ -59,12 +69,14 @@ class AdminMainActivity : AppCompatActivity(), OverviewFragment.OnJumpToAuth {
             override fun createFragment(position: Int): Fragment = when (position) {
                 0 -> OverviewFragment()
                 1 -> UserListFragment()
-                2 -> AdminRequestsFragment().also { authFragment = it }
-                3 -> AuditFragment()
+                2 -> ReviewFragment()
+                3 -> DashboardFragment()
+                TAB_AUTH -> AdminRequestsFragment().also { authFragment = it }
+                5 -> AuditFragment()
                 else -> ServerFragment()
             }
         }
-        binding.pager.offscreenPageLimit = 5
+        binding.pager.offscreenPageLimit = titles.size
         TabLayoutMediator(binding.tabs, binding.pager) { tab, pos ->
             tab.text = titles[pos]
         }.attach()
@@ -74,7 +86,7 @@ class AdminMainActivity : AppCompatActivity(), OverviewFragment.OnJumpToAuth {
 
     /** 概览页的「去处理 →」—— 切到授权标签并刷新 */
     override fun jumpToAuth() {
-        binding.pager.setCurrentItem(2, true)
+        binding.pager.setCurrentItem(TAB_AUTH, true)
         authFragment?.refresh()
     }
 
@@ -127,11 +139,9 @@ class AdminMainActivity : AppCompatActivity(), OverviewFragment.OnJumpToAuth {
             }
 
             // 未就绪 → 展示提示条，并提供一键初始化
-            val missing = buildList {
-                if (!status.usersIsAdmin) add("users.is_admin 列")
-                if (!status.adminRequests) add("admin_requests 表")
-                if (!status.adminAuditLogs) add("admin_audit_logs 表")
-            }
+            // 用模型自带的 missing 推导 —— 服务端和客户端各写一份清单
+            // 迟早会对不上（之前就漏过 users_must_change_password）
+            val missing = status.missing
             binding.tvMigrationBanner.visibility = View.VISIBLE
             binding.tvMigrationBanner.text =
                 "数据库缺少：${missing.joinToString("、")}\n点此一键初始化（不会删除任何数据）"

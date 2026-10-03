@@ -16,7 +16,9 @@ import com.openboard.admin.data.AdminSession
 import com.openboard.admin.data.api.AdminRetrofitClient
 import com.openboard.admin.data.model.AdminDecisionRequest
 import com.openboard.admin.data.model.AdminUser
+import com.openboard.admin.data.model.MuteUserRequest
 import com.openboard.admin.data.model.ResetPasswordRequest
+import com.openboard.admin.data.model.UsernameRequest
 import com.openboard.admin.data.model.UserDetailResponse
 import com.openboard.admin.databinding.ActivityUserDetailBinding
 import com.openboard.admin.ui.common.bindAvatar
@@ -69,6 +71,8 @@ class UserDetailActivity : AppCompatActivity() {
         binding.toolbar.setNavigationOnClickListener { finish() }
 
         binding.btnResetPassword.setOnClickListener { confirmResetPassword() }
+        binding.btnMuteUser.setOnClickListener { confirmMute() }
+        binding.btnUnmuteUser.setOnClickListener { confirmUnmute() }
         binding.btnToggleBan.setOnClickListener { confirmToggleBan() }
         binding.btnDeleteUser.setOnClickListener { confirmDelete() }
         binding.btnGrantAdmin.setOnClickListener { confirmGrantAdmin() }
@@ -119,7 +123,9 @@ class UserDetailActivity : AppCompatActivity() {
             }
 
             val entry = adminList.firstOrNull { it.username == username }
-            isAdmin = (resp.body()?.user?.isAdmin == true) || entry != null
+            // 服务端现在直接在用户详情里返回 is_admin（动态授权标记）。
+            // 旧后端没有这个字段，所以保留 /admin/list 作为兜底。
+            isAdmin = (resp.body()?.user?.isAdminEffective == true) || entry != null
             isBuiltinAdmin = entry?.builtin == true
 
             detail = resp.body()
@@ -213,8 +219,27 @@ class UserDetailActivity : AppCompatActivity() {
             }
         }
 
+        // ---- 禁言状态 ----
+        // muted_until 是 UTC 字符串（'YYYY-MM-DD HH:MM:SS'）。这里只做展示，
+        // 「是否仍在禁言」以服务端返回的 isMuted 为准（服务端已经和库里的
+        // CURRENT_TIMESTAMP 比较过了），客户端不要自己算，会有时区偏差。
+        val muted = u.isMuted
+        if (muted) {
+            b.tvMuteStatus.visibility = View.VISIBLE
+            b.tvMuteStatus.text = "禁言中 · 解禁时间 ${u.mutedUntil ?: "未知"}"
+            b.tvMuteStatus.setTextColor(Color.parseColor("#DC2626"))
+        } else if (!u.mutedUntil.isNullOrEmpty()) {
+            b.tvMuteStatus.visibility = View.VISIBLE
+            b.tvMuteStatus.text = "禁言已失效（原解禁时间 ${u.mutedUntil}）"
+            b.tvMuteStatus.setTextColor(Color.parseColor("#8A9099"))
+        } else {
+            b.tvMuteStatus.visibility = View.GONE
+        }
+
         // ---- 底部操作 ----
         b.btnResetPassword.visibility = if (canTouch) View.VISIBLE else View.GONE
+        b.btnMuteUser.visibility = if (canTouch && !muted) View.VISIBLE else View.GONE
+        b.btnUnmuteUser.visibility = if (canTouch && muted) View.VISIBLE else View.GONE
         b.btnToggleBan.visibility = if (canTouch) View.VISIBLE else View.GONE
         b.btnDeleteUser.visibility = if (canTouch) View.VISIBLE else View.GONE
         b.btnToggleBan.text = if (u.isBannedBool) "解除封禁" else "封禁该用户"
@@ -322,6 +347,57 @@ class UserDetailActivity : AppCompatActivity() {
             .show()
     }
 
+    /**
+     * 禁言时长快捷选项（分钟）。服务端会把分钟数换算成 UTC 的 muted_until，
+     * 客户端只负责传时长 —— 绝不传时间戳，避免设备时区/时钟不准导致禁到过去或禁到十年后。
+     */
+    private val mutePresets = listOf(
+        "10 分钟" to 10,
+        "1 小时" to 60,
+        "1 天" to 60 * 24,
+        "7 天" to 60 * 24 * 7,
+        "30 天" to 60 * 24 * 30,
+    )
+
+    private fun confirmMute() {
+        val labels = mutePresets.map { it.first }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("禁言 $username")
+            .setMessage(
+                "禁言期间该用户无法发送消息，但可以正常登录和浏览。\n" +
+                    "到期自动解除，无需手动操作。",
+            )
+            .setItems(labels) { _, which ->
+                val (label, minutes) = mutePresets[which]
+                run("禁言 $label") {
+                    AdminRetrofitClient.api()
+                        .muteUser(MuteUserRequest(username = username, minutes = minutes))
+                        .execute()
+                } onOk {
+                    toast("已禁言 $username（$label）")
+                    load()
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun confirmUnmute() {
+        AlertDialog.Builder(this)
+            .setTitle("解除禁言")
+            .setMessage("解除后 $username 可以立即恢复发言。")
+            .setPositiveButton("解除") { _, _ ->
+                run("解除禁言") {
+                    AdminRetrofitClient.api().unmuteUser(UsernameRequest(username)).execute()
+                } onOk {
+                    toast("已解除 $username 的禁言")
+                    load()
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
     private fun confirmGrantAdmin() {
         AlertDialog.Builder(this)
             .setTitle("授予管理权限")
@@ -358,7 +434,7 @@ class UserDetailActivity : AppCompatActivity() {
             .setMessage("撤销后 $username 将无法再登录管理端，也不能执行任何管理操作。")
             .setPositiveButton("撤销") { _, _ ->
                 run("撤销权限") {
-                    AdminRetrofitClient.api().revokeAdmin(mapOf("username" to username)).execute()
+                    AdminRetrofitClient.api().revokeAdmin(UsernameRequest(username)).execute()
                 } onOk {
                     toast("已撤销 $username 的管理权限")
                     load()
@@ -394,7 +470,7 @@ class UserDetailActivity : AppCompatActivity() {
                     toast("用户名不匹配，已取消"); return@setPositiveButton
                 }
                 run("删除用户") {
-                    AdminRetrofitClient.api().deleteUser(mapOf("username" to username)).execute()
+                    AdminRetrofitClient.api().deleteUser(UsernameRequest(username)).execute()
                 } onOk {
                     toast("已删除 $username")
                     finish()

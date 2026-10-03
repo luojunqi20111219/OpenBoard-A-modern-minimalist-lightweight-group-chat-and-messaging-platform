@@ -55,6 +55,15 @@
                 android:text="已封禁"
                 android:textSize="10.5sp"
                 android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/tvMuted"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:text="禁言中"
+                android:textSize="10.5sp"
+                android:visibility="gone" />
         </LinearLayout>
 
         <TextView

@@ -1,10 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  「操作记录」页。
+  「内容审核」页。
 
-  顶部是一条筛选栏：关键字 + 时间区间 + 来源下拉。
-  合并展示全局操作与群内操作后，记录量会比以前大一个量级 ——
-  没有筛选的话，要翻很久才能找到"上周谁把某人提权了"。
+  两条检索路径：
+    · 消息正文 —— 常规关键字检索
+    · 历史原文 —— 命中 message_edits.old_content。
+      这条是为了抓「发完违规内容再偷偷改掉」，只搜正文会漏掉。
+
+  结果用长按操作（撤回 / 查看版本链），不堆一排按钮 ——
+  一行消息放不下三个按钮，且误触代价高（撤回不可逆）。
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -12,7 +16,6 @@
     android:background="#F6F7F9"
     android:orientation="vertical">
 
-    <!-- 筛选栏 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -22,40 +25,19 @@
         android:paddingTop="10dp"
         android:paddingBottom="8dp">
 
-        <LinearLayout
+        <EditText
+            android:id="@+id/etKeyword"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal">
-
-            <EditText
-                android:id="@+id/etActor"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:background="#F1F3F6"
-                android:hint="操作者用户名"
-                android:inputType="text"
-                android:maxLength="64"
-                android:maxLines="1"
-                android:paddingHorizontal="10dp"
-                android:paddingVertical="8dp"
-                android:textSize="13sp" />
-
-            <EditText
-                android:id="@+id/etAction"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:layout_weight="1"
-                android:background="#F1F3F6"
-                android:hint="动作，如 admin.ban"
-                android:inputType="text"
-                android:maxLength="64"
-                android:maxLines="1"
-                android:paddingHorizontal="10dp"
-                android:paddingVertical="8dp"
-                android:textSize="13sp" />
-        </LinearLayout>
+            android:background="#F1F3F6"
+            android:hint="搜索消息内容（也搜被改掉的历史原文）"
+            android:imeOptions="actionSearch"
+            android:inputType="text"
+            android:maxLength="100"
+            android:maxLines="1"
+            android:paddingHorizontal="10dp"
+            android:paddingVertical="9dp"
+            android:textSize="13.5sp" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -64,29 +46,29 @@
             android:orientation="horizontal">
 
             <EditText
-                android:id="@+id/etFrom"
+                android:id="@+id/etSender"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:background="#F1F3F6"
-                android:focusable="false"
-                android:hint="起始日期"
-                android:inputType="none"
+                android:hint="发送者（可选）"
+                android:inputType="text"
+                android:maxLength="64"
                 android:maxLines="1"
                 android:paddingHorizontal="10dp"
                 android:paddingVertical="8dp"
                 android:textSize="13sp" />
 
             <EditText
-                android:id="@+id/etTo"
+                android:id="@+id/etRoomId"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
                 android:layout_weight="1"
                 android:background="#F1F3F6"
-                android:focusable="false"
-                android:hint="结束日期"
-                android:inputType="none"
+                android:hint="群 ID（可选）"
+                android:inputType="number"
+                android:maxLength="10"
                 android:maxLines="1"
                 android:paddingHorizontal="10dp"
                 android:paddingVertical="8dp"
@@ -100,42 +82,44 @@
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
-            <!-- 来源：全部 / 全局 / 群内 -->
-            <Spinner
-                android:id="@+id/spSource"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:background="#F1F3F6" />
-
-            <Button
-                android:id="@+id/btnQuery"
+            <CheckBox
+                android:id="@+id/cbRecalled"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
+                android:text="含已撤回"
+                android:textSize="12.5sp" />
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1" />
+
+            <Button
+                android:id="@+id/btnSearch"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
                 android:minWidth="0dp"
                 android:paddingHorizontal="18dp"
-                android:text="查询" />
-
-            <Button
-                android:id="@+id/btnClear"
-                style="?attr/materialButtonOutlinedStyle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="6dp"
-                android:minWidth="0dp"
-                android:paddingHorizontal="14dp"
-                android:text="清空" />
+                android:text="搜索" />
         </LinearLayout>
 
         <TextView
-            android:id="@+id/tvAuditCount"
+            android:id="@+id/tvReviewCount"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
             android:textColor="#6B7280"
             android:textSize="12sp"
             android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/tvReviewHint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="长按一条消息可撤回或查看修改历史"
+            android:textColor="#9CA3AF"
+            android:textSize="11.5sp" />
     </LinearLayout>
 
     <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
@@ -162,8 +146,7 @@
                 android:layout_weight="1"
                 android:clipToPadding="false"
                 android:paddingHorizontal="12dp"
-                android:paddingTop="10dp"
-                android:paddingBottom="12dp" />
+                android:paddingTop="10dp" />
 
             <Button
                 android:id="@+id/btnMore"

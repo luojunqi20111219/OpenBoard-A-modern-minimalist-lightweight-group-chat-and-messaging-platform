@@ -45,8 +45,8 @@ class AdminUserAdapter(
         b.tvUsername.text = if (u.displayName == u.username) u.username else "@${u.username}"
 
         // ---- 角色标签 ----
-        val color = roleColor(u.role, u.isAdmin)
-        b.tvRole.text = roleLabel(u.role, u.isAdmin)
+        val color = roleColor(u.role, u.isAdminEffective)
+        b.tvRole.text = roleLabel(u.role, u.isAdminEffective)
         b.tvRole.setTextColor(color)
         b.tvRole.background = tagBg(color, d)
         b.tvRole.setPadding((7 * d).toInt(), (2 * d).toInt(), (7 * d).toInt(), (2 * d).toInt())
@@ -57,6 +57,16 @@ class AdminUserAdapter(
         b.tvBanned.setTextColor(danger)
         b.tvBanned.background = tagBg(danger, d)
         b.tvBanned.setPadding((7 * d).toInt(), (2 * d).toInt(), (7 * d).toInt(), (2 * d).toInt())
+
+        // ---- 禁言标签 ----
+        // isMuted 由服务端算好（已和库里的 CURRENT_TIMESTAMP 比较过），
+        // 客户端不拿 mutedUntil 自己比时间，避免设备时区/时钟偏差导致误判。
+        val muted = u.isMuted
+        val warn = Color.parseColor("#D97706")
+        b.tvMuted.visibility = if (muted) android.view.View.VISIBLE else android.view.View.GONE
+        b.tvMuted.setTextColor(warn)
+        b.tvMuted.background = tagBg(warn, d)
+        b.tvMuted.setPadding((7 * d).toInt(), (2 * d).toInt(), (7 * d).toInt(), (2 * d).toInt())
 
         // ---- 旧格式哈希警告 ----
         if (u.needsPasswordReset) {

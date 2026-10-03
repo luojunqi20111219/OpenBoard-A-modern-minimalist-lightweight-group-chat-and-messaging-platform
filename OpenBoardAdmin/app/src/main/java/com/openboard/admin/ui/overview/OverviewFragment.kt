@@ -12,6 +12,7 @@ import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.openboard.admin.data.api.AdminRetrofitClient
+import com.openboard.admin.data.model.ContentRequest
 import com.openboard.admin.data.model.OverviewResponse
 import com.openboard.admin.databinding.FragmentOverviewBinding
 import com.openboard.admin.ui.common.errorMessage
@@ -234,7 +235,7 @@ class OverviewFragment : Fragment() {
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
                 try {
-                    val r = AdminRetrofitClient.api().broadcast(mapOf("content" to content)).execute()
+                    val r = AdminRetrofitClient.api().broadcast(ContentRequest(content)).execute()
                     if (r.isSuccessful) null else errorMessage(r)
                 } catch (e: Exception) {
                     "网络错误：${e.message}"
