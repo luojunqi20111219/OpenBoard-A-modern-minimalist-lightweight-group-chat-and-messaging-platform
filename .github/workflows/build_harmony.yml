@@ -201,6 +201,43 @@ jobs:
           # 也不要等到构建时才报一句没头没尾的 Script Error
           node -e "const m=require('$WS/node_modules/@ohos/hvigor-ohos-plugin'); console.log('插件 require OK，导出：', Object.keys(m).filter(k=>/Tasks|Plugin/.test(k)).join(', '))"
 
+          # ⚠️ modelVersion / compileSdkVersion 自适应对齐（踩过的坑）
+          # ---------------------------------------------------------------
+          # `hvigor-config.json5` / `oh-package.json5` 里的 modelVersion、
+          # 以及 `build-profile.json5` 里的 compileSdkVersion，都必须与
+          # **实际装到的这套工具链**对得上，否则：
+          #   > hvigor ERROR: Unsupported modelVersion of Hvigor 6.0.2.
+          #   >   Detail: The supported Hvigor modelVersion is 5.1.0
+          #   > hvigor ERROR: 00303168 Configuration Error / SDK component missing
+          #
+          # 而且这两个值**不能硬编码**：同一个下载链接在不同时间装出来的
+          # 工具链版本不一样（本地那份支持 5.1.0，云端同链接装出来只认 5.0.0
+          # —— 华为云镜像更新过）。硬编码任何一边都会在另一边炸。
+          #
+          # 权威来源是插件自己的常量（validate-util.js 里就是用
+          # VersionConst.CURRENT_MODEL_VERSION 做校验的）：
+          #   CURRENT_MODEL_VERSION     → modelVersion 该写什么
+          #   SUPPORT_COMPILE_VERSION   → compileSdkVersion 该写什么
+          # 直接 require 出来，不猜、不正则。
+          if node -e "
+            const {VersionConst}=require('$PLUGIN/src/const/version-const.js');
+            const fs=require('fs');
+            let lines=[];
+            if (VersionConst.CURRENT_MODEL_VERSION) lines.push('SUPPORTED_MODEL_VERSION='+VersionConst.CURRENT_MODEL_VERSION);
+            if (VersionConst.SUPPORT_COMPILE_VERSION) lines.push('SUPPORTED_COMPILE_SDK='+VersionConst.SUPPORT_COMPILE_VERSION);
+            if (!lines.length) process.exit(1);
+            fs.appendFileSync(process.env.GITHUB_ENV, lines.join('\n')+'\n');
+            console.log('从工具链插件探测到：'); lines.forEach(l=>console.log('  '+l));
+          " ; then
+            echo "探测成功"
+          else
+            # 退路：从插件源码里刮字符串（插件结构变了时不至于直接躺平）
+            echo "::warning::直接 require 插件常量失败，改用源码刮取"
+            SUPPORTED=$(grep -rhoE "CURRENT_MODEL_VERSION\s*=\s*[\"'][0-9.]+[\"']" \
+                          "$PLUGIN/src" 2>/dev/null | grep -oE "[0-9]+\.[0-9]+\.[0-9]+" | tail -1)
+            [ -n "$SUPPORTED" ] && echo "SUPPORTED_MODEL_VERSION=$SUPPORTED" >> "$GITHUB_ENV"
+          fi
+
       - name: Install dependencies (ohpm)
         working-directory: OpenBoardHarmony
         run: |
@@ -209,6 +246,47 @@ jobs:
             echo "::warning::ohpm install 未完全成功，若后续构建报缺依赖再处理"
           }
           ls -la oh_modules 2>/dev/null | head || true
+
+      # 把工程里的 modelVersion / compileSdkVersion 对齐到工具链实际支持的值
+      # （见上一步的探测）。这一步很便宜，但能挡掉一整类
+      # "本地能编、云端报 00303028 / 00303168" 的问题。
+      - name: Align modelVersion & compileSdkVersion
+        working-directory: OpenBoardHarmony
+        run: |
+          set -euo pipefail
+          echo "对齐前："
+          grep -n "modelVersion" hvigor/hvigor-config.json5 oh-package.json5 | sed 's/^/  /' || true
+          grep -n "SdkVersion" build-profile.json5 | sed 's/^/  /' || true
+
+          node -e "
+            const fs=require('fs');
+            const mv=process.env.SUPPORTED_MODEL_VERSION||'';
+            const sdk=process.env.SUPPORTED_COMPILE_SDK||'';
+            const edits=[
+              {f:'hvigor/hvigor-config.json5', re:/\"modelVersion\"\s*:\s*\"[^\"]*\"/,          to:'\"modelVersion\": \"'+mv+'\"',        need:mv},
+              {f:'oh-package.json5',           re:/\"modelVersion\"\s*:\s*\"[^\"]*\"/,          to:'\"modelVersion\": \"'+mv+'\"',        need:mv},
+              {f:'build-profile.json5',        re:/\"compileSdkVersion\"\s*:\s*\"[^\"]*\"/,     to:'\"compileSdkVersion\": \"'+sdk+'\"',  need:sdk},
+              {f:'build-profile.json5',        re:/\"targetSdkVersion\"\s*:\s*\"[^\"]*\"/,      to:'\"targetSdkVersion\": \"'+sdk+'\"',   need:sdk},
+            ];
+            for (const e of edits) {
+              if (!e.need) { console.log('  跳过 '+e.f+'（没探测到对应版本）'); continue; }
+              if (!fs.existsSync(e.f)) continue;
+              const before=fs.readFileSync(e.f,'utf8');
+              if (!e.re.test(before)) { console.log('  '+e.f+' 无匹配字段'); continue; }
+              const after=before.replace(e.re, e.to);
+              if (after!==before) { fs.writeFileSync(e.f,after); console.log('  已改写 '+e.f+' → '+e.need); }
+            }
+          "
+
+          echo "对齐后："
+          grep -n "modelVersion" hvigor/hvigor-config.json5 oh-package.json5 | sed 's/^/  /' || true
+          grep -n "SdkVersion" build-profile.json5 | sed 's/^/  /' || true
+          # compileSdkVersion 必须与工具链一致，否则后面 SDK component missing
+          # 这里再核一遍写死了没有，写死了就当场报出来
+          if [ -n "${SUPPORTED_COMPILE_SDK:-}" ]; then
+            grep -q "\"compileSdkVersion\"\s*:\s*\"${SUPPORTED_COMPILE_SDK}\"" build-profile.json5 \
+              || echo "::warning::compileSdkVersion 未对齐到 ${SUPPORTED_COMPILE_SDK}"
+          fi
 
       # 未签名构建。hvigorw 的 assembleHap 产出 entry/build/default/outputs/default/*.hap
       #

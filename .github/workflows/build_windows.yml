@@ -105,33 +105,53 @@ jobs:
           Get-ChildItem "$inc" -File | Select-Object Name
           Get-ChildItem "$lib" -File | Select-Object Name
 
+      # ⚠️ 这里**必须**写成 .bat 再 cmd /c 调用，不能把编译器命令塞进
+      # PowerShell 的 here-string 里 —— 踩过的坑：
+      #   把 cl 命令放在 `$cmd = @"..."@` 里再 `cmd /c $cmd`，编译器自身的
+      #   输出（cl 的 banner、错误、rc 的报错）会全部被 PowerShell 吞掉，
+      #   日志里只剩一行 "编译失败：没有产出 OpenBoard.exe"，
+      #   完全看不出到底是缺头文件、缺库还是 cl 根本找不到 → 无法排障。
+      # 写成独立的 .bat 文件后，输出原样进 stdout，错误一目了然。
       - name: Build EXE with MSVC
         shell: pwsh
         run: |
           # 用 vswhere 定位 VS 自带的编译环境，再调 cl.exe。
-          # 显式指定 /I 到 WebView2 的 include，/LIBPATH 到它的 x64 lib。
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
           Write-Host "Visual Studio: $vsPath"
+          if (-not $vsPath) { throw "没有找到带 C++ 工具集的 Visual Studio" }
 
           $vcvars = Join-Path $vsPath "VC\Auxiliary\Build\vcvars64.bat"
+          if (-not (Test-Path $vcvars)) { throw "找不到 vcvars64.bat：$vcvars" }
+          Write-Host "vcvars64: $vcvars"
+
           # main.cpp 里 LoadIconW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(101))
           # 要求把 resource.rc 一起编进去，否则 exe 没有图标。
           # rc.exe 在 vcvars 环境里已可用。
-          $cmd = @"
-          call "$vcvars"
-          rc /nologo resource.rc
-          cl /nologo /std:c++17 /O2 /EHsc /DUNICODE /D_UNICODE ^
-             /I"webview2_sdk\build\native\include" ^
-             main.cpp resource.res ^
-             /Fe:OpenBoard.exe ^
-             /link /SUBSYSTEM:WINDOWS ^
-             /LIBPATH:"webview2_sdk\build\native\x64" ^
-             WebView2LoaderStatic.lib ^
-             user32.lib shell32.lib ole32.lib oleaut32.lib advapi32.lib gdi32.lib
-          "@
-          cmd /c $cmd
-          if (-not (Test-Path "OpenBoard.exe")) { throw "编译失败：没有产出 OpenBoard.exe" }
+          $bat = @(
+            '@echo off',
+            'setlocal',
+            'call "' + $vcvars + '" || exit /b 1',
+            'echo === rc.exe ===',
+            'rc /nologo resource.rc || exit /b 1',
+            'echo === cl.exe ===',
+            'cl /nologo /std:c++17 /O2 /EHsc /DUNICODE /D_UNICODE ' +
+              '/I"webview2_sdk\build\native\include" ' +
+              'main.cpp resource.res ' +
+              '/Fe:OpenBoard.exe ' +
+              '/link /SUBSYSTEM:WINDOWS ' +
+              '/LIBPATH:"webview2_sdk\build\native\x64" ' +
+              'WebView2LoaderStatic.lib ' +
+              'user32.lib shell32.lib ole32.lib oleaut32.lib advapi32.lib gdi32.lib',
+            'exit /b %ERRORLEVEL%'
+          )
+          Set-Content -Path build_exe.bat -Value $bat -Encoding ASCII
+
+          cmd /c build_exe.bat
+          $code = $LASTEXITCODE
+          Write-Host "cl.exe 退出码：$code"
+
+          if (-not (Test-Path "OpenBoard.exe")) { throw "编译失败：没有产出 OpenBoard.exe（退出码 $code）" }
           Get-Item OpenBoard.exe | Format-List Name,Length
 
       - name: Package ZIP
