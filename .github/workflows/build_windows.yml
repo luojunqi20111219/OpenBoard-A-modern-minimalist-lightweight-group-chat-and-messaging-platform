@@ -105,81 +105,51 @@ jobs:
           Get-ChildItem "$inc" -File | Select-Object Name
           Get-ChildItem "$lib" -File | Select-Object Name
 
-      # ⚠️ 这里**必须**写成 .bat 再 cmd /c 调用，不能把编译器命令塞进
-      # PowerShell 的 here-string 里 —— 踩过的坑：
-      #   把 cl 命令放在 `$cmd = @"..."@` 里再 `cmd /c $cmd`，编译器自身的
-      #   输出（cl 的 banner、错误、rc 的报错）会全部被 PowerShell 吞掉，
-      #   日志里只剩一行 "编译失败：没有产出 OpenBoard.exe"，
-      #   完全看不出到底是缺头文件、缺库还是 cl 根本找不到 → 无法排障。
-      # 写成独立的 .bat 文件后，输出原样进 stdout，错误一目了然。
+      # ⚠️ 编译命令放在仓库里的 .github/build_exe.bat，**不在** workflow 里
+      # 用 PowerShell 拼字符串写出来。
+      # ---------------------------------------------------------------
+      # 踩过的坑（这一轮排查花了 4 次云端运行）：
+      #   最早把 cl 命令塞进 `$cmd = @"..."@` 再 `cmd /c $cmd`，编译器
+      #   自身的输出（cl 的 banner、错误、rc 的报错）全被 PowerShell 吞掉，
+      #   日志只剩一行 "编译失败：没有产出 OpenBoard.exe"，无从排障。
+      #   改成落盘 .bat 后输出可见了，于是看到真实错误：
+      #     '"' is not recognized as an internal or external command
+      #     'C:\Program' is not recognized as an internal or external command
+      #   根因是 PowerShell 拼串时把带空格的路径拆成了**多行**：
+      #     set "VCVARS=
+      #     C:\Program Files\...\vcvars64.bat
+      #     "
+      #   —— vswhere 的输出即使只有一行也是数组，数组拼接默认用换行分隔；
+      #      即便加了 [string] 强转，只要值里混入了多余空白就会再犯。
+      #
+      # 结论：**不要用 PowerShell 拼 .bat 内容**，落成仓库文件最稳。
+      # 文件内容所见即所得，本地和云端读的是同一份字节。
       - name: Build EXE with MSVC
         shell: pwsh
         run: |
-          # 用 vswhere 定位 VS 自带的编译环境，再调 cl.exe。
+          # 用 vswhere 定位 VS 自带的编译环境。
+          # 注意：vswhere 的输出被 PowerShell 捕获时是**字符串数组**，
+          # 必须 [string] 强转 + Trim() 才能安全传参（否则数组会被
+          # 拆成多行，路径里的空格直接被截断）。
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          # ⚠️ 必须 [string] 强转 + Trim()。
-          # vswhere 的输出在被 PowerShell 捕获时是**字符串数组**（每行一个元素），
-          # 即使只有一行也是数组。数组参与字符串拼接时 PowerShell 默认用
-          # **换行**当分隔符，于是
-          #     'set "VCVARS=' + $vcvars + '"'
-          # 会写成三行：
-          #     set "VCVARS=
-          #     C:\Program Files\...\vcvars64.bat
-          #     "
-          # cmd 拿到就报 'C:\Program' is not recognized as an internal
-          # or external command —— 这轮排查里坑了两次的元凶。
-          $vsRaw = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not (Test-Path $vswhere)) { throw "找不到 vswhere：$vswhere" }
+
+          $vsRaw  = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
           $vsPath = ([string]$vsRaw).Trim()
           Write-Host "Visual Studio: $vsPath"
           if ([string]::IsNullOrWhiteSpace($vsPath)) { throw "没有找到带 C++ 工具集的 Visual Studio" }
 
-          $vcvars = ([string](Join-Path $vsPath "VC\Auxiliary\Build\vcvars64.bat")).Trim()
+          $vcvars = (Join-Path $vsPath "VC\Auxiliary\Build\vcvars64.bat").Trim()
           if (-not (Test-Path $vcvars)) { throw "找不到 vcvars64.bat：$vcvars" }
           Write-Host "vcvars64: $vcvars"
 
-          # main.cpp 里 LoadIconW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(101))
-          # 要求把 resource.rc 一起编进去，否则 exe 没有图标。
-          # rc.exe 在 vcvars 环境里已可用。
-          #
-          # ⚠️ 这段 .bat 的引号也用得很有讲究，别"简化"：
-          #   1) `set "VCVARS=<path>"` 等号左侧整体加引号 —— set 的规范写法，
-          #      能容纳含空格的路径
-          #   2) `call "%VCVARS%"` —— 变量带引号展开
-          #   3) `if errorlevel 1 (...)` 取代 `||` —— `||` 紧跟在引号后面时
-          #      cmd 的引号配对会剥错位，把 " 和 C:\Program 当成两条命令
-          #   4) 不写中文错误文案 —— .bat 以 ASCII 落盘，中文会变 ???
-          $bat = @(
-            '@echo off',
-            'setlocal enableextensions',
-            'set "VCVARS=' + $vcvars + '"',
-            'echo === vcvars64 ===',
-            'call "%VCVARS%"',
-            'if errorlevel 1 ( echo ::error::vcvars64 init failed & exit /b 1 )',
-            'echo === rc.exe ===',
-            'rc /nologo resource.rc',
-            'if errorlevel 1 ( echo ::error::rc failed & exit /b 1 )',
-            'echo === cl.exe ===',
-            'cl /nologo /std:c++17 /O2 /EHsc /DUNICODE /D_UNICODE ' +
-              '/I"webview2_sdk\build\native\include" ' +
-              'main.cpp resource.res ' +
-              '/Fe:OpenBoard.exe ' +
-              '/link /SUBSYSTEM:WINDOWS ' +
-              '/LIBPATH:"webview2_sdk\build\native\x64" ' +
-              'WebView2LoaderStatic.lib ' +
-              'user32.lib shell32.lib ole32.lib oleaut32.lib advapi32.lib gdi32.lib',
-            'if errorlevel 1 ( echo ::error::cl failed & exit /b 1 )',
-            'echo === cl done ===',
-            'exit /b 0'
-          )
-          # ⚠️ 编码用 OEM(437)，不是 ASCII。
-          # cmd.exe 在中文/其他代码页下读 UTF-8 或 ANSI 落盘的 .bat 可能
-          # 把路径里的字符读坏；OEM 是 cmd 的原生编码，最稳。
-          $bat -join "`r`n" | Set-Content -Path build_exe.bat -Encoding OEM
-          Write-Host "--- build_exe.bat ---"
-          Get-Content build_exe.bat | ForEach-Object { Write-Host "  $_" }
-          Write-Host "---------------------"
+          # 仓库里带的构建脚本（纯 ASCII + CRLF，cmd 直接能跑）
+          Write-Host "--- .github/build_exe.bat ---"
+          Get-Content ".github/build_exe.bat" | ForEach-Object { Write-Host "  $_" }
+          Write-Host "-----------------------------"
 
-          cmd /c build_exe.bat
+          # 显式读成单元素数组再传，避免 PowerShell 把含空格的路径当两个参数
+          cmd /c .github\build_exe.bat "$vcvars"
           $code = $LASTEXITCODE
           Write-Host "build_exe.bat 退出码：$code"
 
