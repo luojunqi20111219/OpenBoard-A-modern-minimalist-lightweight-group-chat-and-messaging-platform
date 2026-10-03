@@ -1,16 +1,31 @@
-name: Build Android Client
+name: Build Android Clients
 
+# 触发条件
+# ---------------------------------------------------------------------------
+# 之前只有 `tags: ["v*"]`，而用户从没打过 tag —— 所以这个工作流几乎没跑过，
+# 手动 workflow_dispatch 跑的又是残缺配置。现在改成三种都能触发：
+#   · 推送 v* tag      → 正常发版，产物挂到 Release
+#   · main 分支改动    → 持续构建，产物只进 Artifacts（不碰 Release）
+#   · 手动触发         → 随时验证
 on:
   push:
     tags: [ "v*" ]
+    branches: [ "main", "master" ]
+    paths:
+      - "OpenBoardAndroid/**"
+      - "OpenBoardAdmin/**"
+      - ".github/workflows/build_android.yml"
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  build:
-    name: Build Android APK
+  # -------------------------------------------------------------------------
+  # 聊天端
+  # -------------------------------------------------------------------------
+  client:
+    name: Build Chat Client APK
     runs-on: ubuntu-latest
 
     steps:
@@ -22,23 +37,131 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # 版本号从 tag / 分支动态推导 —— 绝不硬编码。
+      # 之前写死 v7.7.0，发 v10 时产物名字还是 v7.7.0，
+      # gh release upload 还会因为找不到文件直接失败。
+      - name: Resolve version
+        id: ver
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            V="${GITHUB_REF_NAME}"
+          else
+            V="v0.0.0-dev+${GITHUB_SHA::7}"
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "解析到版本号：$V"
 
       - name: Build Release APK
         working-directory: OpenBoardAndroid
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon
-          cp build2/outputs/apk/release/app-release.apk ../OpenBoard-Android-v7.7.0.apk
+          ./gradlew assembleRelease --no-daemon --stacktrace
 
-      - name: Upload Android Artifact
+      # gradle 输出目录由 app/build.gradle 的
+      #   project.buildDir = file("${rootProject.projectDir}/build2")
+      # 决定，所以是 build2 而不是默认的 build。
+      # 这里优先找 build2，找不到再退回 build，避免哪天配置改了又断。
+      - name: Locate and rename APK
+        id: apk
+        run: |
+          V="${{ steps.ver.outputs.version }}"
+          SRC=$(find OpenBoardAndroid/build2 OpenBoardAndroid/build OpenBoardAndroid/app/build \
+                 -type f -name "app-release*.apk" 2>/dev/null | head -1)
+          if [ -z "$SRC" ]; then
+            echo "::error::没有找到 release APK，构建可能失败了"
+            find OpenBoardAndroid -name "*.apk" 2>/dev/null || true
+            exit 1
+          fi
+          OUT="OpenBoard-Client-${V}.apk"
+          cp "$SRC" "$OUT"
+          echo "name=$OUT" >> "$GITHUB_OUTPUT"
+          ls -la "$OUT"
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: OpenBoard-Android-v7.7.0
-          path: OpenBoard-Android-v7.7.0.apk
+          name: OpenBoard-Client-APK
+          path: ${{ steps.apk.outputs.name }}
+          retention-days: 30
 
-      - name: Upload Android Build to Release
+      - name: Attach to Release
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" OpenBoard-Android-v7.7.0.apk --clobber
+        run: gh release upload "$GITHUB_REF_NAME" "${{ steps.apk.outputs.name }}" --clobber
+
+  # -------------------------------------------------------------------------
+  # 管理端
+  # -------------------------------------------------------------------------
+  admin:
+    name: Build Admin APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            V="${GITHUB_REF_NAME}"
+          else
+            V="v0.0.0-dev+${GITHUB_SHA::7}"
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "解析到版本号：$V"
+
+      - name: Build Release APK
+        working-directory: OpenBoardAdmin
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Locate and rename APK
+        id: apk
+        run: |
+          V="${{ steps.ver.outputs.version }}"
+          SRC=$(find OpenBoardAdmin/app/build OpenBoardAdmin/build \
+                 -type f -name "app-release*.apk" 2>/dev/null | head -1)
+          if [ -z "$SRC" ]; then
+            echo "::error::没有找到管理端 release APK"
+            find OpenBoardAdmin -name "*.apk" 2>/dev/null || true
+            exit 1
+          fi
+          OUT="OpenBoard-Admin-${V}.apk"
+          cp "$SRC" "$OUT"
+          echo "name=$OUT" >> "$GITHUB_OUTPUT"
+          ls -la "$OUT"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenBoard-Admin-APK
+          path: ${{ steps.apk.outputs.name }}
+          retention-days: 30
+
+      - name: Attach to Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" "${{ steps.apk.outputs.name }}" --clobber

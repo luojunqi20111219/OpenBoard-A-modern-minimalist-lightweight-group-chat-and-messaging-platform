@@ -28,6 +28,23 @@ import retrofit2.Response
  *   2. 成功但不是管理员          → 提示并提供「申请成为管理员」
  *   3. 旧格式哈希无法验证         → 引导联系已有管理员（不提供申请，因为
  *                                 连自己密码都验证不了，申请也没法处理）
+ *
+ * ---------------------------------------------------------------------------
+ * 自动登录
+ * ---------------------------------------------------------------------------
+ * 本页是 LAUNCHER。onCreate 会先尝试用已保存的 token 直进主界面，
+ * 让管理员不用每次重输密码（token 有效期 7 天）。
+ *
+ * ⚠️ 关键：不能只看本地有没有 token 就放行。
+ *    token 可能**已过期**（7 天）或**已被撤销**（退出登录、或管理员被撤权）。
+ *    那种情况下放进去，用户面对的是一个每个请求都 401 的空壳界面，
+ *    比留在登录页更糟 —— 还得自己猜是怎么回事。
+ *
+ *    所以这里拿 token 调一次 `my_application`：
+ *      · 200 且仍是管理员 → 直进主界面
+ *      · 401 / 网络失败   → 静默回落到登录表单，并清掉失效 token
+ *
+ *    失败一律**静默**：用户打开 App 只是想登录，不该先吃一个红色报错。
  */
 class AdminLoginActivity : AppCompatActivity() {
 
@@ -36,9 +53,76 @@ class AdminLoginActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        session = AdminSession(this)
+
+        // 先把持久化的 token / 服务器地址灌进网络层，否则下面那次校验
+        // 既没有鉴权头、也不知道该打哪个地址。
+        // 没存过 baseUrl 时不设，AdminRetrofitClient 会用自己的默认地址。
+        AdminRetrofitClient.setToken(session.token)
+        session.baseUrl?.let { AdminRetrofitClient.setBaseUrl(it) }
+
+        // 有 token 就走自动登录；没有则直接渲染表单（无闪烁）
+        if (session.isLoggedIn) {
+            tryAutoLogin()
+            return
+        }
+
+        showLoginForm()
+    }
+
+    /**
+     * 用已保存的 token 尝试直进主界面。
+     *
+     * 期间只显示一个加载态 —— 既不渲染登录表单（避免"表单闪一下又跳走"），
+     * 也不显示错误信息（失败会静默回落到表单）。
+     */
+    private fun tryAutoLogin() {
         binding = ActivityAdminLoginBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        session = AdminSession(this)
+        binding.etServer.setText(session.baseUrl.orEmpty())
+        binding.btnLogin.isEnabled = false
+        binding.tvResumeHint.visibility = View.VISIBLE
+        binding.tvResumeHint.text = "正在恢复登录状态…"
+
+        lifecycleScope.launch {
+            // 三态：能进 / 凭证已失效需重登 / 网络不通（不清凭证）
+            val outcome = withContext(Dispatchers.IO) {
+                try {
+                    val r = AdminRetrofitClient.api().myApplication().execute()
+                    if (r.isSuccessful && r.body()?.isAdmin == true) Resume.ENTER
+                    else Resume.REAUTH
+                } catch (e: Exception) {
+                    // 网络不通 ≠ 凭证失效。不清 token，只回落表单，
+                    // 这样网络恢复后重开 App 还能自动登录。
+                    Resume.OFFLINE
+                }
+            }
+
+            if (outcome == Resume.ENTER) {
+                startActivity(Intent(this@AdminLoginActivity, AdminMainActivity::class.java))
+                finish()
+                return@launch
+            }
+
+            if (outcome == Resume.REAUTH) {
+                session.clear()
+                AdminRetrofitClient.clearToken()
+            }
+            // 必须**重新渲染**表单：上面为了做加载态把按钮禁用了，
+            // 直接复用同一个 view 会留下一个点不动的登录按钮。
+            showLoginForm()
+        }
+    }
+
+    /** 自动登录的三种结局 */
+    private enum class Resume { ENTER, REAUTH, OFFLINE }
+
+    /** 渲染可交互的登录表单 */
+    private fun showLoginForm() {
+        binding = ActivityAdminLoginBinding.inflate(layoutInflater)
+        setContentView(binding.root)
+        session.baseUrl?.let { binding.etServer.setText(it) }
+        binding.tvResumeHint.visibility = View.GONE
 
         // 恢复上次用的服务器地址
         session.baseUrl?.let { binding.etServer.setText(it) }

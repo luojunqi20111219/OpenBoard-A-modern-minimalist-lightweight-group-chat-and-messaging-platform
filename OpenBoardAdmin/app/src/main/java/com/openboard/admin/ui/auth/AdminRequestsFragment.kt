@@ -11,6 +11,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.tabs.TabLayout
 import com.openboard.admin.data.api.AdminRetrofitClient
+import com.openboard.admin.data.model.AdminDecisionRequest
 import com.openboard.admin.data.model.AdminRequestItem
 import com.openboard.admin.databinding.FragmentAdminRequestsBinding
 import com.openboard.admin.ui.common.StateView
@@ -171,10 +172,12 @@ class AdminRequestsFragment : Fragment() {
             val err = withContext(Dispatchers.IO) {
                 try {
                     // 传 request_id 而不是 username —— 列表里可能有多条历史记录，
-                    // 用 id 能确保操作的就是用户点的那一条
-                    val body = mapOf<String, Any>(
-                        "username" to item.username,
-                        "request_id" to item.id,
+                    // 用 id 能确保操作的就是用户点的那一条。
+                    // 同时带上 username：万一 request_id 对应的记录已被清理，
+                    // 服务端还能靠 username 兜底，不至于直接 400 丢掉这次操作。
+                    val body = AdminDecisionRequest(
+                        username = item.username,
+                        requestId = item.id,
                     )
                     val r = if (approve) {
                         AdminRetrofitClient.api().approveAdmin(body).execute()

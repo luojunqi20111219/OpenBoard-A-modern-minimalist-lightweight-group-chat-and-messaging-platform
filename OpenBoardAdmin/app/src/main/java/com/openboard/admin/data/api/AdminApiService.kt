@@ -102,11 +102,11 @@ interface AdminApiService {
 
     /** 批准申请 → 授予管理权限。可传 username 或 request_id */
     @POST("api/admin/approve")
-    fun approveAdmin(@Body body: Map<String, Any>): Call<SimpleResult>
+    fun approveAdmin(@Body body: AdminDecisionRequest): Call<SimpleResult>
 
     /** 拒绝申请 */
     @POST("api/admin/reject")
-    fun rejectAdmin(@Body body: Map<String, Any>): Call<SimpleResult>
+    fun rejectAdmin(@Body body: AdminDecisionRequest): Call<SimpleResult>
 
     /** 撤销某人的管理权限 */
     @POST("api/admin/revoke")

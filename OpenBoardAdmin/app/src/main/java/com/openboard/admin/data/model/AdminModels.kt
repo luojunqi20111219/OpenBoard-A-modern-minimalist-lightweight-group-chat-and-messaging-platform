@@ -112,6 +112,27 @@ data class BanUsersRequest(
     @SerializedName("banned") val banned: Boolean
 )
 
+/**
+ * 批准管理员申请。
+ *
+ * ⚠️ 这里刻意用具名 data class 而不是 `Map<String, Any>`。
+ *
+ * 之前用的是 Map<String, Any>，运行时抛：
+ *   "Parameter type must not include a type variable or wildcard"
+ *
+ * 原因：Retrofit 需要为 body 找到具体的转换器，而 `Any` 是类型变量/上界，
+ * Gson 没有对应的适配器。而且调用方传的是 `Map<String, String>` 或
+ * `mapOf<String, Any>(...)` —— Kotlin 泛型**不变**，前者与 `Map<String, Any>`
+ * 并非同一类型，编译器只在局部推断通过，到 Retrofit 反射取类型时就炸了。
+ *
+ * 两个字段都可选（服务端二选一：有 username 用 username，
+ * 否则用 request_id 去查），但**至少要给一个**，由服务端校验。
+ */
+data class AdminDecisionRequest(
+    @SerializedName("username") val username: String? = null,
+    @SerializedName("request_id") val requestId: Int? = null
+)
+
 data class BanUsersResponse(
     @SerializedName("status") val status: String? = null,
     @SerializedName("affected") val affected: Int = 0,

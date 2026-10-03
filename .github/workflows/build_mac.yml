@@ -1,8 +1,16 @@
 name: Build macOS Web Client
 
+# 说明
+# ---------------------------------------------------------------------------
+# macOS 桌面端也是 main.cpp（同一份 C++ 源码）——只是换用 Cocoa + WebKit 后端，
+# 所以只能在 macOS runner 上编译（clang++ 的 -framework Cocoa/WebKit）。
 on:
   push:
     tags: [ "v*" ]
+    branches: [ "main", "master" ]
+    paths:
+      - "main.cpp"
+      - ".github/workflows/build_mac.yml"
   workflow_dispatch:
 
 permissions:
@@ -10,74 +18,97 @@ permissions:
 
 jobs:
   build:
+    name: Build macOS App
     runs-on: macos-latest
 
     steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-    - name: Compile macOS Executable
-      run: |
-        clang++ -std=c++11 -O3 main.cpp -framework Cocoa -framework WebKit -o OpenBoard
+      # 版本号动态解析 —— 之前 Info.plist 里写死 7.7.0，发新版本时
+      # 系统"关于"窗口还是显示 7.7.0，用户会以为没更新成功。
+      - name: Resolve version
+        id: ver
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            V="${GITHUB_REF_NAME}"
+          else
+            V="v0.0.0-dev+${GITHUB_SHA::7}"
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "解析到版本号：$V"
 
-    - name: Create macOS App Bundle
-      run: |
-        mkdir -p OpenBoard.app/Contents/MacOS
-        mkdir -p OpenBoard.app/Contents/Resources
-        cp OpenBoard OpenBoard.app/Contents/MacOS/
-        
-        # Create Info.plist
-        cat <<EOF > OpenBoard.app/Contents/Info.plist
-        <?xml version="1.0" encoding="UTF-8"?>
-        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-        <plist version="1.0">
-        <dict>
-            <key>CFBundleExecutable</key>
-            <string>OpenBoard</string>
-            <key>CFBundleIconFile</key>
-            <string>app.icns</string>
-            <key>CFBundleIdentifier</key>
-            <string>xyz.luojunqi.openboard</string>
-            <key>CFBundleName</key>
-            <string>OpenBoard</string>
-            <key>CFBundlePackageType</key>
-            <string>APPL</string>
-            <key>CFBundleShortVersionString</key>
-            <string>7.7.0</string>
-            <key>LSMinimumSystemVersion</key>
-            <string>10.13</string>
-            <key>NSHighResolutionCapable</key>
-            <true/>
-        </dict>
-        </plist>
-        EOF
+      - name: Compile macOS Executable
+        run: |
+          clang++ -std=c++17 -O3 main.cpp -framework Cocoa -framework WebKit -o OpenBoard
 
-        # Convert app_icon.png to app.icns using sips and iconutil
-        mkdir -p OpenBoard.iconset
-        sips -z 16 16     OpenBoardHarmony/entry/src/main/resources/base/media/app_icon.png --out OpenBoard.iconset/icon_16x16.png
-        sips -z 32 32     OpenBoardHarmony/entry/src/main/resources/base/media/app_icon.png --out OpenBoard.iconset/icon_16x16@2x.png
-        sips -z 32 32     OpenBoardHarmony/entry/src/main/resources/base/media/app_icon.png --out OpenBoard.iconset/icon_32x32.png
-        sips -z 64 64     OpenBoardHarmony/entry/src/main/resources/base/media/app_icon.png --out OpenBoard.iconset/icon_32x32@2x.png
-        sips -z 128 128   OpenBoardHarmony/entry/src/main/resources/base/media/app_icon.png --out OpenBoard.iconset/icon_128x128.png
-        sips -z 256 256   OpenBoardHarmony/entry/src/main/resources/base/media/app_icon.png --out OpenBoard.iconset/icon_128x128@2x.png
-        sips -z 256 256   OpenBoardHarmony/entry/src/main/resources/base/media/app_icon.png --out OpenBoard.iconset/icon_256x256.png
-        sips -z 512 512   OpenBoardHarmony/entry/src/main/resources/base/media/app_icon.png --out OpenBoard.iconset/icon_256x256@2x.png
-        sips -z 512 512   OpenBoardHarmony/entry/src/main/resources/base/media/app_icon.png --out OpenBoard.iconset/icon_512x512.png
-        sips -z 1024 1024 OpenBoardHarmony/entry/src/main/resources/base/media/app_icon.png --out OpenBoard.iconset/icon_512x512@2x.png
-        iconutil -c icns OpenBoard.iconset -o OpenBoard.app/Contents/Resources/app.icns
+      - name: Create macOS App Bundle
+        env:
+          APP_VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          mkdir -p OpenBoard.app/Contents/MacOS
+          mkdir -p OpenBoard.app/Contents/Resources
+          cp OpenBoard OpenBoard.app/Contents/MacOS/
 
-    - name: Compress App Bundle
-      run: |
-        zip -r OpenBoard-macOS.zip OpenBoard.app
+          # 注意：heredoc 不加引号，让 ${APP_VERSION} 被 shell 展开
+          cat <<EOF > OpenBoard.app/Contents/Info.plist
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleExecutable</key>
+              <string>OpenBoard</string>
+              <key>CFBundleIconFile</key>
+              <string>app.icns</string>
+              <key>CFBundleIdentifier</key>
+              <string>xyz.luojunqi.openboard</string>
+              <key>CFBundleName</key>
+              <string>OpenBoard</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleShortVersionString</key>
+              <string>${APP_VERSION}</string>
+              <key>CFBundleVersion</key>
+              <string>${APP_VERSION}</string>
+              <key>LSMinimumSystemVersion</key>
+              <string>10.13</string>
+              <key>NSHighResolutionCapable</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
 
-    - name: Upload macOS Executable Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: OpenBoard-macOS
-        path: OpenBoard-macOS.zip
+          # 图标：从 PNG 生成 .icns。源图缺失时降级为无图标，不让构建失败。
+          SRC_ICON=OpenBoardHarmony/entry/src/main/resources/base/media/app_icon.png
+          if [ -f "$SRC_ICON" ]; then
+            mkdir -p OpenBoard.iconset
+            for spec in "16 16x16" "32 16x16@2x" "32 32x32" "64 32x32@2x" \
+                        "128 128x128" "256 128x128@2x" "256 256x256" \
+                        "512 256x256@2x" "512 512x512" "1024 512x512@2x"; do
+              set -- $spec
+              sips -z "$1" "$1" "$SRC_ICON" --out "OpenBoard.iconset/icon_$2.png" >/dev/null
+            done
+            iconutil -c icns OpenBoard.iconset -o OpenBoard.app/Contents/Resources/app.icns
+          else
+            echo "::warning::未找到图标源文件 $SRC_ICON，跳过图标生成"
+          fi
 
-    - name: Upload macOS Build to Release
-      if: startsWith(github.ref, 'refs/tags/')
-      env:
-        GH_TOKEN: ${{ github.token }}
-      run: gh release upload "$GITHUB_REF_NAME" OpenBoard-macOS.zip --clobber
+      - name: Compress App Bundle
+        run: |
+          V="${{ steps.ver.outputs.version }}"
+          # 用版本号命名，避免下载一堆都叫 OpenBoard-macOS.zip 分不清
+          zip -r "OpenBoard-macOS-${V}.zip" OpenBoard.app
+          ls -la OpenBoard-macOS-*.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenBoard-macOS
+          path: OpenBoard-macOS-*.zip
+          retention-days: 30
+
+      - name: Attach to Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" OpenBoard-macOS-*.zip --clobber

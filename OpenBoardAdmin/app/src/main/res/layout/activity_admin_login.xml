@@ -29,6 +29,21 @@
             android:textColor="@color/muted"
             android:layout_marginBottom="32dp" />
 
+        <!-- 自动登录恢复中的提示。默认隐藏；onCreate 检测到已保存的 token 时
+             才显示，避免"表单闪一下又跳走"。 -->
+        <TextView
+            android:id="@+id/tvResumeHint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            android:padding="12dp"
+            android:background="@color/surface_alt"
+            android:text="正在恢复登录状态…"
+            android:textColor="@color/muted"
+            android:textSize="13sp"
+            android:visibility="gone"
+            tools:visibility="visible" />
+
         <!-- 用户名 -->
         <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/tilUsername"

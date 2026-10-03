@@ -9,4 +9,5 @@
     <color name="ok">#FF15803D</color>
     <color name="muted">#FF8A9099</color>
     <color name="line">#FFE5E7EB</color>
+    <color name="surface_alt">#FFF3F4F6</color>
 </resources>

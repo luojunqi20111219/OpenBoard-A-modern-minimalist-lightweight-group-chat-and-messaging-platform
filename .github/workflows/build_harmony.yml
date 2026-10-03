@@ -1,0 +1,176 @@
+name: Build HarmonyOS Client
+
+# 为什么这个工作流以前不存在
+# ---------------------------------------------------------------------------
+# 仓库里一直有完整的鸿蒙工程（OpenBoardHarmony，Index.ets 4382 行），
+# 但 .github/workflows 下只有 Linux / macOS / iOS / Android 四个，
+# **没有任何 HarmonyOS 工作流** —— 所以 HAP 从来没被生产过。
+#
+# 关于签名（很重要，先说清楚）
+# ---------------------------------------------------------------------------
+# 鸿蒙的 HAP 要装到真机上必须用**华为开发者证书**签名，而证书是绑定
+# 开发者账号的，不能、也不该放在公开仓库里。CI 里没有证书，所以：
+#
+#   · 默认产出 **未签名 HAP**（assembly 阶段的原始产物）
+#   · 未签名 HAP 可以用来：DevEco Studio 本地调试安装、上架前自测、
+#     或者你用自己的证书手动签一次
+#   · 想在 CI 里出**已签名**的 HAP，就往仓库加 4 个 Secrets：
+#       HARMONY_KEYSTORE_B64    .p12 证书的 base64
+#       HARMONY_KEY_ALIAS       密钥别名
+#       HARMONY_KEY_PASSWORD    密钥密码
+#       HARMONY_STORE_PASSWORD  证书库密码
+#     配好之后下面的 "Sign HAP" 步骤会自动生效，无需改文件。
+on:
+  push:
+    tags: [ "v*" ]
+    branches: [ "main", "master" ]
+    paths:
+      - "OpenBoardHarmony/**"
+      - ".github/workflows/build_harmony.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build HAP
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            V="${GITHUB_REF_NAME}"
+          else
+            V="v0.0.0-dev+${GITHUB_SHA::7}"
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "解析到版本号：$V"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # DevEco 的命令行构建工具（含 hvigorw / ohpm）。
+      # 官方提供 Linux 版 command-line-tools，用它的构建链即可，不必装完整的 IDE。
+      - name: Set up HarmonyOS command-line tools
+        run: |
+          set -euo pipefail
+          URL="https://contentcenter-vali-drcn.dbankcdn.cn/pvt_2/DeveloperAlliance_package_901_9/9d/v3/9rKtWJ0uQ2-PjWnQ3oOy8Q/commandline-tools-linux-x64-5.0.3.900.zip"
+          # 官方直链偶尔会变。失败了就明确报错，不要静默继续
+          curl -fL --retry 3 --retry-delay 5 -o clt.zip "$URL" || {
+            echo "::error::鸿蒙命令行工具下载失败。请检查工具链直链是否已更新，或改用手动方式提供缓存。"
+            exit 1
+          }
+          unzip -q clt.zip -d clt
+          # 目录名带版本号，用通配符定位，避免写死版本
+          TOOLS=$(find clt -maxdepth 3 -type d -name "command-line-tools" | head -1)
+          echo "工具链目录：$TOOLS"
+          echo "$PWD/$TOOLS/bin" >> "$GITHUB_PATH"
+          chmod +x "$TOOLS/bin/"* 2>/dev/null || true
+          ls -la "$TOOLS/bin" | head -20
+
+      - name: Install dependencies
+        working-directory: OpenBoardHarmony
+        run: |
+          # ohpm install 会读 oh-package.json5 装依赖（hypium / hamock）
+          ohpm install --all || {
+            echo "::warning::ohpm install 未完全成功，若后续构建报缺依赖再处理"
+          }
+
+      # 未签名构建。hvigorw 的 assembleHap 产出 entry/build/default/outputs/default/*.hap
+      - name: Build HAP (unsigned)
+        working-directory: OpenBoardHarmony
+        run: |
+          chmod +x hvigorw 2>/dev/null || true
+          if [ -f hvigorw ]; then
+            ./hvigorw --no-daemon clean assembleHap
+          else
+            # 工程里没带 wrapper，就用工具链里的 hvigorw
+            hvigorw --no-daemon clean assembleHap
+          fi
+
+      - name: Locate HAP
+        id: hap
+        run: |
+          V="${{ steps.ver.outputs.version }}"
+          SRC=$(find OpenBoardHarmony -name "*.hap" -path "*outputs*" 2>/dev/null | head -1)
+          if [ -z "$SRC" ]; then
+            echo "::error::没有找到 HAP 产物"
+            find OpenBoardHarmony -name "*.hap" 2>/dev/null || true
+            exit 1
+          fi
+          OUT="OpenBoard-HarmonyOS-${V}-unsigned.hap"
+          cp "$SRC" "$OUT"
+          echo "name=$OUT" >> "$GITHUB_OUTPUT"
+          ls -la "$OUT"
+
+      # 检查是否配了签名 Secrets（决定后面签不签）。
+      # 注意：不能把 env 定义在同一步的 if 里用 —— 那一步的 env 在求值 if 时
+      # 还不存在。所以单独用一个前置步骤把结论写进 outputs。
+      - name: Check signing secrets
+        id: certcheck
+        env:
+          KS: ${{ secrets.HARMONY_KEYSTORE_B64 }}
+          ALIAS: ${{ secrets.HARMONY_KEY_ALIAS }}
+          KEYPW: ${{ secrets.HARMONY_KEY_PASSWORD }}
+          STOREPW: ${{ secrets.HARMONY_STORE_PASSWORD }}
+        run: |
+          if [ -n "$KS" ] && [ -n "$ALIAS" ] && [ -n "$KEYPW" ] && [ -n "$STOREPW" ]; then
+            echo "has=true" >> "$GITHUB_OUTPUT"
+            echo "已配置签名证书，将产出已签名 HAP"
+          else
+            echo "has=false" >> "$GITHUB_OUTPUT"
+            echo "未配置签名证书（正常）—— 只产出未签名 HAP，可用于 DevEco 本地调试"
+          fi
+
+      # 只有配了 4 个 Secrets 才会跑；否则自动跳过，不影响未签名产物
+      - name: Sign HAP
+        if: steps.certcheck.outputs.has == 'true'
+        run: |
+          echo "${{ secrets.HARMONY_KEYSTORE_B64 }}" | base64 -d > openboard.p12
+          SIGN_TOOL_JAR=$(find . -name "hap-sign-tool.jar" | head -1)
+          if [ -z "$SIGN_TOOL_JAR" ]; then
+            echo "::warning::工具链里没找到 hap-sign-tool.jar，跳过签名"
+            exit 0
+          fi
+          java -jar "$SIGN_TOOL_JAR" sign-app \
+            -keyAlias "${{ secrets.HARMONY_KEY_ALIAS }}" \
+            -signAlg "SHA256withECDSA" \
+            -mode "localSign" \
+            -inFile "${{ steps.hap.outputs.name }}" \
+            -keystoreFile "openboard.p12" \
+            -outFile "OpenBoard-HarmonyOS-${{ steps.ver.outputs.version }}-signed.hap" \
+            -keyPwd "${{ secrets.HARMONY_KEY_PASSWORD }}" \
+            -keystorePwd "${{ secrets.HARMONY_STORE_PASSWORD }}" || {
+            echo "::warning::签名失败，将只上传未签名 HAP"
+            exit 0
+          }
+          rm -f openboard.p12
+          ls -la OpenBoard-HarmonyOS-*.hap
+
+      - name: Upload HAP
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenBoard-HarmonyOS-HAP
+          path: |
+            OpenBoard-HarmonyOS-*.hap
+          retention-days: 30
+
+      - name: Attach to Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" OpenBoard-HarmonyOS-*.hap --clobber

@@ -14,6 +14,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.openboard.admin.data.AdminSession
 import com.openboard.admin.data.api.AdminRetrofitClient
+import com.openboard.admin.data.model.AdminDecisionRequest
 import com.openboard.admin.data.model.AdminUser
 import com.openboard.admin.data.model.ResetPasswordRequest
 import com.openboard.admin.data.model.UserDetailResponse
@@ -335,7 +336,9 @@ class UserDetailActivity : AppCompatActivity() {
             )
             .setPositiveButton("授予") { _, _ ->
                 run("授予权限") {
-                    AdminRetrofitClient.api().approveAdmin(mapOf("username" to username)).execute()
+                    AdminRetrofitClient.api()
+                        .approveAdmin(AdminDecisionRequest(username = username))
+                        .execute()
                 } onOk {
                     toast("已授予 $username 管理权限")
                     load()

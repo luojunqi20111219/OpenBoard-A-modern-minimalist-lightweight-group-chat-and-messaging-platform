@@ -1,0 +1,141 @@
+name: Build Windows Client
+
+# 为什么这个工作流以前不存在
+# ---------------------------------------------------------------------------
+# 项目里一直有 main.cpp（Win32 + WebView2），但仓库只有 Linux / macOS / iOS /
+# Android 四个工作流，**唯独没有 Windows** —— 所以 exe 从来没被生产过。
+#
+# 而且 exe 只能在 Windows 上编：
+#   main.cpp 用了 webview.h 并在开头定义 WEBVIEW_MSWEBVIEW2_EXPLICIT_LINK，
+#   这是 MSVC + WebView2 SDK 的显式链接模式，Linux 的 MinGW 交叉编译
+#   既没有 Windows SDK 也没有 WebView2 的头/库，物理上做不出来。
+on:
+  push:
+    tags: [ "v*" ]
+    branches: [ "main", "master" ]
+    paths:
+      - "main.cpp"
+      - "webview.h"
+      - "resource.rc"
+      - "resource.o"
+      - "webview2_sdk/**"
+      - ".github/workflows/build_windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Windows EXE
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            V="${GITHUB_REF_NAME}"
+          else
+            V="v0.0.0-dev+${GITHUB_SHA::7}"
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "解析到版本号：$V"
+
+      # 仓库里 webview2_sdk 是一个解开的 nuget 包，真实路径是：
+      #   webview2_sdk/build/native/include/WebView2.h
+      #   webview2_sdk/build/native/x64/WebView2LoaderStatic.lib
+      # 下面按这两个路径探测；万一缺失才回退 nuget 拉包。
+      - name: Ensure WebView2 SDK
+        shell: pwsh
+        run: |
+          $inc = "webview2_sdk/build/native/include"
+          $lib = "webview2_sdk/build/native/x64"
+          if ((Test-Path "$inc/WebView2.h") -and (Test-Path "$lib/WebView2LoaderStatic.lib")) {
+            Write-Host "仓库自带 WebView2 SDK，路径确认无误"
+          } else {
+            Write-Host "未找到 WebView2 头/库，改用 nuget 拉取官方包"
+            nuget install Microsoft.Web.WebView2 -OutputDirectory pkgs -Version 1.0.2210.55
+            $pkg = Get-ChildItem pkgs -Directory -Filter "Microsoft.Web.WebView2*" | Select-Object -First 1
+            New-Item -ItemType Directory -Force -Path $inc | Out-Null
+            New-Item -ItemType Directory -Force -Path $lib | Out-Null
+            Copy-Item "$($pkg.FullName)/build/native/include/*" $inc -Recurse -Force
+            Copy-Item "$($pkg.FullName)/build/native/x64/*"     $lib -Recurse -Force
+          }
+          Get-ChildItem "$inc" -File | Select-Object Name
+          Get-ChildItem "$lib" -File | Select-Object Name
+
+      - name: Build EXE with MSVC
+        shell: pwsh
+        run: |
+          # 用 vswhere 定位 VS 自带的编译环境，再调 cl.exe。
+          # 显式指定 /I 到 WebView2 的 include，/LIBPATH 到它的 x64 lib。
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          Write-Host "Visual Studio: $vsPath"
+
+          $vcvars = Join-Path $vsPath "VC\Auxiliary\Build\vcvars64.bat"
+          # main.cpp 里 LoadIconW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(101))
+          # 要求把 resource.rc 一起编进去，否则 exe 没有图标。
+          # rc.exe 在 vcvars 环境里已可用。
+          $cmd = @"
+          call "$vcvars"
+          rc /nologo resource.rc
+          cl /nologo /std:c++17 /O2 /EHsc /DUNICODE /D_UNICODE ^
+             /I"webview2_sdk\build\native\include" ^
+             main.cpp resource.res ^
+             /Fe:OpenBoard.exe ^
+             /link /SUBSYSTEM:WINDOWS ^
+             /LIBPATH:"webview2_sdk\build\native\x64" ^
+             WebView2LoaderStatic.lib ^
+             user32.lib shell32.lib ole32.lib oleaut32.lib advapi32.lib gdi32.lib
+          "@
+          cmd /c $cmd
+          if (-not (Test-Path "OpenBoard.exe")) { throw "编译失败：没有产出 OpenBoard.exe" }
+          Get-Item OpenBoard.exe | Format-List Name,Length
+
+      - name: Package ZIP
+        shell: pwsh
+        run: |
+          $V = "${{ steps.ver.outputs.version }}"
+          $dir = "OpenBoard-Windows-$V"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          Copy-Item OpenBoard.exe $dir/
+          # 图标（有就带上，没有不致命）
+          $ico = "OpenBoardHarmony/entry/src/main/resources/base/media/app_icon.png"
+          if (Test-Path $ico) { Copy-Item $ico "$dir/icon.png" }
+
+          # 说明文件用字符串数组拼，别用 @"..."@ here-string ——
+          # 它的结束标记必须顶格写，会把 YAML 的 run: | 块标量截断。
+          $lines = @(
+            "OpenBoard 桌面端（Windows）",
+            "版本：$V",
+            "",
+            "双击 OpenBoard.exe 运行。",
+            "首次启动需要系统已安装 WebView2 Runtime",
+            "（Win10/11 一般自带；若缺少，程序会提示下载）。"
+          )
+          $lines -join "`r`n" | Out-File -Encoding UTF8 "$dir/使用说明.txt"
+
+          Compress-Archive -Path $dir/* -DestinationPath "$dir.zip" -Force
+          Get-Item "$dir.zip" | Format-List Name,Length
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenBoard-Windows-EXE
+          path: OpenBoard-Windows-${{ steps.ver.outputs.version }}.zip
+          retention-days: 30
+
+      - name: Attach to Release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" \
+            "OpenBoard-Windows-${{ steps.ver.outputs.version }}.zip" --clobber
