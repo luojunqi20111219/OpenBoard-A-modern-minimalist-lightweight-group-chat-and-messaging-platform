@@ -220,6 +220,20 @@
                     <span>保持登录状态（30 天）</span>
                 </label>
                 <button id="btn-auth-action" onclick="submitAuth()" class="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-500/30 transition">立即登录</button>
+
+                <!--
+                  密码重置提示区（默认隐藏）
+
+                  为什么要有这块 —— 旧版服务端迁移过来的一些账号，密码是
+                  werkzeug 默认的 scrypt:32768:8:1 格式，验证一次要 ~75ms CPU，
+                  而 Cloudflare Free 计划每请求上限 10ms —— 服务器**物理上算不完**。
+                  这些账号谁来都登不上，包括管理员。原来的做法是「请联系管理员」，
+                  但用户根本不知道该找谁，就卡死在这儿了。
+
+                  所以这里给出一条用户自己走得通的路：把密码重置成默认密码。
+                  只在服务端明确声明支持时才显示（见 ensureCapabilities / showAuthResetHint）。
+                -->
+                <div id="auth-reset-hint" class="hidden mt-5 text-left"></div>
             </div>
             <div id="qr-container" class="hidden flex flex-col items-center justify-center py-4">
                 <div id="qr-code-box" class="w-48 h-48 bg-white flex items-center justify-center p-2 border rounded-2xl shadow-sm">
@@ -2162,15 +2176,28 @@
             }
         }
 
-        function showToast(message) {
+        /**
+         * 轻提示。
+         *
+         * @param {string} message 文案
+         * @param {number} [durationMs=1500] 停留毫秒数。
+         *        默认 1.5 秒对「已复制」这类瞬时报够用，但错误原因动辄两行、
+         *        用户还要读，所以调用方可以传更长的时间。
+         */
+        function showToast(message, durationMs) {
+            const ms = (typeof durationMs === 'number' && durationMs > 0) ? durationMs : 1500;
             const toast = document.createElement('div');
             toast.className = 'fixed top-4 left-1/2 -translate-x-1/2 bg-gray-800/90 text-white px-4 py-2 rounded-xl text-xs z-[1000] shadow-lg transition duration-300';
+            // 重要提示允许多行显示，别把服务端的长文案压成一行挤没了
+            if (ms > 2000) {
+                toast.className += ' max-w-md text-center leading-relaxed whitespace-pre-line';
+            }
             toast.innerText = message;
             document.body.appendChild(toast);
             setTimeout(() => {
                 toast.classList.add('opacity-0');
                 setTimeout(() => toast.remove(), 300);
-            }, 1500);
+            }, ms);
         }
 
         // --- 注册登录逻辑 ---
@@ -2180,6 +2207,16 @@
 
         function switchAuthTab(mode) {
             authMode = mode;
+
+            // 换页签就把上一次的重置提示收起来。
+            // 不收的话会有两种尴尬：切到「注册」页还挂着「密码需要重置」，
+            // 或者用户第二次打开登录框看到上一次的陈旧提示，以为又出问题了。
+            hideAuthResetHint();
+
+            // 一进登录页就静默探一次服务端能力 —— 只影响按钮显不显示，
+            // 失败无副作用，所以不等它、不提示。
+            if (mode === 'login') { ensureCapabilities(); }
+
             const tLogin = document.getElementById('tab-login'); 
             const tReg = document.getElementById('tab-register');
             const tQr = document.getElementById('tab-qr');
@@ -2324,9 +2361,242 @@
                     otpInput.classList.remove('hidden');
                     otpInput.focus();
                     showToast('请输入两步验证动态码');
-                } else alert(err.detail || "操作失败");
+                } else {
+                    handleAuthFailure(res.status, err);
+                }
             }
         }
+
+        // =======================================================================
+        // 自助重置为默认密码
+        // =======================================================================
+        // 背景（很重要，决定了下面每个判断为什么这么写）
+        // -----------------------------------------------------------------------
+        // 旧库里 werkzeug 默认的 scrypt:32768:8:1 哈希，验证一次约 75ms CPU，
+        // 而 Cloudflare Free 计划单请求 CPU 上限 10ms —— 物理上算不完。
+        // 这批账号**任何人**都登录不了（包括管理员，在网页端也一样）。
+        //
+        // 原来的提示是「请联系管理员」，但管理员是谁、怎么联系，页面给不出答案，
+        // 用户就彻底卡死了。所以服务端补了 /api/reset-to-default：
+        // 让用户自己把废账号的密码重置成默认密码，登进去后再强制改密。
+        //
+        // 三条安全边界（服务端实现，客户端只需配合）：
+        //   1. 只有「本来就算了不动」的账号能被重置 —— 密码正常的账号会被 400 拒掉
+        //   2. 管理员账号不能自助重置 —— 否则就是一条完整的提权链
+        //   3. 每账号每天 1 次、每 IP 每天 10 次
+        // =======================================================================
+
+        /** 从服务端拿到的默认密码。优先用服务端下发的，避免两边硬编码对不上。 */
+        let authDefaultPassword = null;
+
+        /**
+         * 是否支持自助重置。
+         *
+         * ⚠️ 判定必须严格 —— 默认 false，只有服务端**明确说 true** 才算支持。
+         *
+         * 为什么不搞「说不清楚就先显示着试试」：
+         *   这个接口只存在于 Cloudflare Workers 版服务端。FastAPI 版或老版 CF
+         *   都没有。如果按「没说不支持就是支持」推断，用户点下去拿到 404 或
+         *   一坨 HTML 错误页 —— 他既不知道发生了什么，也不知道该怎么办，
+         *   比不显示按钮还糟。所以：说不清楚 = 不支持。
+         */
+        let authSupportsSelfReset = false;
+
+        /**
+         * 探测服务端能力（GET /api/capabilities）。
+         *
+         * 不需要鉴权 —— 登录前就要用到。老服务端没这个接口会返回 404 或 HTML，
+         * 这里一律按「不支持」处理，不抛异常、不提示用户。
+         * 探测失败没有任何副作用，它只影响一个按钮显不显示。
+         */
+        async function ensureCapabilities() {
+            if (authSupportsSelfReset) return true;   // 已经确认过
+            try {
+                const r = await fetch('/api/capabilities', { method: 'GET' });
+                if (!r.ok) return false;
+                const data = await r.json();
+                // 三层都得对：合法 JSON + features 存在 + 字段严格等于 true
+                if (data && data.features && data.features.self_reset_password === true) {
+                    authSupportsSelfReset = true;
+                    return true;
+                }
+            } catch (e) {
+                // 网络错误 / 非 JSON —— 都当不支持
+                console.debug('capabilities 探测失败，按不支持处理', e);
+            }
+            return false;
+        }
+
+        /**
+         * 登录失败的统一处理。
+         *
+         * 之前这里只有一行 `alert(err.detail)`，而 400 恰恰是最需要解释清楚的一种：
+         * 用户的密码根本没输错，只是这个账号的密码是旧版格式、服务器算不动。
+         * 笼统报「操作失败」会让人反复重试密码，白白触发登录锁定。
+         */
+        async function handleAuthFailure(status, err) {
+            // ---- 400 + PASSWORD_RESET_REQUIRED：这是唯一需要特殊处理的分支 ----
+            if (status === 400 && err && err.code === 'PASSWORD_RESET_REQUIRED') {
+                await showAuthResetHint(err);
+                return;
+            }
+            if (status === 401) { showToast('用户名或密码错误'); return; }
+            if (status === 403) { showToast(err?.detail || '该账号已被封禁'); return; }
+            if (status === 429) { showToast(err?.detail || '登录尝试过多，请稍后再试'); return; }
+            showToast((err && err.detail) || `操作失败（HTTP ${status}）`);
+        }
+
+        /**
+         * 渲染「需要重置密码」提示卡片。
+         *
+         * @param {object} err 登录接口返回的 400 响应体
+         */
+        async function showAuthResetHint(err) {
+            const box = document.getElementById('auth-reset-hint');
+            if (!box) return;
+
+            const contact = (err && err.admin_contact) || {};
+            const reason = (err && err.reason) || '该账号的密码为旧版格式，当前服务器无法自动校验';
+            // 优先用服务端下发的默认密码，拿不到才回退到约定值
+            const pwd = contact.default_password || '12345678';
+            authDefaultPassword = pwd;
+
+            // 服务端在 400 里**明确**说了 self_service 才认；同时允许
+            // 前面探测接口已经确认过的情况（两条路任一成立即显示）。
+            const supportedByServer = contact.self_service === true;
+            const supportedByProbe = await ensureCapabilities();
+            const canSelfReset = supportedByServer || supportedByProbe;
+
+            const admins = Array.isArray(contact.admins)
+                ? contact.admins.filter(n => typeof n === 'string' && n.trim())
+                : [];
+
+            // ---- 拼 HTML ----
+            // ⚠️ 全部走 textContent 式的转义，不把服务端字符串直接插进 innerHTML。
+            //    管理员名字来自服务端配置，虽然理论上可控，但没理由留这个口子。
+            const esc = (s) => String(s).replace(/[&<>"']/g, ch => (
+                { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
+            ));
+
+            let html = ''
+                + '<div class="border border-amber-300 bg-amber-50 rounded-2xl p-4">'
+                +   '<div class="text-sm font-bold text-amber-800 mb-2">'
+                +     esc(contact.title || '该账号需要重置密码')
+                +   '</div>'
+                +   '<div class="text-xs text-amber-700 leading-relaxed whitespace-pre-line">'
+                +     esc(contact.message || (reason + '\n\n您的密码没有输错，可以把它重置为默认密码后登录，登录后请立即修改。'))
+                +   '</div>';
+
+            if (admins.length) {
+                html += '<div class="mt-3 text-[11px] text-amber-700">'
+                     +  '<span class="opacity-70">管理员：</span>'
+                     // 可选中复制 —— 用户可能想把名字发给管理员本人
+                     +  '<span class="font-mono select-all">' + esc(admins.join(' · ')) + '</span>'
+                     +  '</div>';
+            }
+
+            if (canSelfReset) {
+                html += '<button id="btn-self-reset" '
+                     +  'class="mt-4 w-full bg-amber-500 text-white py-3 rounded-xl font-bold text-sm hover:bg-amber-600 transition">'
+                     +  '重置为默认密码 ' + esc(pwd)
+                     +  '</button>';
+            } else {
+                // 明确告诉用户「这台服务器上没有这条路」，而不是给个点了必炸的按钮
+                html += '<div class="mt-3 text-[11px] text-amber-600">'
+                     +  '当前服务器不支持自助重置，请联系管理员在管理端为您处理。'
+                     +  '</div>';
+            }
+
+            html += '</div>';
+            box.innerHTML = html;
+            box.classList.remove('hidden');
+
+            if (canSelfReset) {
+                const btn = document.getElementById('btn-self-reset');
+                if (btn) btn.onclick = () => confirmSelfReset(pwd);
+            }
+        }
+
+        function hideAuthResetHint() {
+            const box = document.getElementById('auth-reset-hint');
+            if (box) { box.classList.add('hidden'); box.innerHTML = ''; }
+        }
+
+        /**
+         * 二次确认。
+         *
+         * 为什么一定要确认：这个操作**不可逆** —— 旧密码立刻作废，而且是哈希，
+         * 服务端也「算不回」原密码。误触的代价是用户彻底登不上。
+         */
+        function confirmSelfReset(password) {
+            const u = document.getElementById('auth-u').value.trim();
+            if (!u) { showToast('请先填写账号名'); return; }
+
+            const ok = confirm(
+                `确认将「${u}」的密码重置为 ${password}？\n\n` +
+                '• 原来的密码会立即失效，无法找回\n' +
+                '• 登录后系统会要求您马上设置新密码\n' +
+                '• 每个账号每天只能重置一次'
+            );
+            if (ok) doSelfReset(u, password);
+        }
+
+        async function doSelfReset(username, password) {
+            const btn = document.getElementById('btn-self-reset');
+            if (btn) { btn.disabled = true; btn.textContent = '正在重置…'; btn.classList.add('opacity-60'); }
+
+            try {
+                const r = await fetch('/api/reset-to-default', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username })
+                });
+                const data = await r.json().catch(() => ({}));
+
+                if (r.ok) {
+                    const pwd = data.default_password || password;
+
+                    // 直接把账号密码填进去，用户点一下「登录」就走完了 —— 少一步手抄
+                    document.getElementById('auth-u').value = username;
+                    document.getElementById('auth-p').value = pwd;
+
+                    // 把橙色警示卡换成绿色成功卡
+                    const box = document.getElementById('auth-reset-hint');
+                    if (box) {
+                        box.innerHTML = ''
+                            + '<div class="border border-emerald-300 bg-emerald-50 rounded-2xl p-4">'
+                            +   '<div class="text-sm font-bold text-emerald-800 mb-2">密码已重置</div>'
+                            +   '<div class="text-xs text-emerald-700 leading-relaxed">'
+                            +     '账号和默认密码已自动填入，点「立即登录」即可。'
+                            +     '登录后系统会要求您立即设置新密码。'
+                            +   '</div>'
+                            + '</div>';
+                        box.classList.remove('hidden');
+                    }
+                    // 按钮改成「立即登录」，把用户直接推向下一步
+                    const actionBtn = document.getElementById('btn-auth-action');
+                    if (actionBtn) actionBtn.focus();
+                    showToast('已重置，请点「立即登录」', 4000);
+                } else {
+                    // 四个失败原因（今天已重置 / 账号无需重置 / 管理员账号 / 用户不存在）
+                    // 全靠 detail 区分，所以优先展示服务端原文，别自己编
+                    showToast(data.detail || `重置失败（HTTP ${r.status}）`, 5000);
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.textContent = '重置为默认密码 ' + password;
+                        btn.classList.remove('opacity-60');
+                    }
+                }
+            } catch (e) {
+                showToast('网络错误：' + e.message, 4000);
+                if (btn) {
+                    btn.disabled = false;
+                    btn.textContent = '重置为默认密码 ' + password;
+                    btn.classList.remove('opacity-60');
+                }
+            }
+        }
+
         async function logout() {
             try {
                 await fetch('/api/logout', {
