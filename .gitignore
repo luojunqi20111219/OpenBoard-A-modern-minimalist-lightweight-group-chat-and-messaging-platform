@@ -59,3 +59,6 @@ openboard-cf/package-lock.json
 
 # 发布产物（APK 体积大，走网盘分发，不进 git）
 releases/*/*.apk
+
+# CI 构建产物下载缓存（体积大、可随时重新下载）
+/releases/ci/
