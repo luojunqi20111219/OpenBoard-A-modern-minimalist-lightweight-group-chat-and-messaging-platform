@@ -63,6 +63,61 @@ interface LoginResponse {
   avatar?: string;
 }
 
+// ---------------------------------------------------------------------------
+// 自助重置密码相关的响应结构
+// ---------------------------------------------------------------------------
+
+/**
+ * 服务端能力声明（GET /api/capabilities 的响应）。
+ *
+ * 「自助重置为默认密码」这个功能**只有 Cloudflare Workers 版服务端有**。
+ * 所以客户端必须先问一句，确认支持才显示按钮。
+ *
+ * 字段全部可选 —— 老服务端返回的东西可能是残缺的，用可选字段接住，
+ * 判定时一律「缺省按不支持」。
+ */
+interface CapabilityFeatures {
+  self_reset_password?: boolean;
+}
+
+interface ServerCapabilities {
+  server?: string;
+  version?: string;
+  features?: CapabilityFeatures;
+}
+
+/** 管理员联系通道（登录 400 响应里的 admin_contact） */
+interface AdminContact {
+  title?: string;
+  message?: string;
+  /** 服务端**明确**声明支持自助重置时才为 true */
+  self_service?: boolean;
+  default_password?: string;
+  admins?: string[];
+}
+
+/**
+ * 登录失败响应体。
+ *
+ * 三种情况共用：
+ *   1. 普通失败          → 只有 detail
+ *   2. 账号需要重置密码  → detail + code=PASSWORD_RESET_REQUIRED + admin_contact
+ */
+interface LoginErrorBody {
+  detail?: string;
+  code?: string;
+  reason?: string;
+  admin_contact?: AdminContact;
+}
+
+/** 重置密码的响应体 */
+interface ResetResult {
+  status?: string;
+  detail?: string;
+  default_password?: string;
+  msg?: string;
+}
+
 interface HistoryResponse {
   data: Message[];
   pagination?: HistoryPagination;
@@ -179,6 +234,42 @@ struct Index {
   @State showServerSettings: boolean = false;
   @State loginStatusMsg: string = "";
 
+  // ---------------------------------------------------------------------
+  // 自助重置密码相关状态
+  //
+  // 背景：旧库里 werkzeug 默认的 scrypt:32768:8:1 哈希，验证一次约 75ms CPU，
+  // 而 Cloudflare Free 计划单请求 CPU 上限 10ms —— 物理上算不完。
+  // 这批账号**任何人**都登录不了（包括管理员）。原来的提示是「请联系管理员」，
+  // 但管理员是谁、怎么联系，客户端给不出答案，用户就卡死了。
+  //
+  // 所以服务端补了 /api/reset-to-default，让用户自己把废账号的密码重置成
+  // 默认密码，登进去后再强制改密。
+  // ---------------------------------------------------------------------
+
+  /** 是否展示「需要重置密码」提示卡片 */
+  @State showResetHint: boolean = false;
+  /** 警示文案（服务端原文优先） */
+  @State resetTitle: string = "";
+  @State resetMessage: string = "";
+  /** 管理员用户名列表，用 · 连接后展示 */
+  @State resetAdmins: string = "";
+  /** 服务端下发的默认密码 —— 不硬编码，避免两边不一致时按钮文案对不上 */
+  @State resetDefaultPassword: string = "";
+  /** 是否显示「重置为默认密码」按钮（能力探测通过才为 true） */
+  @State canSelfReset: boolean = false;
+  /**
+   * 是否支持自助重置。
+   *
+   * ⚠️ 判定必须严格 —— 默认 false，只有服务端**明确说 true** 才算支持。
+   *    这个接口只存在于 Cloudflare Workers 版服务端，FastAPI 版或老版
+   *    CF 版都没有。如果按「没说不支持就是支持」推断，用户点下去拿到
+   *    404 或一坨 HTML 错误页 —— 既不知道发生了什么，也不知道该怎么办，
+   *    比不显示按钮还糟。所以：说不清楚 = 不支持。
+   */
+  @State supportsSelfReset: boolean = false;
+  /** 是否已经针对当前服务器地址探测过（省一次请求） */
+  private capabilitiesProbed: boolean = false;
+
   // Logged-in info
   @State token: string = "";
   @State currentUsername: string = "";
@@ -278,6 +369,11 @@ struct Index {
       this.loadBlockedUsers();
       this.loadHistory();
       this.loadFavoriteEmojis();
+    } else {
+      // 停在登录页 —— 静默探一次服务端能力，决定「重置为默认密码」
+      // 按钮该不该出现在后续的 400 提示卡里。
+      // 探测只影响按钮显不显示，失败无副作用，所以不等它。
+      this.probeCapabilities();
     }
   }
 
@@ -2196,6 +2292,8 @@ struct Index {
             this.currentUserAvatar = res.avatar || "";
             this.saveLocalSettings();
             this.loginStatusMsg = "";
+            // 登录成功 —— 收掉可能还挂着的重置提示卡（比如用户重置后登了进来）
+            this.dismissResetHint();
             this.screenState = "MAIN";
             this.activeTabIndex = 0;
             
@@ -2209,10 +2307,225 @@ struct Index {
             this.loginStatusMsg = "登录异常，请重试";
           }
         } else {
-          this.loginStatusMsg = "登录失败：用户名或密码错误";
+          // -----------------------------------------------------------------
+          // 登录失败 —— 必须按原因分流，不能一句「用户名或密码错误」包打天下。
+          //
+          // 之前这里是无条件 `this.loginStatusMsg = "登录失败：用户名或密码错误"`，
+          // 而 400 恰恰是最需要解释清楚的一种：用户的密码**根本没输错**，
+          // 只是这个账号的密码是旧版格式、服务器算不动校验。
+          // 笼统报「密码错误」会让人反复重试，白白触发登录锁定。
+          // -----------------------------------------------------------------
+          this.handleLoginFailure(data);
         }
       }
     );
+  }
+
+  /**
+   * 登录失败分流。
+   *
+   * @param data HTTP 响应（可能是 400 / 401 / 403 / 429 / 500）
+   */
+  private handleLoginFailure(data: http.HttpResponse) {
+    const code = data.responseCode;
+
+    // ---- 400 + PASSWORD_RESET_REQUIRED：唯一需要特殊处理的分支 ----
+    if (code === 400) {
+      let body: LoginErrorBody | null = null;
+      try {
+        body = JSON.parse(data.result as string) as LoginErrorBody;
+      } catch (e) {
+        body = null;
+      }
+      if (body && body.code === 'PASSWORD_RESET_REQUIRED') {
+        this.renderResetHint(body);
+        return;
+      }
+      // 其他 400（比如参数错）走通用文案，但优先用服务端 detail
+      this.loginStatusMsg = (body && body.detail) ? body.detail : "登录失败：请求被拒绝";
+      return;
+    }
+
+    if (code === 401) {
+      this.loginStatusMsg = "登录失败：用户名或密码错误";
+      return;
+    }
+    if (code === 403) {
+      // 封禁等 —— 服务端 detail 比我们自己编的准确
+      let body: LoginErrorBody | null = null;
+      try {
+        body = JSON.parse(data.result as string) as LoginErrorBody;
+      } catch (e) {
+        body = null;
+      }
+      this.loginStatusMsg = (body && body.detail) ? body.detail : "该账号已被禁止登录";
+      return;
+    }
+    if (code === 429) {
+      this.loginStatusMsg = "登录尝试过多，请稍后再试";
+      return;
+    }
+    this.loginStatusMsg = `登录失败（HTTP ${code}）`;
+  }
+
+  /**
+   * 渲染「需要重置密码」提示卡片。
+   *
+   * 显示条件（两条路任一成立即显示按钮）：
+   *   1. 服务端在 400 响应里**明确**说了 self_service === true
+   *   2. 或者能力探测接口确认过这台服务器支持
+   *
+   * ⚠️ 这里没有「?: true」这种宽松兜底。老服务端的 400 带 admin_contact
+   *    但不带 self_service；普通版服务端连 admin_contact 都没有。
+   *    这两种情况下如果按「没说不支持就是支持」推断，就会显示一个点了
+   *    必然失败的按钮。所以：说不清楚 = 不支持。
+   */
+  private renderResetHint(body: LoginErrorBody) {
+    const contact: AdminContact = body.admin_contact || {};
+
+    this.resetTitle = contact.title || "该账号需要重置密码";
+    this.resetMessage = contact.message
+      || (body.reason || "该账号的密码为旧版格式，当前服务器无法自动校验")
+        + "。可以把它重置为默认密码后登录，登录后请立即修改。";
+
+    const names: string[] = (contact.admins || []).filter((n: string) => n && n.trim().length > 0);
+    this.resetAdmins = names.join(" · ");
+
+    // 默认密码优先用服务端下发的，避免客户端与服务端硬编码不一致时按钮文案对不上
+    this.resetDefaultPassword = (contact.default_password && contact.default_password.length > 0)
+      ? contact.default_password
+      : '12345678';
+
+    // 服务端明确声明 || 探测已确认
+    this.canSelfReset = (contact.self_service === true) || this.supportsSelfReset;
+    this.showResetHint = true;
+    this.loginStatusMsg = "";
+  }
+
+  /** 收起重置提示卡片（切到注册页 / 重新登录时调用） */
+  private dismissResetHint() {
+    this.showResetHint = false;
+    this.resetTitle = "";
+    this.resetMessage = "";
+    this.resetAdmins = "";
+    this.canSelfReset = false;
+  }
+
+  /**
+   * 静默探测服务端是否支持「自助重置为默认密码」。
+   *
+   * 探测是「尽力而为」：它只影响按钮显不显示，失败没有任何副作用，
+   * 所以不提示用户、不重试、不阻塞登录。
+   *
+   * 失败即不支持 —— 拿不到 / 解析不了 / 字段不是 true，一律按否处理。
+   */
+  private probeCapabilities() {
+    if (this.capabilitiesProbed) {
+      return;
+    }
+    this.capabilitiesProbed = true;
+
+    let req = http.createHttp();
+    req.request(
+      `${this.serverUrl}/api/capabilities`,
+      { method: http.RequestMethod.GET, header: { 'Content-Type': 'application/json' } },
+      (err: BusinessError, data: http.HttpResponse) => {
+        // 老服务端没这个接口 → 404；网关挂了 → 5xx。一律按不支持
+        if (err || data.responseCode !== 200) {
+          return;
+        }
+        try {
+          const caps = JSON.parse(data.result as string) as ServerCapabilities;
+          // 三层都得对：合法 JSON + features 存在 + 字段严格等于 true
+          if (caps && caps.features && caps.features.self_reset_password === true) {
+            this.supportsSelfReset = true;
+          }
+        } catch (e) {
+          // 返回的是 HTML 错误页之类 —— 按不支持
+        }
+      }
+    );
+  }
+
+  /**
+   * 执行重置为默认密码。
+   *
+   * 这个操作**不可逆**（旧密码立刻作废，且是哈希、服务端也算不回原密码），
+   * 所以调用方必须先做二次确认。
+   */
+  private doResetToDefault() {
+    const username = this.usernameInput.trim();
+    if (!username) {
+      this.loginStatusMsg = "请先填写用户名";
+      return;
+    }
+
+    this.loginStatusMsg = "正在重置密码...";
+    let req = http.createHttp();
+    req.request(
+      `${this.serverUrl}/api/reset-to-default`,
+      {
+        method: http.RequestMethod.POST,
+        header: { 'Content-Type': 'application/json' },
+        extraData: JSON.stringify({ username: username })
+      },
+      (err: BusinessError, data: http.HttpResponse) => {
+        let body: ResetResult | null = null;
+        try {
+          body = JSON.parse(data.result as string) as ResetResult;
+        } catch (e) {
+          body = null;
+        }
+
+        if (err || data.responseCode !== 200) {
+          // 四个失败原因（今天重置过 / 账号无需重置 / 管理员账号 / 不存在）
+          // 全靠 detail 区分，所以优先展示服务端原文，别自己编
+          this.loginStatusMsg = (body && body.detail) ? body.detail : "重置失败，请稍后重试";
+          return;
+        }
+
+        const pwd: string = (body && body.default_password) ? body.default_password : this.resetDefaultPassword;
+
+        // 直接把密码填进去，用户点一下「登录」就走完了 —— 少一步手抄
+        this.passwordInput = pwd;
+
+        // 把橙色警示卡换成绿色成功卡
+        this.showResetHint = true;
+        this.canSelfReset = false;
+        this.resetTitle = "密码已重置";
+        this.resetMessage = `默认密码 ${pwd} 已自动填入，点「登 录」即可。登录后请立即设置新密码。`;
+        this.resetAdmins = "";
+        this.loginStatusMsg = "";
+      }
+    );
+  }
+
+  /** 二次确认后再重置 —— 不可逆操作必须让用户明确知道自己在做什么 */
+  private confirmResetToDefault() {
+    const username = this.usernameInput.trim();
+    if (!username) {
+      this.loginStatusMsg = "请先填写用户名";
+      return;
+    }
+    const pwd = this.resetDefaultPassword;
+
+    AlertDialog.show({
+      title: "确认重置密码？",
+      message: `将把「${username}」的密码设为 ${pwd}。\n\n`
+        + `• 原来的密码会立即失效，无法找回\n`
+        + `• 登录后系统会要求您马上设置新密码\n`
+        + `• 每个账号每天只能重置一次`,
+      primaryButton: {
+        value: "取消",
+        action: () => { }
+      },
+      secondaryButton: {
+        value: "确认重置",
+        fontColor: '#E6A23C',
+        action: () => { this.doResetToDefault(); }
+      },
+      cancel: () => { }
+    });
   }
 
   // Handle Register click
@@ -2292,6 +2605,57 @@ struct Index {
               .fontColor(Color.Red)
               .height(20)
 
+            // ---------------------------------------------------------------
+            // 密码重置提示卡片
+            //
+            // 只在服务端明确支持时才带「重置为默认密码」按钮（见 renderResetHint）。
+            // 不支持时就只展示原因 + 管理员名字 —— 用户至少知道该找谁，
+            // 而不是面对一个点了必然失败的按钮。
+            // ---------------------------------------------------------------
+            if (this.showResetHint) {
+              Column({ space: 8 }) {
+                Text(this.resetTitle)
+                  .fontSize(15)
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor("#92400E")
+                  .width("100%")
+
+                Text(this.resetMessage)
+                  .fontSize(12)
+                  .fontColor("#B45309")
+                  .lineHeight(18)
+                  .width("100%")
+
+                if (this.resetAdmins.length > 0) {
+                  Text(`管理员：${this.resetAdmins}`)
+                    .fontSize(11)
+                    .fontColor("#B45309")
+                    .width("100%")
+                }
+
+                if (this.canSelfReset) {
+                  Button(`重置为默认密码 ${this.resetDefaultPassword}`)
+                    .width("100%")
+                    .height(40)
+                    .fontSize(14)
+                    .backgroundColor("#F59E0B")
+                    .onClick(() => this.confirmResetToDefault())
+                } else {
+                  Text("当前服务器不支持自助重置，请联系管理员在管理端为您处理。")
+                    .fontSize(11)
+                    .fontColor("#D97706")
+                    .width("100%")
+                }
+              }
+              .width("85%")
+              .padding(14)
+              .margin({ top: 10 })
+              .backgroundColor("#FEF3C7")
+              .borderRadius(12)
+              .border({ width: 1, color: "#FCD34D" })
+              .alignItems(HorizontalAlign.Start)
+            }
+
             Row({ space: 20 }) {
               if (!this.isRegisterMode) {
                 Button("登 录")
@@ -2304,7 +2668,13 @@ struct Index {
                   .width(120)
                   .height(40)
                   .backgroundColor(Color.Gray)
-                  .onClick(() => this.isRegisterMode = true)
+                  .onClick(() => {
+                    // 换页签要清掉陈旧提示，否则「注册」页上还挂着
+                    // 「密码需要重置」，用户会以为注册也出问题了
+                    this.dismissResetHint();
+                    this.loginStatusMsg = "";
+                    this.isRegisterMode = true;
+                  })
               } else {
                 Button("注 册")
                   .width(120)
@@ -2316,7 +2686,11 @@ struct Index {
                   .width(120)
                   .height(40)
                   .backgroundColor(Color.Gray)
-                  .onClick(() => this.isRegisterMode = false)
+                  .onClick(() => {
+                    this.dismissResetHint();
+                    this.loginStatusMsg = "";
+                    this.isRegisterMode = false;
+                  })
               }
             }
             .margin({ top: 15 })

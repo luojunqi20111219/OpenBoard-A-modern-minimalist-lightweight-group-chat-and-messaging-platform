@@ -38,5 +38,13 @@ flutter:
   uses-material-design: true
   assets:
     - assets/game/
-  config:
-    enable-swift-package-manager: false
+
+# ⚠️ enable-swift-package-manager 是 **顶层** 配置，不属于 flutter: 段。
+#
+# 之前它被写在 `flutter:` 下面，导致 pubspec 解析直接失败：
+#   Error detected in pubspec.yaml:
+#   Unexpected child "config" found under "flutter".
+# —— 这一条就让 `flutter pub get` / `flutter analyze` / `flutter build`
+# 全部起不来，iOS 与 Android 的 Flutter 产物自然也就出不来。
+config:
+  enable-swift-package-manager: false

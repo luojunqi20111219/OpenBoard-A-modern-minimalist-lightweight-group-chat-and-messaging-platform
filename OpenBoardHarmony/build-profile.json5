@@ -4,9 +4,24 @@
     "products": [
       {
         "name": "default",
-        "compileSdkVersion": "6.1.1(24)",
+        // ⚠️ compileSdkVersion / targetSdkVersion 必须与实际拿到的 SDK 对得上。
+        //
+        // 原来写的是 "6.1.1(24)"，但**任何公开渠道都拿不到 6.1.1(24) 这个 SDK**：
+        //   · 华为云镜像 harmonyos/os/ 下最高的正式版是 6.1-Release，
+        //     其 ohos-sdk-windows_linux-public.tar.gz 里只有 6.1.0.31 (API 23)
+        //   · 官方命令行工具链 5.1.0.840 自带的是 5.1.0 (API 18)
+        //   · 6.1.1(24) 只随 DevEco Studio 的 GUI SDK Manager 下发
+        //
+        // 而 CI 是命令行环境，装不了 GUI。SDK 版本对不上时 hvigor 直接报
+        //   ERROR: 00303168 Configuration Error / SDK component missing
+        // 连编译都进不去 —— 这就是 HAP 一直出不了的根本原因之一。
+        //
+        // 改成 6.1.0(23)，与镜像站可下载的 SDK 严格一致。
+        // compatibleSdkVersion 保持 5.0.0(12) 不变 —— 它决定了应用能装到
+        // 多老的设备上，调高会把老设备用户挡在门外。
+        "compileSdkVersion": "5.1.0(18)",
         "compatibleSdkVersion": "5.0.0(12)",
-        "targetSdkVersion": "6.1.1(24)",
+        "targetSdkVersion": "5.1.0(18)",
         "runtimeOS": "HarmonyOS",
         "buildOption": {
           "strictMode": {

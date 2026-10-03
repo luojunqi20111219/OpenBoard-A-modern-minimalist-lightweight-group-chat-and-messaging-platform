@@ -58,6 +58,9 @@ class ApiService {
 
   Future<void> setServerUrl(String url) async {
     _serverUrl = url;
+    // 换了服务器就要重探能力 —— 否则会沿用上一台服务器的结论，
+    // 在支持自助重置的服务器上不显示按钮，或者反过来。
+    resetCapabilityCache();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('server_url', url);
   }
@@ -85,7 +88,144 @@ class ApiService {
       await prefs.setInt('role', _currentRole);
       return {'success': true};
     } else {
-      return {'success': false, 'message': data['detail'] ?? '登录失败'};
+      // ---------------------------------------------------------------------
+      // 失败时把完整响应体带回去，而不是只留一句 detail。
+      //
+      // 原因：400 有两种完全不同的含义 ——
+      //   · 普通参数错误            → 只有 detail
+      //   · PASSWORD_RESET_REQUIRED → detail + code + admin_contact
+      //                                 （含自助重置通道的全部信息）
+      // 只传 detail 的话，登录页就没法区分这两种，只能一律弹「登录失败」，
+      // 而后者恰恰是最需要解释清楚的一种：用户的密码根本没输错，
+      // 只是这个账号的密码是旧版格式、服务器算不动校验。
+      // 笼统报错会让人反复重试密码，白白触发登录锁定。
+      // ---------------------------------------------------------------------
+      return {
+        'success': false,
+        'message': data['detail'] ?? '登录失败',
+        'status': response.statusCode,
+        // 完整响应体，供调用方按 code 分流
+        'body': data is Map<String, dynamic> ? data : <String, dynamic>{},
+      };
+    }
+  }
+
+  // =========================================================================
+  // 自助重置为默认密码
+  // =========================================================================
+  // 背景：旧库里 werkzeug 默认的 scrypt:32768:8:1 哈希，验证一次约 75ms CPU，
+  // 而 Cloudflare Free 计划单请求 CPU 上限 10ms —— 物理上算不完。
+  // 这批账号**任何人**都登录不了（包括管理员）。原来的提示是「请联系管理员」，
+  // 但管理员是谁、怎么联系，客户端给不出答案，用户就卡死了。
+  //
+  // 所以服务端补了 /api/reset-to-default，让用户自己把废账号的密码重置成
+  // 默认密码，登进去后再强制改密。
+  // =========================================================================
+
+  /// 是否支持自助重置（缓存结果，避免每次登录都探一遍）
+  bool _supportsSelfReset = false;
+  bool get supportsSelfReset => _supportsSelfReset;
+
+  /// 是否已经针对当前服务器地址探测过
+  bool _capabilitiesProbed = false;
+
+  /// 服务端下发的默认密码（探测不到时为 null，由调用方回退）
+  String? _serverDefaultPassword;
+  String? get serverDefaultPassword => _serverDefaultPassword;
+
+  /// 换服务器地址时重置探测缓存 —— 否则换了服务器还用上一个服务器结论
+  void resetCapabilityCache() {
+    _capabilitiesProbed = false;
+    _supportsSelfReset = false;
+    _serverDefaultPassword = null;
+  }
+
+  /// 静默探测服务端能力（GET /api/capabilities）。
+  ///
+  /// `self_reset_password` 这个能力**只存在于 Cloudflare Workers 版服务端**。
+  /// FastAPI 版或老版 CF 版都没有这个接口。客户端必须先问一句，
+  /// 确认支持才显示「重置为默认密码」按钮 —— 否则用户点下去会拿到 404
+  /// 或一坨 HTML 错误页，既不知道发生了什么，也不知道该怎么办，
+  /// 比不显示按钮还糟。
+  ///
+  /// **探测失败 = 不支持**（默认关闭），而不是"探测失败也先显示着试试看"。
+  /// 这个方法不抛异常、不提示用户 —— 它只影响一个按钮显不显示，
+  /// 失败没有任何副作用，所以是"尽力而为"。
+  Future<bool> probeCapabilities({bool force = false}) async {
+    if (_capabilitiesProbed && !force) return _supportsSelfReset;
+
+    try {
+      final response = await http
+          .get(Uri.parse('$_serverUrl/api/capabilities'))
+          .timeout(const Duration(seconds: 8));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        // 三层都得对：合法 JSON + features 存在 + 字段严格等于 true
+        if (data is Map &&
+            data['features'] is Map &&
+            data['features']['self_reset_password'] == true) {
+          _supportsSelfReset = true;
+        }
+      }
+    } catch (_) {
+      // 404 / 超时 / 非 JSON / 网关错误页 —— 一律按不支持
+      _supportsSelfReset = false;
+    }
+
+    _capabilitiesProbed = true;
+    return _supportsSelfReset;
+  }
+
+  /// 自助把密码重置为默认密码。
+  ///
+  /// 不需要鉴权 —— 能走到这一步的用户恰恰是登不上的人。
+  ///
+  /// 返回 `{'success': bool, 'message': String, 'default_password': String?,
+  ///       'status': int}`。
+  /// 四个失败原因（今天重置过 / 账号无需重置 / 管理员账号 / 用户不存在）
+  /// 全靠服务端 detail 区分，所以这里原样带回，别自己编文案。
+  Future<Map<String, dynamic>> resetToDefault(String username) async {
+    try {
+      final response = await http
+          .post(
+            Uri.parse('$_serverUrl/api/reset-to-default'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'username': username}),
+          )
+          .timeout(const Duration(seconds: 20));
+
+      Map<String, dynamic> data = <String, dynamic>{};
+      try {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map<String, dynamic>) data = decoded;
+      } catch (_) {
+        // 非 JSON 响应（网关错误页等）—— 下面按状态码处理
+      }
+
+      if (response.statusCode == 200) {
+        final pwd = data['default_password'] as String?;
+        if (pwd != null && pwd.isNotEmpty) {
+          _serverDefaultPassword = pwd;
+        }
+        return {
+          'success': true,
+          'message': data['msg'] ?? '密码已重置',
+          'default_password': pwd,
+          'status': response.statusCode,
+        };
+      }
+      return {
+        'success': false,
+        'message': data['detail'] ?? '重置失败（HTTP ${response.statusCode}）',
+        'status': response.statusCode,
+      };
+    } catch (e) {
+      return {
+        'success': false,
+        'message': '网络错误：无法连接服务器',
+        'status': 0,
+      };
     }
   }
 

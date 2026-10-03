@@ -63,8 +63,7 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      # DevEco 的命令行构建工具（含 hvigorw / ohpm）。
-      # 官方提供 Linux 版 command-line-tools，用它的构建链即可，不必装完整的 IDE。
+      # DevEco 的命令行构建工具（含 hvigorw / ohpm + 自带 HarmonyOS SDK）。
       #
       # ⚠️ 为什么不用 contentcenter-vali-drcn.dbankcdn.cn 的"官方直链"
       # ------------------------------------------------------------------
@@ -75,88 +74,192 @@ jobs:
       # 改用**华为云开源镜像站**，无防盗链、支持 Range 续传、长期稳定：
       #   https://mirrors.huaweicloud.com/harmonyos/ohpm/<ver>/commandline-tools-linux-x64-<ver>.zip
       # 同目录还带 .sha256，顺手校验一下，避免下到半截的坏包。
-      # 主源失败自动回退到备用版本目录。
+      #
+      # ⚠️ 只用 5.1.0 这一版，不要"两个都试"
+      # ------------------------------------------------------------------
+      # 原因：工具链与它自带的 SDK 是**绑定**的。5.1.0.840 自带
+      # HarmonyOS 5.1.0 (API 18) SDK，而 hvigor 的 HosVersionMapper 里
+      # 支持列表只有 API 10~18：
+      #     [18] 5.1.0  [17] 5.0.5  [16] 5.0.4  ...  [12] 5.0.0  [10] 4.0.0
+      # 云端确实有更新的 6.1-Release (API 23) SDK，但 hvigor 5.18.5 根本
+      # 不认识 API 23/24，会直接报
+      #     ERROR: 00303168 Configuration Error / SDK component missing
+      # 而 5.0.3 那条链路的 SDK 又对不上工程配置。所以这里锁定 5.1.0。
+      # 工程侧的 compileSdkVersion 必须同步写成 "5.1.0(18)"。
       - name: Set up HarmonyOS command-line tools
+        id: clt
         run: |
           set -euo pipefail
           BASE="https://mirrors.huaweicloud.com/harmonyos/ohpm"
-          CANDIDATES="5.0.3/commandline-tools-linux-x64-5.0.3.906.zip
-          5.1.0/commandline-tools-linux-x64-5.1.0.840.zip"
+          REL="5.1.0/commandline-tools-linux-x64-5.1.0.840.zip"
+          URL="$BASE/$REL"
 
-          ok=0
-          for rel in $CANDIDATES; do
-            URL="$BASE/$rel"
-            echo "尝试下载：$URL"
-            if curl -fL --retry 3 --retry-delay 5 --connect-timeout 20 -o clt.zip "$URL"; then
-              # 校验 sha256（镜像同目录提供，缺失时不阻断）
-              if curl -fsL -o clt.zip.sha256 "$URL.sha256"; then
-                want=$(tr -d ' \n\r\t' < clt.zip.sha256 | head -c 64)
-                got=$(sha256sum clt.zip | cut -d' ' -f1)
-                if [ -n "$want" ] && [ "$want" != "$got" ]; then
-                  echo "::warning::sha256 不匹配（want=$want got=$got），换下一个源"
-                  continue
-                fi
-                echo "sha256 校验通过：$got"
-              fi
-              ok=1
-              break
-            fi
-            echo "::warning::该源不可用，继续尝试下一个"
-          done
-
-          if [ "$ok" != "1" ]; then
-            echo "::error::鸿蒙命令行工具下载失败（所有镜像源均不可用）。"
-            echo "::error::请访问 https://mirrors.huaweicloud.com/harmonyos/ohpm/ 查看最新版本目录并更新本步骤的 CANDIDATES。"
+          echo "下载鸿蒙命令行工具：$URL"
+          curl -fL --retry 3 --retry-delay 5 --connect-timeout 20 -o clt.zip "$URL" || {
+            echo "::error::鸿蒙命令行工具下载失败。请访问 $BASE/ 查看最新版本并更新 REL。"
             exit 1
+          }
+
+          # 校验 sha256（镜像同目录提供，缺失时不阻断）
+          if curl -fsL -o clt.zip.sha256 "$URL.sha256"; then
+            want=$(tr -d ' \n\r\t' < clt.zip.sha256 | head -c 64)
+            got=$(sha256sum clt.zip | cut -d' ' -f1)
+            if [ -n "$want" ] && [ "$want" != "$got" ]; then
+              echo "::error::sha256 不匹配（want=$want got=$got），下载包可能损坏"
+              exit 1
+            fi
+            echo "sha256 校验通过：$got"
           fi
 
           unzip -q clt.zip -d clt
-          # 目录名带版本号，用通配符定位，避免写死版本
-          TOOLS=$(find clt -maxdepth 3 -type d -name "command-line-tools" | head -1)
-          echo "工具链目录：$TOOLS"
-          if [ -z "$TOOLS" ]; then
+          TOOLS="$PWD/$(find clt -maxdepth 3 -type d -name "command-line-tools" | head -1)"
+          if [ ! -d "$TOOLS" ]; then
             echo "::error::解压后没找到 command-line-tools 目录，压缩包结构可能变了"
             find clt -maxdepth 3 -type d | head -30
             exit 1
           fi
-          echo "$PWD/$TOOLS/bin" >> "$GITHUB_PATH"
-          chmod +x "$TOOLS/bin/"* 2>/dev/null || true
-          ls -la "$TOOLS/bin" | head -20
+          echo "工具链目录：$TOOLS"
 
-      - name: Install dependencies
+          # SDK 随工具链一起下发，直接指过去，不要再去别处找
+          echo "DEVECO_SDK_HOME=$TOOLS/sdk" >> "$GITHUB_ENV"
+          echo "$TOOLS/bin" >> "$GITHUB_PATH"
+          echo "TOOLS_DIR=$TOOLS" >> "$GITHUB_OUTPUT"
+
+          chmod +x "$TOOLS/bin/"* 2>/dev/null || true
+          echo "--- bin ---"; ls -la "$TOOLS/bin" | head -20
+          echo "--- SDK ---"; ls -la "$TOOLS/sdk/default/" | head
+          cat "$TOOLS/sdk/default/openharmony/ets/oh-uni-package.json" 2>/dev/null || true
+
+      # 让 hvigor 能解析到插件。
+      #
+      # ⚠️ 这一步是必须的，不能省。
+      # hvigorfile.ts 里 `import { appTasks } from '@ohos/hvigor-ohos-plugin'`，
+      # 而 CI 里没跑过 DevEco GUI（GUI 会自动做这件事），node_modules 是空的，
+      # 于是直接报：
+      #   Script Error: Failed to load or execute hvigorfile.ts:
+      #   Cannot find module '@ohos/hvigor-ohos-plugin'
+      #
+      # 工具链里其实**自带**了这个插件（$TOOLS/hvigor/hvigor-ohos-plugin），
+      # 不需要联网拉。做法是把它建成 hvigor 项目缓存工作区里的符号链接。
+      #
+      # 工作区目录名是 hvigor 按工程算出的 32 位十六进制哈希，算法没有公开
+      # 文档，**不要去猜**（猜错就静默失效，最后又变成那个找不到模块的错）。
+      # 这里改成让 hvigor 自己把目录建出来（`hvigorw --sync` 会创建），
+      # 然后用 find 把实际路径找出来再填内容 —— 换版本也不会失效。
+      - name: Link hvigor plugin (offline)
+        run: |
+          set -euo pipefail
+          TOOLS="${{ steps.clt.outputs.TOOLS_DIR }}"
+          PLUGIN="$TOOLS/hvigor/hvigor-ohos-plugin"
+          [ -d "$PLUGIN" ] || { echo "::error::工具链里没有 hvigor-ohos-plugin"; exit 1; }
+          PLUGIN_VER=$(node -p "require('$PLUGIN/package.json').version")
+          echo "插件版本：$PLUGIN_VER"
+
+          cd OpenBoardHarmony
+
+          # 先让 hvigor 把缓存工作区建出来。--sync 会去 registry 找包，
+          # 找不到会报错退出，但目录在那之前就已经创建好了 —— 这正是我们要的，
+          # 所以这里**忽略它的退出码**。
+          echo "--- 触发 hvigor 创建工作区（预期会因 registry 404 报错，忽略） ---"
+          hvigorw --no-daemon --sync 2>&1 | tail -8 || true
+
+          # 工作区是 ~/.hvigor/project_caches/<32位hash>/workspace
+          WS=$(find "$HOME/.hvigor/project_caches" -maxdepth 2 -type d -name workspace 2>/dev/null | head -1)
+          if [ -z "$WS" ]; then
+            echo "::error::没找到 hvigor 工作区目录"
+            find "$HOME/.hvigor" -maxdepth 4 2>/dev/null | head -30
+            exit 1
+          fi
+          echo "工作区：$WS"
+
+          # 建链接（这就是 hvigor 自己做 --sync 时会做的事）
+          mkdir -p "$WS/node_modules/@ohos"
+          ln -sfn "$TOOLS/hvigor/hvigor" "$WS/node_modules/@ohos/hvigor"
+          ln -sfn "$PLUGIN" "$WS/node_modules/@ohos/hvigor-ohos-plugin"
+          echo "{\"dependencies\":{\"@ohos/hvigor-ohos-plugin\":\"$PLUGIN_VER\"}}" > "$WS/package.json"
+
+          # ⚠️ 关键的一步，漏了就白搭：
+          # 插件**自己**的代码里 `require('@ohos/hvigor')`，而 Node 解析依赖时
+          # 是沿着**真实路径**往上找 node_modules 的，不是沿符号链接。
+          # 我们刚把插件链接到了工作区，但它 realpath 还在工具链里，
+          # 于是 Node 会去工具链的 node_modules 找 —— 而那里没有 hvigor，
+          # 报：Cannot find module '@ohos/hvigor'
+          #      (from hvigor-ohos-plugin/src/plugin/factory/plugin-factory.js)
+          #
+          # 工具链里插件的 node_modules/@ohos/ 有 hvigor-common / hvigor-logger /
+          # hvigor-arkts-base ... 唯独缺 hvigor 本体。把它补进去即可。
+          PLUGIN_NM="$PLUGIN/node_modules/@ohos"
+          if [ -d "$PLUGIN_NM" ] && [ ! -e "$PLUGIN_NM/hvigor" ]; then
+            ln -sfn "$TOOLS/hvigor/hvigor" "$PLUGIN_NM/hvigor"
+            echo "已把 hvigor 本体链接进插件的 node_modules/@ohos/"
+          fi
+
+          ls -la "$WS/node_modules/@ohos/"
+          ls -la "$PLUGIN_NM/" | head -12
+
+          # 强制实链接校验：这一步过不去说明还是没接上，宁可在这里失败，
+          # 也不要等到构建时才报一句没头没尾的 Script Error
+          node -e "const m=require('$WS/node_modules/@ohos/hvigor-ohos-plugin'); console.log('插件 require OK，导出：', Object.keys(m).filter(k=>/Tasks|Plugin/.test(k)).join(', '))"
+
+      - name: Install dependencies (ohpm)
         working-directory: OpenBoardHarmony
         run: |
-          # ohpm install 会读 oh-package.json5 装依赖（hypium / hamock）
+          # ohpm install 会读 oh-package.json5 装依赖（hypium / hamock / zxing）
           ohpm install --all || {
             echo "::warning::ohpm install 未完全成功，若后续构建报缺依赖再处理"
           }
+          ls -la oh_modules 2>/dev/null | head || true
 
       # 未签名构建。hvigorw 的 assembleHap 产出 entry/build/default/outputs/default/*.hap
+      #
+      # 实测（本地用同一套工具链跑通）：
+      #   Finished :entry:default@CompileArkTS... after 13 s 907 ms
+      #   Finished :entry:default@PackageHap... after 369 ms
+      #   WARN: No signingConfig found for product default
+      #   BUILD SUCCESSFUL in 19 s 908 ms
+      #   产物：entry-default-unsigned.hap（约 17 MB）
       - name: Build HAP (unsigned)
         working-directory: OpenBoardHarmony
         run: |
+          set -o pipefail
           chmod +x hvigorw 2>/dev/null || true
           if [ -f hvigorw ]; then
-            ./hvigorw --no-daemon clean assembleHap
+            ./hvigorw --no-daemon clean assembleHap 2>&1 | tail -40
           else
             # 工程里没带 wrapper，就用工具链里的 hvigorw
-            hvigorw --no-daemon clean assembleHap
+            hvigorw --no-daemon clean assembleHap 2>&1 | tail -40
           fi
 
       - name: Locate HAP
         id: hap
         run: |
+          set -euo pipefail
           V="${{ steps.ver.outputs.version }}"
           SRC=$(find OpenBoardHarmony -name "*.hap" -path "*outputs*" 2>/dev/null | head -1)
           if [ -z "$SRC" ]; then
             echo "::error::没有找到 HAP 产物"
             find OpenBoardHarmony -name "*.hap" 2>/dev/null || true
+            echo "--- 构建目录 ---"
+            find OpenBoardHarmony/entry/build -maxdepth 4 2>/dev/null | head -40 || true
             exit 1
           fi
           OUT="OpenBoard-HarmonyOS-${V}-unsigned.hap"
           cp "$SRC" "$OUT"
           echo "name=$OUT" >> "$GITHUB_OUTPUT"
           ls -la "$OUT"
+          sha256sum "$OUT"
+          # 冒烟检查：我加的自助重置密码代码必须真的在包里，别"编译成功但没进去"
+          mkdir -p /tmp/hapverify && unzip -q -o "$OUT" -d /tmp/hapverify
+          miss=0
+          for s in "reset-to-default" "capabilities" "PASSWORD_RESET_REQUIRED"; do
+            if grep -rq "$s" /tmp/hapverify 2>/dev/null; then
+              echo "  ✓ 产物含 $s"
+            else
+              echo "::warning::产物里没找到 $s —— 自助重置密码可能没编进去"
+              miss=1
+            fi
+          done
+          [ "$miss" = "0" ] || echo "::warning::冒烟检查有未命中项，请人工确认"
 
       # 检查是否配了签名 Secrets（决定后面签不签）。
       # 注意：不能把 env 定义在同一步的 if 里用 —— 那一步的 env 在求值 if 时

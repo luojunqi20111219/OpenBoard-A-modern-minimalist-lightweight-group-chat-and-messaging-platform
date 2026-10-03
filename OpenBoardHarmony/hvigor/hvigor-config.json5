@@ -1,6 +1,17 @@
 {
-  "modelVersion": "6.0.2",
+  "modelVersion": "5.1.0",
+  // ⚠️ 这里必须显式声明 hvigor 插件，不能留空。
+  //
+  // 空 dependencies 时，hvigor 会去 node_modules 找 @ohos/hvigor-ohos-plugin；
+  // 而 CI 里没跑过 `hvigorw --sync`（DevEco GUI 会自动做这件事），
+  // node_modules 是空的，于是直接报：
+  //   Script Error: Failed to load or execute hvigorfile.ts:
+  //   Cannot find module '@ohos/hvigor-ohos-plugin'
+  //
+  // 版本号必须与工具链自带的插件严格一致（查 /tmp/clt51/hvigor 下的
+  // package.json 得 5.18.5），写大了会去远端拉，网络一断又是失败。
   "dependencies": {
+    "@ohos/hvigor-ohos-plugin": "5.18.5"
   },
   "execution": {
     // "analyze": "normal",                     /* Define the build analyze mode. Value: [ "normal" | "advanced" | "ultrafine" | false ]. Default: "normal" */
