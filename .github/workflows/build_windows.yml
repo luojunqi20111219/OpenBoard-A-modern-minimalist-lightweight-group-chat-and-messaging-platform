@@ -18,7 +18,10 @@ on:
       - "webview.h"
       - "resource.rc"
       - "resource.o"
+      - "favicon.ico"
       - "webview2_sdk/**"
+      # ⚠️ 编译脚本本身也是构建输入，漏了它改脚本不会触发构建
+      - ".github/build_exe.bat"
       - ".github/workflows/build_windows.yml"
   workflow_dispatch:
 
