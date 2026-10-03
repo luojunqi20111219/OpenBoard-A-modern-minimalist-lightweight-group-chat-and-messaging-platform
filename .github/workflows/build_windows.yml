@@ -125,15 +125,32 @@ jobs:
           if (-not (Test-Path $vcvars)) { throw "找不到 vcvars64.bat：$vcvars" }
           Write-Host "vcvars64: $vcvars"
 
-          # main.cpp 里 LoadIconW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(101))
-          # 要求把 resource.rc 一起编进去，否则 exe 没有图标。
-          # rc.exe 在 vcvars 环境里已可用。
+          # ⚠️ 这段 .bat 的引号用得很有讲究，别"简化"
+          # ---------------------------------------------------------------
+          # 上一版写成 'call "' + $vcvars + '" || exit /b 1'，云端报：
+          #   '"' is not recognized as an internal or external command
+          #   'C:\Program' is not recognized as an internal or external command
+          # 原因：PowerShell 把带引号的字符串写进文件(ASCII编码)后，
+          # cmd 拿到的行是   call "C:\Program Files\...\vcvars64.bat"
+          # 这是对的，但 `|| exit /b 1` 紧跟在引号后面时，cmd 的
+          # 引号配对/转义解析会把引号剥错位，于是把 " 和 C:\Program
+          # 分别当成命令名去执行。
+          #
+          # 两个改法一起用，确保任何环境都稳：
+          #   1) `call "%V%"` —— 变量带引号展开，避免空格路径被拆
+          #   2) 不用 `||`，改 `if errorlevel 1` —— 不依赖管道/引号解析
+          #   3) `set "V=..."` 的等号左侧整体加引号 —— 这是 set 的规范写法，
+          #      能容忍值里的空格与特殊字符
           $bat = @(
             '@echo off',
-            'setlocal',
-            'call "' + $vcvars + '" || exit /b 1',
+            'setlocal enableextensions',
+            'set "VCVARS=' + $vcvars + '"',
+            'echo === vcvars64 ===',
+            'call "%VCVARS%"',
+            'if errorlevel 1 ( echo ::error::vcvars64 初始化失败 & exit /b 1 )',
             'echo === rc.exe ===',
-            'rc /nologo resource.rc || exit /b 1',
+            'rc /nologo resource.rc',
+            'if errorlevel 1 ( echo ::error::rc 编译资源失败 & exit /b 1 )',
             'echo === cl.exe ===',
             'cl /nologo /std:c++17 /O2 /EHsc /DUNICODE /D_UNICODE ' +
               '/I"webview2_sdk\build\native\include" ' +
@@ -143,13 +160,18 @@ jobs:
               '/LIBPATH:"webview2_sdk\build\native\x64" ' +
               'WebView2LoaderStatic.lib ' +
               'user32.lib shell32.lib ole32.lib oleaut32.lib advapi32.lib gdi32.lib',
-            'exit /b %ERRORLEVEL%'
+            'if errorlevel 1 ( echo ::error::cl 编译链接失败 & exit /b 1 )',
+            'echo === cl 完成 ===',
+            'exit /b 0'
           )
           Set-Content -Path build_exe.bat -Value $bat -Encoding ASCII
+          Write-Host "--- build_exe.bat ---"
+          Get-Content build_exe.bat | ForEach-Object { Write-Host "  $_" }
+          Write-Host "---------------------"
 
           cmd /c build_exe.bat
           $code = $LASTEXITCODE
-          Write-Host "cl.exe 退出码：$code"
+          Write-Host "build_exe.bat 退出码：$code"
 
           if (-not (Test-Path "OpenBoard.exe")) { throw "编译失败：没有产出 OpenBoard.exe（退出码 $code）" }
           Get-Item OpenBoard.exe | Format-List Name,Length
