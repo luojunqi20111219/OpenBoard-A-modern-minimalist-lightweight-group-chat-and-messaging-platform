@@ -4,7 +4,7 @@
 import { Hono } from 'hono';
 import type { HonoEnv, Env } from '../auth';
 import { requireAuth, requireAdmin } from '../auth';
-import { qAll, qOne, exec } from '../db';
+import { qAll, qOne, exec, utcOut } from '../db';
 import { nowIso } from '../db';
 import { broadcast, kickUser, onlineUsers } from '../realtime';
 import { randomId, hashPassword, needsPasswordReset } from '../crypto';
@@ -274,7 +274,7 @@ adminRoutes.post('/admin/mute_user', requireAuth, requireAdmin, async (c) => {
 
   await exec(e.DB, 'UPDATE users SET muted_until=? WHERE username=?', until, username);
   await audit(e, me?.username, 'admin.mute', username, `至 ${until}`);
-  return c.json({ status: 'success', muted_until: until, msg: `已禁言至 ${until}` });
+  return c.json({ status: 'success', muted_until: utcOut(until), msg: `已禁言至 ${until}` });
 });
 
 adminRoutes.post('/admin/unmute_user', requireAuth, requireAdmin, async (c) => {
@@ -334,7 +334,7 @@ adminRoutes.post('/admin/mute_group_member', requireAuth, requireAdmin, async (c
     until, groupId, username,
   );
   await audit(e, me?.username, 'admin.mute_group_member', username, `群 ${groupId} 至 ${until}`);
-  return c.json({ status: 'success', muted_until: until, msg: `已在群内禁言至 ${until}` });
+  return c.json({ status: 'success', muted_until: utcOut(until), msg: `已在群内禁言至 ${until}` });
 });
 
 adminRoutes.post('/admin/unmute_group_member', requireAuth, requireAdmin, async (c) => {
@@ -443,8 +443,8 @@ adminRoutes.get('/admin/users', requireAuth, requireAdmin, async (c) => {
       is_banned: u.is_banned,
       // 动态授权标记 —— 客户端靠它显示「管理员」而不是「普通用户」
       is_admin: hasFlagCol ? Number(u.is_admin ?? 0) === 1 : u.role === 1,
-      muted_until: hasMutedCol ? (u.muted_until ?? null) : null,
-      created_at: u.created_at,
+      muted_until: hasMutedCol ? utcOut(u.muted_until) : null,
+      created_at: utcOut(u.created_at),
       password_algorithm: algo,
       // 与登录路径用**同一个**判定函数，保证列表与实际行为一致
       needs_password_reset: needsPasswordReset(ph, iter),
@@ -496,11 +496,11 @@ adminRoutes.get('/admin/user', requireAuth, requireAdmin, async (c) => {
       avatar: user.avatar,
       role: user.role,
       is_banned: user.is_banned,
-      created_at: user.created_at,
+      created_at: utcOut(user.created_at),
       two_factor_enabled: user.two_factor_enabled,
       read_receipts_enabled: user.read_receipts_enabled,
       is_admin: hasFlagCol ? Number(user.is_admin ?? 0) === 1 : user.role === 1,
-      muted_until: hasMutedCol ? (user.muted_until ?? null) : null,
+      muted_until: hasMutedCol ? utcOut(user.muted_until) : null,
       password_algorithm: ph.split('$')[0] || '',
       needs_password_reset: needsPasswordReset(ph, passwordIterations(e)),
     },

@@ -273,25 +273,101 @@ fun errorMessage(r: Response<*>): String {
     }
 }
 
-/** 相对时间：把 ISO 时间戳转成「3 分钟前」这种 */
+/**
+ * 把服务端返回的时间串解析成本地时区的毫秒时间戳。
+ *
+ * ---------------------------------------------------------------------------
+ * 为什么单独抽一个函数（这里踩过一个很隐蔽的坑）
+ * ---------------------------------------------------------------------------
+ * 服务端（Cloudflare Workers）存的时间一律是 **UTC**，出参形如
+ * `'2026-10-05 06:14:55Z'`。Z 是"这是 UTC"的标记。
+ *
+ * 老代码是这么写的：
+ *     iso.replace("T", " ").removeSuffix("Z")   ← 把 Z 干掉了
+ *     再按默认时区 parse                        ← 于是当成北京时间解析
+ * 结果：UTC 的 06:14 被当成北京 06:14，比实际早 8 小时。
+ *
+ * Workers **没有系统时区概念**（永远 UTC），所以不能在服务端改时区
+ * 让时间"变对"，只能在这里把 Z 保留下来、按 UTC 解析、再转本地。
+ *
+ * ⚠️ 千万不要再 removeSuffix("Z") —— 那是这个 bug 的根源。
+ *
+ * @return 本地时区的毫秒时间戳；解析失败返回 null
+ */
+fun parseServerTime(value: String?): Long? {
+    if (value.isNullOrBlank()) return null
+    val t = value.trim()
+    if (t.isEmpty()) return null
+
+    // 已带时区标记（Z 或 +08:00 / +0800）—— 交给 SimpleDateFormat 自己按 UTC 解析
+    val hasZone = Regex("[Zz]$").containsMatchIn(t) ||
+        Regex("[+-]\\d{2}:?\\d{2}$").containsMatchIn(t)
+
+    val normalized = t.replace(" ", "T")
+    val patterns = if (hasZone) {
+        listOf(
+            "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
+            "yyyy-MM-dd'T'HH:mm:ssXXX",
+        )
+    } else {
+        // 老后端不带 Z：也按 UTC 解析（库里本来就是 UTC），转本地后同样正确
+        listOf(
+            "yyyy-MM-dd'T'HH:mm:ss.SSS",
+            "yyyy-MM-dd'T'HH:mm:ss",
+        )
+    }
+
+    for (p in patterns) {
+        try {
+            val fmt = java.text.SimpleDateFormat(p, java.util.Locale.US)
+            fmt.isLenient = true
+            if (!hasZone) fmt.timeZone = java.util.TimeZone.getTimeZone("UTC")
+            val d = fmt.parse(normalized)
+            if (d != null) return d.time
+        } catch (_: Exception) {
+            // 换下一个格式
+        }
+    }
+
+    // 兜底：纯日期 'yyyy-MM-dd'
+    return try {
+        val fmt = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+        fmt.isLenient = true
+        fmt.parse(t.substring(0, minOf(10, t.length)))?.time
+    } catch (_: Exception) {
+        null
+    }
+}
+
+/**
+ * 相对时间：把服务端时间转成「3 分钟前」这种。
+ *
+ * 解析失败时原样返回入参（而不是返回空白）—— 老后端或异常数据
+ * 至少还能看到原始串，比什么都不显示强。
+ */
 fun humanTime(iso: String?): String {
     if (iso.isNullOrBlank()) return ""
-    return try {
-        val cleaned = iso.replace("T", " ").removeSuffix("Z")
-        val fmt = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
-        fmt.isLenient = true
-        val t = fmt.parse(cleaned.substring(0, minOf(19, cleaned.length))) ?: return iso
-        val diff = System.currentTimeMillis() - t.time
-        when {
-            diff < 60_000 -> "刚刚"
-            diff < 3_600_000 -> "${diff / 60_000} 分钟前"
-            diff < 86_400_000 -> "${diff / 3_600_000} 小时前"
-            diff < 2_592_000_000L -> "${diff / 86_400_000} 天前"
-            else -> cleaned.substring(0, minOf(10, cleaned.length))
-        }
-    } catch (e: Exception) {
-        iso
+    val ms = parseServerTime(iso) ?: return iso
+    val diff = System.currentTimeMillis() - ms
+    return when {
+        diff < 0 -> "刚刚"                       // 服务端时间略微超前（时钟偏差），不显示"负几分钟前"
+        diff < 60_000 -> "刚刚"
+        diff < 3_600_000 -> "${diff / 60_000} 分钟前"
+        diff < 86_400_000 -> "${diff / 3_600_000} 小时前"
+        diff < 2_592_000_000L -> "${diff / 86_400_000} 天前"
+        else -> absoluteDate(ms)
     }
+}
+
+/** 绝对日期（本地时区）：2026-10-05 */
+fun absoluteDate(ms: Long): String =
+    java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date(ms))
+
+/** 绝对日期+时间（本地时区）：2026-10-05 14:15:22 */
+fun absoluteDateTime(iso: String?): String {
+    val ms = parseServerTime(iso) ?: return iso.orEmpty()
+    return java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
+        .format(java.util.Date(ms))
 }
 
 /** 角色标签文案 */

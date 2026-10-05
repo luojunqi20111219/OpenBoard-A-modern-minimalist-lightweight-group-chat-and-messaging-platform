@@ -10,7 +10,7 @@
 import { Hono } from 'hono';
 import type { HonoEnv, Env } from '../auth';
 import { requireAuth, resolveUser } from '../auth';
-import { qAll, qOne, exec, UserRow, getUserByName } from '../db';
+import { qAll, qOne, exec, utcOut, UserRow, getUserByName } from '../db';
 import { adminList, jwtSecret, publicUploads } from '../env';
 import { broadcast } from '../realtime';
 import { canViewGroup, checkSpeakAllowed, areFriends, GroupRow } from '../permissions';
@@ -65,11 +65,15 @@ function serializeMessage(row: MsgRow, current: UserRow) {
   return {
     id: row.id,
     content: row.content,
-    time: row.time || row.created_at,
+    // ⚠️ utcOut 补 Z 标记 —— 库里是裸 UTC 串，客户端按本地时区解析会差 8 小时。
+    //    详见 src/db.ts 的 utcOut() 注释。
+    //    括号不能省：`a || b ?? c` 混用会被 TS 拒绝（优先级歧义）
+    time: utcOut(row.time || row.created_at || null),
     room_id: row.room_id,
     receiver: row.receiver,
     reply_to: row.reply_to ?? null,
-    edited_at: row.edited_at ?? null,
+    edited_at: utcOut(row.edited_at ?? null),
+    // ↓ 以下都是**秒数/布尔值**，不解析时间字符串，故不受上面改动影响
     edit_count: row.edit_count ?? 0,
     client_id: row.client_id ?? null,
     nickname: row.nickname ?? row.name,
@@ -555,13 +559,13 @@ messageRoutes.get('/messages/export', requireAuth, async (c) => {
   const target = c.req.query('target_user');
 
   const rows = target
-    ? await qAll(e.DB,
+    ? await qAll<{ created_at?: string }>(e.DB,
         'SELECT id, name, content, created_at, room_id, receiver FROM messages WHERE ((name=? AND receiver=?) OR (name=? AND receiver=?)) ORDER BY id',
         user.username, target, target, user.username)
-    : await qAll(e.DB,
+    : await qAll<{ created_at?: string }>(e.DB,
         'SELECT id, name, content, created_at, room_id, receiver FROM messages WHERE room_id=? AND receiver IS NULL ORDER BY id',
         roomId ?? 0);
-  return c.json({ status: 'success', count: rows.length, data: rows });
+  return c.json({ status: 'success', count: rows.length, data: rows.map((r) => ({ ...r, created_at: utcOut(r.created_at) })) });
 });
 
 messageRoutes.post('/messages/import', requireAuth, async (c) => {
@@ -849,12 +853,12 @@ function sanitizeDisplayName(raw: string): { ascii: string; encoded: string } | 
 messageRoutes.get('/notifications', requireAuth, async (c) => {
   const e = env(c);
   const user = c.get('user');
-  const rows = await qAll(
+  const rows = await qAll<{ created_at?: string }>(
     e.DB,
     'SELECT id, content, sender, created_at FROM notifications WHERE target_user=? OR target_user IS NULL ORDER BY id DESC LIMIT 50',
     user.username,
   );
-  return c.json(rows);
+  return c.json(rows.map((r) => ({ ...r, created_at: utcOut(r.created_at) })));
 });
 
 messageRoutes.post('/notifications/read', requireAuth, async (c) => {

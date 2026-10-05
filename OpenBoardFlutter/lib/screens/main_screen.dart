@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/relation.dart';
 import '../services/api_service.dart';
+import '../utils/time_format.dart';
 import 'chat_screen.dart';
 import 'login_screen.dart';
 import 'scan_screen.dart';
@@ -150,7 +151,7 @@ class _MainScreenState extends State<MainScreen> {
               final name = d['device_name']?.toString() ?? '未知设备';
               final isCurrent = d['is_current'] == true;
               final deviceId = d['device_id']?.toString() ?? '';
-              final lastLogin = d['last_login']?.toString() ?? '';
+              final lastLogin = absoluteDateTime(d['last_login']?.toString());
 
               return ListTile(
                 leading: Icon(
@@ -163,7 +164,7 @@ class _MainScreenState extends State<MainScreen> {
                     fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
                   ),
                 ),
-                subtitle: Text('上次活跃: $lastLogin', style: const TextStyle(fontSize: 12)),
+                subtitle: Text('上次活跃: ${lastLogin.isEmpty ? "未知" : lastLogin}', style: const TextStyle(fontSize: 12)),
                 trailing: isCurrent
                     ? null
                     : IconButton(

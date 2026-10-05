@@ -27,7 +27,7 @@
 import { Hono } from 'hono';
 import type { HonoEnv, Env } from '../auth';
 import { requireAuth, requireAdmin, isAdminAsync, setAdminFlag } from '../auth';
-import { qAll, qOne, exec } from '../db';
+import { qAll, qOne, exec, utcOut } from '../db';
 import { nowIso } from '../db';
 import { adminList } from '../env';
 import { cleanText } from '../sanitize';
@@ -119,7 +119,7 @@ adminGrantRoutes.get('/admin/my_application', requireAuth, async (c) => {
     is_admin: isAdminNow,
     // 硬编码保底名单也算管理员，客户端据此显示
     pending: pending
-      ? { id: pending.id, note: pending.note, created_at: pending.created_at }
+      ? { id: pending.id, note: pending.note, created_at: utcOut(pending.created_at) }
       : null,
   });
 });
@@ -146,7 +146,13 @@ adminGrantRoutes.get('/admin/requests', requireAuth, requireAdmin, async (c) => 
         WHERE status = ? ORDER BY id DESC LIMIT 200`,
       allow.has(status) ? status : 'pending',
     );
-    return c.json({ requests: rows });
+    return c.json({
+      requests: rows.map((r) => ({
+        ...r,
+        created_at: utcOut(r.created_at),
+        handled_at: utcOut(r.handled_at),
+      })),
+    });
   } catch (err) {
     // 表不存在时返回空列表而不是 500 —— 客户端可正常渲染空状态
     return c.json({
@@ -397,7 +403,12 @@ adminGrantRoutes.get('/admin/audit', requireAuth, requireAdmin, async (c) => {
     );
 
     // uid：来源 + 自增 id，客户端 DiffUtil 的唯一键
-    const logs = rows.map((r) => ({ ...r, uid: `${r.source}:${r.id}` }));
+    // created_at 补 Z：两张审计表存的都是裸 UTC
+    const logs = rows.map((r) => ({
+      ...r,
+      uid: `${r.source}:${r.id}`,
+      created_at: utcOut(r.created_at),
+    }));
     return c.json({ logs, total: Number(totalRow?.n ?? logs.length) });
   } catch {
     // 表未迁移：保持向后兼容的返回形状（旧客户端只读 logs）

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/message.dart';
 import '../services/api_service.dart';
+import '../utils/time_format.dart';
 import 'avatar_widget.dart';
 
 class ChatBubble extends StatelessWidget {
@@ -309,7 +310,8 @@ class ChatBubble extends StatelessWidget {
                   padding: const EdgeInsets.only(top: 2.0, left: 4.0, right: 4.0),
                   child: Text(
                     [
-                      message.time,
+                      // 服务端 time 是 UTC 串，必须转换成本机时区再显示
+                      displayTime(message.time),
                       if (message.edited) '已编辑',
                       if (isSelf && message.deliveryStatus == 'sending') '发送中',
                       if (isSelf && message.deliveryStatus == 'failed') '发送失败',

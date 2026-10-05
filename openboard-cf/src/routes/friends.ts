@@ -4,7 +4,7 @@
 import { Hono } from 'hono';
 import type { HonoEnv, Env } from '../auth';
 import { requireAuth } from '../auth';
-import { qAll, qOne, exec } from '../db';
+import { qAll, qOne, exec, utcOut } from '../db';
 import { areFriends } from '../permissions';
 import { cleanText } from '../sanitize';
 import { broadcast } from '../realtime';
@@ -105,7 +105,7 @@ friendRoutes.get('/friends', requireAuth, async (c) => {
 friendRoutes.get('/friends/requests', requireAuth, async (c) => {
   const e = env(c);
   const user = c.get('user');
-  const rows = await qAll(
+  const rows = await qAll<{ created_at?: string | null }>(
     e.DB,
     `SELECT fr.id, fr.from_user, fr.created_at, u.nickname, u.avatar
        FROM friend_requests fr JOIN users u ON fr.from_user = u.username
@@ -113,7 +113,7 @@ friendRoutes.get('/friends/requests', requireAuth, async (c) => {
       ORDER BY fr.created_at DESC`,
     user.username,
   );
-  return c.json({ status: 'success', data: rows });
+  return c.json({ status: 'success', data: rows.map((r) => ({ ...r, created_at: utcOut(r.created_at) })) });
 });
 
 // ---------------------------------------------------------------------------

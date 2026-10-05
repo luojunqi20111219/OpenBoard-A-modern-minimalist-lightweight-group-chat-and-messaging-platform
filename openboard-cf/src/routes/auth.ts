@@ -13,7 +13,7 @@ import {
   isAdmin,
   isAdminAsync,
 } from '../auth';
-import { qAll, qOne, exec, getUserByName, publicUser, UserRow, nowIso } from '../db';
+import { qAll, qOne, exec, getUserByName, publicUser, UserRow, nowIso, utcOut } from '../db';
 import {
   hashPassword,
   verifyPassword,
@@ -901,13 +901,19 @@ authRoutes.get('/users', requireAuth, async (c) => {
 authRoutes.get('/user/devices', requireAuth, async (c) => {
   const e = env(c);
   const user = c.get('user');
-  const rows = await qAll(
+  const rows = await qAll<{ last_login?: string | null; last_seen?: string | null }>(
     e.DB,
     `SELECT id, device_id, device_name, user_agent, ip_address, country, last_login, last_seen
        FROM user_devices WHERE user_id=? ORDER BY last_login DESC`,
     user.id,
   );
-  return c.json(rows);
+  return c.json(
+    rows.map((r) => ({
+      ...r,
+      last_login: utcOut(r.last_login),
+      last_seen: utcOut(r.last_seen),
+    })),
+  );
 });
 
 authRoutes.post('/user/devices/register', requireAuth, async (c) => {
@@ -972,13 +978,13 @@ authRoutes.put('/user/security/preferences', requireAuth, async (c) => {
 authRoutes.get('/user/login-history', requireAuth, async (c) => {
   const e = env(c);
   const user = c.get('user');
-  const rows = await qAll(
+  const rows = await qAll<{ created_at?: string }>(
     e.DB,
     `SELECT id, device_id, device_name, ip_address, country, user_agent, success, created_at
        FROM login_history WHERE user_id=? ORDER BY id DESC LIMIT 50`,
     user.id,
   );
-  return c.json(rows);
+  return c.json(rows.map((r) => ({ ...r, created_at: utcOut(r.created_at) })));
 });
 
 authRoutes.post('/user/logout-all', requireAuth, async (c) => {

@@ -21,6 +21,7 @@ import com.openboard.admin.data.model.ResetPasswordRequest
 import com.openboard.admin.data.model.UsernameRequest
 import com.openboard.admin.data.model.UserDetailResponse
 import com.openboard.admin.databinding.ActivityUserDetailBinding
+import com.openboard.admin.ui.common.absoluteDateTime
 import com.openboard.admin.ui.common.bindAvatar
 import com.openboard.admin.ui.common.errorMessage
 import com.openboard.admin.ui.common.humanTime
@@ -171,7 +172,7 @@ class UserDetailActivity : AppCompatActivity() {
         b.boxInfo.removeAllViews()
         b.boxInfo.addView(infoRow("用户 ID", u.id.toString()))
         b.boxInfo.addView(infoRow("密码算法", u.passwordAlgorithm?.ifEmpty { "（空）" } ?: "（空）"))
-        b.boxInfo.addView(infoRow("注册时间", u.createdAt?.take(19)?.replace("T", " ") ?: "未知"))
+        b.boxInfo.addView(infoRow("注册时间", absoluteDateTime(u.createdAt).ifEmpty { "未知" }))
         b.boxInfo.addView(infoRow("封禁状态", if (u.isBannedBool) "已封禁" else "正常",
             if (u.isBannedBool) Color.parseColor("#DC2626") else Color.parseColor("#15803D")))
         b.boxInfo.addView(infoRow("管理权限", if (isAdmin) "是" else "否",
@@ -220,17 +221,17 @@ class UserDetailActivity : AppCompatActivity() {
         }
 
         // ---- 禁言状态 ----
-        // muted_until 是 UTC 字符串（'YYYY-MM-DD HH:MM:SS'）。这里只做展示，
-        // 「是否仍在禁言」以服务端返回的 isMuted 为准（服务端已经和库里的
-        // CURRENT_TIMESTAMP 比较过了），客户端不要自己算，会有时区偏差。
+        // isMuted 由服务端算好（已和库里的 CURRENT_TIMESTAMP 比较过），
+        // 客户端不拿 mutedUntil 自己比时间 —— 设备时区/时钟有偏差会误判。
+        // 但**显示**时要转成本地时间：服务端给的是 UTC（带 Z）。
         val muted = u.isMuted
         if (muted) {
             b.tvMuteStatus.visibility = View.VISIBLE
-            b.tvMuteStatus.text = "禁言中 · 解禁时间 ${u.mutedUntil ?: "未知"}"
+            b.tvMuteStatus.text = "禁言中 · 解禁时间 ${absoluteDateTime(u.mutedUntil)}"
             b.tvMuteStatus.setTextColor(Color.parseColor("#DC2626"))
         } else if (!u.mutedUntil.isNullOrEmpty()) {
             b.tvMuteStatus.visibility = View.VISIBLE
-            b.tvMuteStatus.text = "禁言已失效（原解禁时间 ${u.mutedUntil}）"
+            b.tvMuteStatus.text = "禁言已失效（原解禁时间 ${absoluteDateTime(u.mutedUntil)}）"
             b.tvMuteStatus.setTextColor(Color.parseColor("#8A9099"))
         } else {
             b.tvMuteStatus.visibility = View.GONE

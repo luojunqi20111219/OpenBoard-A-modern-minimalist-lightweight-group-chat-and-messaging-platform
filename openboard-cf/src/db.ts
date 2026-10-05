@@ -56,6 +56,61 @@ export function nowIso(): string {
   return new Date().toISOString().replace('T', ' ').slice(0, 19);
 }
 
+/**
+ * 给「从数据库读出来、要发给客户端显示」的时间字符串补上 UTC 标记。
+ *
+ * ---------------------------------------------------------------------------
+ * 为什么要有这个函数（一个反复复发的老 bug）
+ * ---------------------------------------------------------------------------
+ * D1/SQLite 存的时间一律是 **UTC**，格式 `'2026-10-05 06:14:55'`。
+ * 但这个格式**不带任何时区标记**，客户端 `new Date('2026-10-05 06:14:55')`
+ * 会按**本地时区**解析 —— 中国用户看到的时间就比实际早 8 小时。
+ *
+ * 以前部署在自有服务器上（FastAPI 版），修法是
+ * `timedatectl set-timezone Asia/Shanghai` 改系统时区，让服务器直接吐北京时间。
+ * **Cloudflare Workers 没有系统时区概念**，永远跑在 UTC，改不了。
+ * 所以那种修法在这里根本不存在，必须改成：
+ *   服务端标明"这是 UTC"（加 Z）→ 客户端自己转成本地时区。
+ *
+ * ---------------------------------------------------------------------------
+ * 为什么只在「出参」时加，不写进数据库
+ * ---------------------------------------------------------------------------
+ *   · 写库带 Z 会改变 SQLite `date()` / `datetime()` 的比较与聚合行为
+ *     —— admin-stats 的日聚合用的是 `date(created_at)` 与 `date('now')`，
+ *        两边口径必须都是"裸 UTC"，否则曲线会整体错位一天
+ *   · 服务端内部所有时间比较（禁言是否过期、撤回窗口、age_seconds）
+ *     要么走 SQL 内计算，要么走秒数，**都不解析这个字符串**
+ *   · 所以「出参加 Z」是纯增益：只影响客户端显示，不影响服务端任何逻辑
+ *
+ * ---------------------------------------------------------------------------
+ * 边界处理
+ * ---------------------------------------------------------------------------
+ *   · null / undefined → 原样返回（调用方通常要区分"无值"）
+ *   · 已经带 Z 或带 `+08:00` 偏移 → 原样返回，**绝不叠加**成 ZZ
+ *   · 认不出的格式 → 原样返回，不猜（猜错比不猜更糟）
+ */
+export function utcOut(value: string | null | undefined): string | null {
+  if (value === null || value === undefined) return value ?? null;
+  const s = String(value).trim();
+  if (!s) return s;
+
+  // 已有明确时区标记，不要再加
+  if (/[Zz]$/.test(s) || /[+-]\d{2}:?\d{2}$/.test(s)) return s;
+
+  // 'YYYY-MM-DD HH:MM:SS' —— 最常见的形态
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) return `${s}Z`;
+  // 'YYYY-MM-DDTHH:MM:SS'
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(s)) return `${s}Z`;
+
+  // 纯日期 'YYYY-MM-DD' 不加 Z —— 它代表"某一天"，换算时区反而会跨天
+  return s;
+}
+
+/** utcOut 的数组版本，用于列表出参 */
+export function utcOutAll<T extends string | null | undefined>(values: T[]): (string | null)[] {
+  return values.map((v) => utcOut(v));
+}
+
 /** 事务性会话辅助：把多条语句一次性提交 */
 export function tx(db: D1Database) {
   const stmts: D1PreparedStatement[] = [];

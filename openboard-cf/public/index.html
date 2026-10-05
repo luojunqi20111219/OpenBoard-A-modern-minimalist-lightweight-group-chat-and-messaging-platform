@@ -1154,7 +1154,7 @@
             const requestList = document.getElementById('group-requests-list');
             requestList.innerHTML = (requests.data || []).map(item => `<div class="p-2 border rounded-lg text-xs"><div class="font-bold">${escapeHtml(item.nickname || item.username)}</div><div class="flex gap-1 mt-2"><button onclick="respondGroupRequest('${escapeHtml(item.username)}','accept')" class="px-2 py-1 bg-green-50 text-green-600 rounded">同意</button><button onclick="respondGroupRequest('${escapeHtml(item.username)}','reject')" class="px-2 py-1 bg-red-50 text-red-500 rounded">拒绝</button></div></div>`).join('') || '<div class="text-gray-400 text-xs">暂无申请</div>';
             const auditList = document.getElementById('group-audit-list');
-            auditList.innerHTML = (audit.data || []).slice(0, 50).map(item => `<div class="py-1 border-b text-[11px]"><span class="font-bold">${escapeHtml(item.actor)}</span> ${escapeHtml(item.action)} ${escapeHtml(item.target || '')}<div class="text-gray-400">${escapeHtml(item.created_at || '')}</div></div>`).join('') || '<div class="text-gray-400 text-xs">暂无日志</div>';
+            auditList.innerHTML = (audit.data || []).slice(0, 50).map(item => `<div class="py-1 border-b text-[11px]"><span class="font-bold">${escapeHtml(item.actor)}</span> ${escapeHtml(item.action)} ${escapeHtml(item.target || '')}<div class="text-gray-400">${escapeHtml(fmtDateTime(item.created_at))}</div></div>`).join('') || '<div class="text-gray-400 text-xs">暂无日志</div>';
         }
 
         async function inviteGroupMember() {
@@ -1399,7 +1399,7 @@
                         ${(!isMe || isGroupMessage) ? `<div class="text-[10px] text-gray-400 mb-1 ${isMe ? 'mr-1' : 'ml-1'}">${escapeHtml(name)} <span class="text-gray-300">(@${escapeHtml(msg.name)})</span></div>` : ''}
                         <div class="message-content ${isMe ? 'bg-blue-600 text-white rounded-2xl rounded-tr-none' : 'bg-white text-gray-800 rounded-2xl rounded-tl-none border border-gray-100 shadow-sm'} p-3 px-4 text-sm break-words leading-relaxed">${renderContent(msg.content)}</div>
                         <div class="text-[10px] text-gray-300 mt-1 ${isMe ? 'mr-1' : 'ml-1'} flex flex-wrap items-center gap-2">
-                            <span>${escapeHtml(msg.time || '刚刚')}</span>${edited}${readLabel}
+                            <span>${escapeHtml(fmtTime(msg.time) || '刚刚')}</span>${edited}${readLabel}
                             <button onclick="favoriteMessage(${msg.id})" class="text-yellow-500 opacity-0 group-hover:opacity-100 focus:opacity-100" title="收藏"><i class="fa-regular fa-star"></i></button>
                             <button onclick="showForwardMessageModal(${msg.id})" class="text-blue-400 opacity-0 group-hover:opacity-100 focus:opacity-100">转发</button>
                             ${(isMe && msg.can_edit) ? `<button onclick="editMessage(${msg.id})" data-edit-expires="${msg.edit_expires_in}" class="text-blue-400 opacity-0 group-hover:opacity-100 focus:opacity-100">编辑</button>` : ''}
@@ -1520,7 +1520,7 @@
                             <div class="text-xs text-gray-700 leading-relaxed">${escapeHtml(n.content)}</div>
                             <div class="text-[9px] text-gray-400 mt-1 flex justify-between items-center">
                                 <span>${escapeHtml(n.sender)}</span>
-                                <span>${n.created_at.split(' ')[0]}</span>
+                                <span>${escapeHtml(fmtDate(n.created_at))}</span>
                             </div>
                             ${n.id > result.last_read_id ? '<div class="absolute top-2 right-2 w-1.5 h-1.5 bg-blue-500 rounded-full"></div>' : ''}
                         </div>
@@ -1676,7 +1676,7 @@
                 const rows = result.data || [];
                 list.innerHTML = rows.length ? rows.map(message => `
                     <button onclick="openSearchResult(${message.room_id || 0}, '${escapeHtml(message.receiver || '')}', '${escapeHtml(message.name || '')}')" class="w-full text-left p-3 border rounded-lg hover:bg-gray-50">
-                        <div class="text-xs text-gray-400 mb-1">${escapeHtml(message.nickname || message.name)} · ${escapeHtml(message.time || '')}</div>
+                        <div class="text-xs text-gray-400 mb-1">${escapeHtml(message.nickname || message.name)} · ${escapeHtml(fmtTime(message.time))}</div>
                         <div class="text-sm text-gray-800 line-clamp-2">${renderContent(message.content)}</div>
                     </button>`).join('') : '<div class="text-center py-12 text-gray-400 text-sm">没有找到匹配消息</div>';
             } catch (error) {
@@ -1704,7 +1704,7 @@
             const response = await fetch('/api/favorites/messages', { headers: { 'Authorization': currentUser.token } });
             const result = await response.json().catch(() => ({}));
             const rows = result.data || [];
-            list.innerHTML = rows.length ? rows.map(message => `<div class="p-3 border rounded-lg"><div class="text-xs text-gray-400 mb-1">${escapeHtml(message.nickname || message.name)} · ${escapeHtml(message.time || '')}</div><div class="text-sm">${renderContent(message.content)}</div><button onclick="unfavoriteMessage(${message.id})" class="mt-2 text-xs text-red-500">取消收藏</button></div>`).join('') : '<div class="text-center py-12 text-gray-400">暂无收藏消息</div>';
+            list.innerHTML = rows.length ? rows.map(message => `<div class="p-3 border rounded-lg"><div class="text-xs text-gray-400 mb-1">${escapeHtml(message.nickname || message.name)} · ${escapeHtml(fmtTime(message.time))}</div><div class="text-sm">${renderContent(message.content)}</div><button onclick="unfavoriteMessage(${message.id})" class="mt-2 text-xs text-red-500">取消收藏</button></div>`).join('') : '<div class="text-center py-12 text-gray-400">暂无收藏消息</div>';
         }
 
         async function unfavoriteMessage(id) {
@@ -1779,6 +1779,105 @@
             return String(value ?? '').replace(/[&<>"']/g, char => ({
                 '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
             })[char]);
+        }
+
+        // ===================================================================
+        // 时间显示
+        // ===================================================================
+        // 背景（决定了下面每个判断为什么这么写）
+        // -------------------------------------------------------------------
+        // 服务端（Cloudflare Workers）存的时间一律是 **UTC**，格式
+        // `'2026-10-05 06:14:55'` —— 这个格式**不带时区标记**，
+        // 而 `new Date('2026-10-05 06:14:55')` 会按**本地时区**解析它。
+        // 于是中国用户看到的时间比实际早 8 小时，且日期可能跨天。
+        //
+        // 以前部署在自有服务器上（FastAPI 版），修法是改系统时区
+        // （`timedatectl set-timezone Asia/Shanghai`），服务器直接吐北京时间。
+        // **Workers 没有系统时区概念**，永远 UTC，改不了 —— 所以那种修法
+        // 在这里不存在，只能靠「服务端标明是 UTC（加 Z）+ 客户端转本地」。
+        //
+        // 服务端已出参加 Z。这里再做两层兜底：
+        //   1. 老后端（没加 Z）→ 也按 UTC 解析，结果同样是本地时间
+        //   2. 完全解析不出来 → 原样返回原串，绝不显示空白或 Invalid Date
+        // ===================================================================
+
+        /**
+         * 把服务端的时间串解析成本地时区的 Date。
+         * @returns {Date|null} 解析失败返回 null
+         */
+        function parseServerTime(value) {
+            if (!value) return null;
+            const t = String(value).trim();
+            if (!t) return null;
+
+            // 已带时区标记（Z 或 +08:00）—— 交给 Date 自己处理
+            if (/[Zz]$/.test(t) || /[+-]\d{2}:?\d{2}$/.test(t)) {
+                const d = new Date(t);
+                return isNaN(d.getTime()) ? null : d;
+            }
+            // 'YYYY-MM-DD HH:MM:SS' / 'YYYY-MM-DDTHH:MM:SS' —— 补 Z 表示这是 UTC
+            if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}$/.test(t)) {
+                const d = new Date(t.replace(' ', 'T') + 'Z');
+                return isNaN(d.getTime()) ? null : d;
+            }
+            const d = new Date(t);
+            return isNaN(d.getTime()) ? null : d;
+        }
+
+        /** 补零 */
+        function pad2(n) { return String(n).padStart(2, '0'); }
+
+        /**
+         * 显示时间。按"离现在多远"选择粒度，全部基于**本地时区**：
+         *   今天   → 14:15
+         *   昨天   → 昨天 14:15
+         *   今年   → 10月5日 14:15
+         *   更早   → 2025年10月5日
+         *
+         * 解析失败时返回原串 —— 老后端或异常数据不会变成空白。
+         */
+        function fmtTime(value) {
+            const d = parseServerTime(value);
+            if (!d) return value ? String(value) : '';
+            const now = new Date();
+            const hm = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+
+            const sameDay = d.getFullYear() === now.getFullYear()
+                && d.getMonth() === now.getMonth()
+                && d.getDate() === now.getDate();
+            if (sameDay) return hm;
+
+            const y = new Date(now.getTime() - 86400000);
+            const isYesterday = d.getFullYear() === y.getFullYear()
+                && d.getMonth() === y.getMonth()
+                && d.getDate() === y.getDate();
+            if (isYesterday) return `昨天 ${hm}`;
+
+            if (d.getFullYear() === now.getFullYear()) {
+                return `${d.getMonth() + 1}月${d.getDate()}日 ${hm}`;
+            }
+            return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+        }
+
+        /**
+         * 只要日期不要时分（通知、日志列表用）。
+         * 同样是本地时区 —— 用 UTC 算会让 0-8 点的事件显示成前一天。
+         */
+        function fmtDate(value) {
+            const d = parseServerTime(value);
+            if (!d) {
+                // 解析不出来时退化成"取前 10 个字符"，聊胜于无
+                return value ? String(value).slice(0, 10) : '';
+            }
+            return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+        }
+
+        /** 日期 + 时分，用于审计/登录历史 */
+        function fmtDateTime(value) {
+            const d = parseServerTime(value);
+            if (!d) return value ? String(value) : '';
+            return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} `
+                + `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
         }
 
         function renderShareCardFriends(friends) {
@@ -2635,7 +2734,7 @@
             document.getElementById('two-factor-confirm').classList.add('hidden');
             const list = document.getElementById('login-history-list');
             const rows = history.data || [];
-            list.innerHTML = rows.length ? rows.map(item => `<div class="py-2"><div class="flex justify-between gap-3"><span class="font-bold ${item.success ? 'text-green-600' : 'text-red-500'}">${item.success ? '登录成功' : '登录失败'}</span><span class="text-gray-400">${escapeHtml(item.created_at || '')}</span></div><div class="text-gray-500 truncate">${escapeHtml(item.device_name || '未知设备')} · ${escapeHtml(item.ip_address || '未知 IP')} ${item.country ? `· ${escapeHtml(item.country)}` : ''}</div></div>`).join('') : '<div class="py-6 text-center text-gray-400">暂无登录记录</div>';
+            list.innerHTML = rows.length ? rows.map(item => `<div class="py-2"><div class="flex justify-between gap-3"><span class="font-bold ${item.success ? 'text-green-600' : 'text-red-500'}">${item.success ? '登录成功' : '登录失败'}</span><span class="text-gray-400">${escapeHtml(fmtDateTime(item.created_at))}</span></div><div class="text-gray-500 truncate">${escapeHtml(item.device_name || '未知设备')} · ${escapeHtml(item.ip_address || '未知 IP')} ${item.country ? `· ${escapeHtml(item.country)}` : ''}</div></div>`).join('') : '<div class="py-6 text-center text-gray-400">暂无登录记录</div>';
         }
 
         function closeSecurityCenter() {

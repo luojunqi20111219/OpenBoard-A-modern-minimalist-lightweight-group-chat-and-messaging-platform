@@ -567,13 +567,17 @@ async function tokenFor(mf, username) {
     const mute1 = await post('/api/admin/mute_user', { username: 'alice', minutes: 60 }, rootToken);
     ok('禁言接口返回 200', mute1.status === 200, mute1.text);
     ok('禁言返回解禁时间', typeof mute1.body?.muted_until === 'string', JSON.stringify(mute1.body));
-    ok('解禁时间格式为 YYYY-MM-DD HH:MM:SS',
-      /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(String(mute1.body?.muted_until)),
+    // 出参必须带 Z（标明是 UTC）—— 不带 Z 客户端会按本地时区解析，差 8 小时。
+    // 注意断言的是**出参**；库里落库的仍是裸 UTC 串（下一个断言验证这点）。
+    ok('解禁时间出参带 Z 标记（UTC）',
+      /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}Z$/.test(String(mute1.body?.muted_until)),
       String(mute1.body?.muted_until));
 
     const aliceMutedRow = await db
       .prepare('SELECT muted_until FROM users WHERE username=?').bind('alice').first();
-    ok('alice 的 muted_until 落库', typeof aliceMutedRow?.muted_until === 'string',
+    // 落库的**必须**保持裸 UTC（无 Z）—— 否则 SQLite 的 datetime() 比较会失效
+    ok('alice 的 muted_until 落库为裸 UTC（不带 Z）',
+      typeof aliceMutedRow?.muted_until === 'string' && !/[Zz]$/.test(aliceMutedRow.muted_until),
       String(aliceMutedRow?.muted_until));
 
     // 被禁言后发消息必须 403 —— 这是整条链路的关键

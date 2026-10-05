@@ -406,25 +406,15 @@ class ProfileFragment : Fragment() {
             .show()
     }
 
-    /** 把 ISO 时间戳转成「3 分钟前」。解析失败就原样返回，不抛异常 */
-    private fun friendlyTime(iso: String?): String {
-        if (iso.isNullOrBlank()) return ""
-        return try {
-            val cleaned = iso.replace("T", " ").removeSuffix("Z")
-            val fmt = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
-            fmt.isLenient = true
-            val t = fmt.parse(cleaned.substring(0, minOf(19, cleaned.length))) ?: return iso
-            val diff = System.currentTimeMillis() - t.time
-            when {
-                diff < 60_000 -> "刚刚"
-                diff < 3_600_000 -> "${diff / 60_000} 分钟前"
-                diff < 86_400_000 -> "${diff / 3_600_000} 小时前"
-                else -> "${diff / 86_400_000} 天前"
-            }
-        } catch (e: Exception) {
-            iso
-        }
-    }
+    /**
+     * 把服务端 UTC 时间戳转成「3 分钟前」。
+     *
+     * ⚠️ 这里以前是自己实现的：`iso.removeSuffix("Z")` 之后交给 SimpleDateFormat 解析。
+     * 那行 removeSuffix 抹掉了唯一的时区标记，导致 UTC 被当成本地时间解析，
+     * 中国用户看到的所有时间都早了 8 小时。现在统一走 Time 工具，**先按 UTC 解析**。
+     */
+    private fun friendlyTime(iso: String?): String =
+        com.openboard.nativeapp.ui.common.Time.friendlyTime(iso)
 
     /**
      * 载入本地缓存的用户头像与昵称数据并渲染
@@ -699,8 +689,8 @@ class ProfileFragment : Fragment() {
                 val items = devices.map { d ->
                     val name = d["device_name"] as? String ?: "未知设备"
                     val isCurrent = d["is_current"] as? Boolean ?: false
-                    val lastLogin = d["last_login"] as? String ?: ""
-                    "$name ${if (isCurrent) "(当前设备)" else ""}\n上次登录: $lastLogin"
+                    val lastLogin = com.openboard.nativeapp.ui.common.Time.absoluteDateTime(d["last_login"] as? String)
+                    "$name ${if (isCurrent) "(当前设备)" else ""}\n上次登录: ${lastLogin.ifBlank { "未知" }}"
                 }.toTypedArray()
 
                 AlertDialog.Builder(requireContext())

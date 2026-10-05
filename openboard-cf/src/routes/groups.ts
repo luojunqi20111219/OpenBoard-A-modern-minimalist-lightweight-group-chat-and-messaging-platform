@@ -4,7 +4,7 @@
 import { Hono } from 'hono';
 import type { HonoEnv, Env } from '../auth';
 import { requireAuth } from '../auth';
-import { qAll, qOne, exec, nowIso, UserRow } from '../db';
+import { qAll, qOne, exec, nowIso, utcOut, UserRow } from '../db';
 import {
   canViewGroup,
   isGroupManager,
@@ -282,7 +282,7 @@ groupRoutes.get('/groups/:group_id/members', requireAuth, async (c) => {
     return c.json({ detail: '无权查看该群聊' }, 403);
   }
 
-  const rows = await qAll(
+  const rows = await qAll<{ muted_until?: string | null; joined_at?: string | null }>(
     e.DB,
     `SELECT gm.username, gm.member_role, gm.muted_until, gm.joined_at,
             u.nickname, u.avatar
@@ -290,7 +290,10 @@ groupRoutes.get('/groups/:group_id/members', requireAuth, async (c) => {
       WHERE gm.group_id=? ORDER BY gm.joined_at ASC`,
     groupId,
   );
-  return c.json({ status: 'success', data: rows });
+  return c.json({
+    status: 'success',
+    data: rows.map((r) => ({ ...r, muted_until: utcOut(r.muted_until), joined_at: utcOut(r.joined_at) })),
+  });
 });
 
 groupRoutes.post('/groups/:group_id/join', requireAuth, async (c) => {
@@ -342,13 +345,16 @@ groupRoutes.get('/groups/:group_id/join-requests', requireAuth, async (c) => {
   const group = await isGroupManager(e, groupId, user.username, user.id, user.role);
   if (!group) return c.json({ detail: '仅群主或管理员可操作' }, 403);
 
-  const rows = await qAll(
+  const rows = await qAll<{ created_at?: string | null; updated_at?: string | null }>(
     e.DB,
     `SELECT id, username, status, created_at, updated_at FROM group_join_requests
       WHERE group_id=? AND status='pending' ORDER BY created_at DESC`,
     groupId,
   );
-  return c.json({ status: 'success', data: rows });
+  return c.json({
+    status: 'success',
+    data: rows.map((r) => ({ ...r, created_at: utcOut(r.created_at), updated_at: utcOut(r.updated_at) })),
+  });
 });
 
 groupRoutes.post('/groups/:group_id/join-requests/respond', requireAuth, async (c) => {
@@ -435,14 +441,14 @@ groupRoutes.post('/groups/:group_id/invite', requireAuth, async (c) => {
 groupRoutes.get('/group-invites', requireAuth, async (c) => {
   const e = env(c);
   const user = c.get('user');
-  const rows = await qAll(
+  const rows = await qAll<{ created_at?: string | null }>(
     e.DB,
     `SELECT gi.id, gi.group_id, gi.inviter, gi.created_at, g.name AS group_name, g.avatar AS group_avatar
        FROM group_invites gi LEFT JOIN groups g ON g.id = gi.group_id
       WHERE gi.invitee=? AND gi.status='pending' ORDER BY gi.created_at DESC`,
     user.username,
   );
-  return c.json({ status: 'success', data: rows });
+  return c.json({ status: 'success', data: rows.map((r) => ({ ...r, created_at: utcOut(r.created_at) })) });
 });
 
 groupRoutes.post('/group-invites/respond', requireAuth, async (c) => {
@@ -549,12 +555,12 @@ groupRoutes.get('/groups/:group_id/audit', requireAuth, async (c) => {
   const group = await isGroupManager(e, groupId, user.username, user.id, user.role);
   if (!group) return c.json({ detail: '仅群主或管理员可操作' }, 403);
 
-  const rows = await qAll(
+  const rows = await qAll<{ created_at?: string | null }>(
     e.DB,
     'SELECT id, actor, action, target, detail, created_at FROM group_audit_logs WHERE group_id=? ORDER BY id DESC LIMIT 100',
     groupId,
   );
-  return c.json({ status: 'success', data: rows });
+  return c.json({ status: 'success', data: rows.map((r) => ({ ...r, created_at: utcOut(r.created_at) })) });
 });
 
 export { splitList, checkSpeakAllowed };

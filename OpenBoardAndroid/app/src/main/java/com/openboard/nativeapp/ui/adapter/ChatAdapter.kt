@@ -404,7 +404,8 @@ class ChatAdapter(
 
     private fun messageStatusText(msg: Message, isSelf: Boolean): String {
         val parts = mutableListOf<String>()
-        if (!msg.time.isNullOrBlank()) parts.add(msg.time)
+        // 服务端 time 是 UTC 串，直接贴出来会早 8 小时，必须转换成本机时区
+        if (!msg.time.isNullOrBlank()) parts.add(com.openboard.nativeapp.ui.common.Time.displayTime(msg.time))
         if (msg.edited || msg.editedAt != null) parts.add("已编辑")
         if (isSelf && msg.deliveryStatus == "sending") parts.add("发送中")
         if (isSelf && msg.deliveryStatus == "failed") parts.add("发送失败")

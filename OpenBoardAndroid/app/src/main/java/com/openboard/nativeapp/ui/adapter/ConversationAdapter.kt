@@ -40,7 +40,8 @@ class ConversationAdapter(
         fun bind(conv: Conversation) {
             b.tvName.text = conv.name
             b.tvLastMessage.text = conv.lastMessage
-            b.tvTime.text = conv.time
+            // 服务端下发的是 UTC，必须先按 UTC 解析再转本机时区显示
+            b.tvTime.text = com.openboard.nativeapp.ui.common.Time.shortTime(conv.time)
 
             // 未读计数器
             if (conv.unreadCount > 0) {

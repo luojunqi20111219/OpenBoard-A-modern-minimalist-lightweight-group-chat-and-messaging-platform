@@ -143,7 +143,8 @@ class MergedConversationAdapter(
         fun bind(conv: Conversation, isPinned: Boolean) {
             b.tvName.text = conv.name
             b.tvLastMessage.text = if (conv.lastMessage.isEmpty()) "暂无消息" else conv.lastMessage
-            b.tvTime.text = conv.time
+            // 服务端下发的是 UTC，必须先按 UTC 解析再转本机时区显示
+            b.tvTime.text = com.openboard.nativeapp.ui.common.Time.shortTime(conv.time)
 
             // Background distinguishing pinned vs normal
             if (isPinned) {

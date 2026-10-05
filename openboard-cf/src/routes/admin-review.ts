@@ -24,7 +24,7 @@
 import { Hono } from 'hono';
 import type { HonoEnv, Env } from '../auth';
 import { requireAuth, requireAdmin } from '../auth';
-import { qAll, qOne } from '../db';
+import { qAll, qOne, utcOut } from '../db';
 
 export const adminReviewRoutes = new Hono<HonoEnv>();
 
@@ -110,7 +110,7 @@ adminReviewRoutes.get('/admin/search_messages', requireAuth, requireAdmin, async
     room_id: r.room_id,
     receiver: r.receiver,
     group_name: r.group_name,
-    created_at: r.created_at,
+    created_at: utcOut(r.created_at),
     source: 'message' as const,
     // 该消息是否已被撤回（内容已被替换为占位符）
     recalled: r.content === '[system_recalled]',
@@ -209,20 +209,21 @@ adminReviewRoutes.get('/admin/message_history', requireAuth, requireAdmin, async
   return c.json({
     message: {
       id: msg.id, name: msg.name, content: msg.content,
-      room_id: msg.room_id, receiver: msg.receiver, created_at: msg.created_at,
+      room_id: msg.room_id, receiver: msg.receiver, created_at: utcOut(msg.created_at),
     },
     // 按时间正序：第 0 项是最初的原文，最后一项是当前内容
     versions: [
       ...edits.map((ed) => ({
         editor: ed.editor,
         content: ed.old_content,
-        edited_at: ed.edited_at,
+        edited_at: utcOut(ed.edited_at),
         is_current: false,
       })),
       {
         editor: msg.name,
         content: msg.content,
-        edited_at: msg.created_at,
+        // 当前版本没有"被编辑时间"，用消息本身的创建时间占位
+        edited_at: utcOut(msg.created_at),
         is_current: true,
       },
     ],

@@ -40,7 +40,8 @@ class NotificationAdapter(
 
         fun bind(item: Notification) {
             binding.tvSender.text = item.sender
-            binding.tvTime.text = item.createdAt
+            // 服务端 createdAt 是 UTC 串，必须转换成本机时区再显示
+            binding.tvTime.text = com.openboard.nativeapp.ui.common.Time.displayTime(item.createdAt)
             binding.tvContent.text = item.content
 
             if (item.id > lastReadId) {
