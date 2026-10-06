@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 8.0 (API 26) 起的分层图标。
+
+  ⚠️ 别删这个文件。删了的话 Android 8+ 会把传统 ic_launcher.png
+     塞进系统默认的白底圆角方框里 —— 我们的图标是圆形的，
+     四周就会露出一圈白边。这个文件让系统用自己的形状去裁前景层。
+
+  background 用纯色渐变，foreground 是透明底的气泡图案，
+  由 scripts/build-all-icons.mjs 生成，改图标请改源图后重跑该脚本。
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@mipmap/ic_launcher_background" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+</adaptive-icon>
