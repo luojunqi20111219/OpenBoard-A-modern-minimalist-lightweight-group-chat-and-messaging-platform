@@ -888,11 +888,23 @@ authRoutes.post('/user/profile', requireAuth, async (c) => {
 // ---------------------------------------------------------------------------
 authRoutes.get('/users', requireAuth, async (c) => {
   const e = env(c);
+  const user = c.get('user');
   const rows = await qAll<UserRow>(
     e.DB,
     'SELECT id, username, nickname, avatar, role FROM users ORDER BY id DESC LIMIT 500',
   );
-  return c.json(rows);
+  // ⚠️ 返回结构不能随便改。前端（index.html 约 1263 行）同时用到了两样东西：
+  //      blockResult.status        —— 判断成功
+  //      blockResult.blocked_users —— 用于在用户列表上盖「已拉黑」红标
+  //    原来这里是裸数组 c.json(rows)，既没有 status 也没有 blocked_users，
+  //    导致那个 if 永远不成立、globalBlockedUsers 恒为空数组 ——
+  //    拉黑过的用户在列表里不显示红标（静默失效，不报错）。
+  //    blocked_users 存在 users 表的同名字段里（逗号分隔），当前用户身上就有。
+  return c.json({
+    status: 'success',
+    data: rows,
+    blocked_users: (user.blocked_users || '').split(',').filter(Boolean),
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -984,7 +996,11 @@ authRoutes.get('/user/login-history', requireAuth, async (c) => {
        FROM login_history WHERE user_id=? ORDER BY id DESC LIMIT 50`,
     user.id,
   );
-  return c.json(rows.map((r) => ({ ...r, created_at: utcOut(r.created_at) })));
+  // ⚠️ 必须包装成 {status, data}，不能返回裸数组。
+  //    前端 index.html 读的是 history.data（约 2863 行），
+  //    裸数组没有 .data → 取到 undefined → 登录记录永远显示「暂无记录」（静默失效）。
+  //    这个项目里除了 /api/users 这个特例，其余列表接口都统一用这个包装格式。
+  return c.json({ status: 'success', data: rows.map((r) => ({ ...r, created_at: utcOut(r.created_at) })) });
 });
 
 authRoutes.post('/user/logout-all', requireAuth, async (c) => {

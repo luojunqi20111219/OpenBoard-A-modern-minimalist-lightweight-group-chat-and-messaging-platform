@@ -549,7 +549,9 @@ messageRoutes.get('/messages/:msg_id/reads', requireAuth, async (c) => {
     'SELECT user, read_at FROM message_reads WHERE msg_id=? ORDER BY read_at',
     msgId,
   );
-  return c.json(rows);
+  // ⚠️ 必须包装成 {status, data}。前端（index.html 约 1701 行）读的是
+  //    result.data，裸数组取不到 → 点「已读回执」永远弹「暂时无人已读」。
+  return c.json({ status: 'success', data: rows });
 });
 
 messageRoutes.get('/messages/export', requireAuth, async (c) => {
@@ -602,7 +604,7 @@ messageRoutes.get('/favorites/messages', requireAuth, async (c) => {
         WHERE f.username = ? ORDER BY f.created_at DESC LIMIT 200`,
     user.username,
   );
-  return c.json(rows.map((r) => serializeMessage(r, user)));
+  return c.json({ status: 'success', data: rows.map((r) => serializeMessage(r, user)) });
 });
 
 messageRoutes.post('/favorites/messages/:msg_id', requireAuth, async (c) => {
@@ -637,7 +639,10 @@ messageRoutes.get('/conversation-settings', requireAuth, async (c) => {
     'SELECT conversation_key, is_pinned, is_muted, last_read_id, updated_at FROM conversation_settings WHERE username=?',
     user.username,
   );
-  return c.json(rows);
+  // ⚠️ 必须包装成 {status, data}。前端（index.html 约 1007 行）读的是
+  //    result.data，裸数组取不到 → conversationSettings 恒为空对象 →
+  //    置顶按钮状态永远显示不出来、已读位点也读不回来。
+  return c.json({ status: 'success', data: rows });
 });
 
 messageRoutes.put('/conversation-settings', requireAuth, async (c) => {
@@ -853,12 +858,26 @@ function sanitizeDisplayName(raw: string): { ascii: string; encoded: string } | 
 messageRoutes.get('/notifications', requireAuth, async (c) => {
   const e = env(c);
   const user = c.get('user');
-  const rows = await qAll<{ created_at?: string }>(
+  const rows = await qAll<{ created_at?: string; id: number }>(
     e.DB,
     'SELECT id, content, sender, created_at FROM notifications WHERE target_user=? OR target_user IS NULL ORDER BY id DESC LIMIT 50',
     user.username,
   );
-  return c.json(rows.map((r) => ({ ...r, created_at: utcOut(r.created_at) })));
+  // ⚠️ 必须包装成 {status, data}，并带上 last_read_id —— 前端（index.html 约 1558 行）
+  //    要三样东西：
+  //      result.status        —— 判成功（原来裸数组没有 → if 永不成立 → 公告区永远是空的）
+  //      result.data          —— 消息列表
+  //      result.last_read_id  —— 前端拿它和每条 n.id 比较（n.id > last_read_id 即未读），
+  //                              决定右上角小红点显不显示。
+  //    所以这里必须给「用户最后读过的公告 id」，也就是 users.last_read_notice_id，
+  //    由 POST /notifications/read 写入。别改成去查 notifications 表的最大 id ——
+  //    那样新公告一到 max 就跟着涨，小红点永远不亮。
+  const data = rows.map((r) => ({ ...r, created_at: utcOut(r.created_at) }));
+  return c.json({
+    status: 'success',
+    data,
+    last_read_id: user.last_read_notice_id ?? 0,
+  });
 });
 
 messageRoutes.post('/notifications/read', requireAuth, async (c) => {
@@ -885,7 +904,11 @@ messageRoutes.get('/favorites/emojis', requireAuth, async (c) => {
     'SELECT emoji FROM favorite_emojis WHERE username=? ORDER BY created_at DESC',
     user.username,
   );
-  return c.json(rows.map((r) => r.emoji));
+  // ⚠️ 必须包装成 {status, data}。前端（index.html 约 2271 行 loadFavoriteEmojis）
+  //    读的是 res.status / res.data，裸数组两个都取不到 →
+  //    favoriteEmojis 恒为空 → 收藏的表情在面板里一个都不显示。
+  //    注意 POST（新增/删除收藏）本来就是 {status:'success'}，别一起改了。
+  return c.json({ status: 'success', data: rows.map((r) => r.emoji) });
 });
 
 messageRoutes.post('/favorites/emojis', requireAuth, async (c) => {

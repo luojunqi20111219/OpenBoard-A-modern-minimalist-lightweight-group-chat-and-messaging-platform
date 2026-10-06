@@ -1555,21 +1555,33 @@
 
         async function loadNotices() {
             if (!currentUser) return;
-            const res = await fetch('/api/notifications', { headers: { 'Authorization': currentUser.token } });
-            const result = await res.json();
-            if (result.status === 'success') {
+            // ⚠️ 这个函数被放在 initApp 的 Promise.all 里（约 670 行）。
+            //    Promise.all 只要有一个成员 reject，后面的 .then(switchRoom) 就不会执行 ——
+            //    也就是说公告接口一旦抖动，连「进入公共大厅」都会失败。
+            //    所以这里必须自己吞掉异常，绝不能把错误抛出去。
+            try {
+                const res = await fetch('/api/notifications', { headers: { 'Authorization': currentUser.token } });
+                if (!res.ok) return;
+                const result = await res.json();
+                if (result.status !== 'success') return;
                 const list = document.getElementById('notice-content');
                 const badge = document.getElementById('notice-badge');
-                if (result.data.length === 0) {
+                if (!list || !badge) return;
+                // 后端返回 {status, data, last_read_id}。data 理论上一定是数组，
+                // 但这里再兜一层：万一拿到了别的形状，宁可显示「暂无」也不要抛异常。
+                const items = Array.isArray(result.data) ? result.data : [];
+                const lastReadId = Number(result.last_read_id) || 0;
+                if (items.length === 0) {
                     list.innerHTML = '<div class="text-center py-8 text-gray-400 text-xs">暂无系统消息</div>';
                     badge.classList.add('hidden');
                     return;
                 }
-                
+
                 let hasUnread = false;
                 let html = '';
-                result.data.forEach(n => {
-                    if (n.id > result.last_read_id) hasUnread = true;
+                items.forEach(n => {
+                    const unread = n.id > lastReadId;
+                    if (unread) hasUnread = true;
                     html += `
                         <div class="p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition group relative">
                             <div class="text-xs text-gray-700 leading-relaxed">${escapeHtml(n.content)}</div>
@@ -1577,21 +1589,27 @@
                                 <span>${escapeHtml(n.sender)}</span>
                                 <span>${escapeHtml(fmtDate(n.created_at))}</span>
                             </div>
-                            ${n.id > result.last_read_id ? '<div class="absolute top-2 right-2 w-1.5 h-1.5 bg-blue-500 rounded-full"></div>' : ''}
+                            ${unread ? '<div class="absolute top-2 right-2 w-1.5 h-1.5 bg-blue-500 rounded-full"></div>' : ''}
                         </div>
                     `;
                 });
                 list.innerHTML = html;
                 if (hasUnread) badge.classList.remove('hidden');
                 else badge.classList.add('hidden');
+            } catch (e) {
+                console.error('[notices] 加载失败', e);
             }
         }
 
         async function markAllNoticesRead() {
             if (!currentUser) return;
-            await fetch('/api/notifications/read', { method: 'POST', headers: { 'Authorization': currentUser.token } });
-            document.getElementById('notice-badge').classList.add('hidden');
-            loadNotices();
+            try {
+                await fetch('/api/notifications/read', { method: 'POST', headers: { 'Authorization': currentUser.token } });
+                document.getElementById('notice-badge')?.classList.add('hidden');
+                loadNotices();
+            } catch (e) {
+                console.error('[notices] 标记已读失败', e);
+            }
         }
 
         function pendingQueueKey() { return currentUser ? `openboard_pending:${currentUser.username}` : ''; }
