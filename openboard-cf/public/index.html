@@ -4,7 +4,21 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>信语 (OpenBoard) | 现代群聊与私聊</title>
-    <link rel="icon" href="/favicon.ico" type="image/x-icon">
+    <!--
+      图标。四个文件都由 scripts/build-icons.mjs 从 scripts/icon-source.png 生成，
+      改图标请改源图后重跑脚本，别手改这些产物。
+
+      ⚠️ 为什么要四个文件而不是一个 favicon.ico：
+        - favicon.ico      浏览器标签页。内含 16/24/32/48/64 五档，
+                           系统按显示场景（标签页/书签栏/高清屏）自己挑。
+        - apple-touch-icon iOS「添加到主屏幕」。必须是不透明底 ——
+                           带透明通道的话 iOS 会填黑，圆形外变黑角。
+        - icon-192/512     Android Chrome 和 PWA 启动画面。
+      只写 favicon.ico 的话，iOS 加到桌面会是一张网页截图，很难看。
+    -->
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="icon" type="image/png" href="/icon-192.png" sizes="192x192">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
     
     <!-- ⚠️ Tailwind 已改为预编译静态 CSS（构建产物 public/static/vendor/tailwind.css）。
          原来用的是 tailwindcss-3.4.17.js（Play CDN 运行时编译器，397KB 同步阻塞脚本）。
@@ -94,7 +108,7 @@
     <aside id="app-sidebar" class="w-64 bg-gray-900 text-white flex flex-col h-full shadow-2xl z-20 shrink-0">
         <div class="p-5 border-b border-gray-800 flex justify-between items-center">
             <h1 class="text-xl font-bold tracking-tight flex items-center">
-                <img src="/favicon.ico" alt="logo" class="w-7 h-7 mr-2 drop-shadow-md">信语
+                <img src="/icon-192.png" alt="logo" class="w-7 h-7 mr-2 drop-shadow-md">信语
             </h1>
             <button onclick="showProfile()" class="text-gray-400 hover:text-white transition" title="个人设置" id="btn-settings" style="display:none;">
                 <i class="fa-solid fa-gear"></i>
@@ -932,7 +946,7 @@
             
             // 【修改点】顶部标题栏：如果是公共大厅，强制显示官方图标
             const avatarHtml = id === 0 
-                ? `<img src="/favicon.ico" class="w-full h-full rounded-full object-cover shadow-sm">` 
+                ? `<img src="/icon-192.png" class="w-full h-full rounded-full object-cover shadow-sm">` 
                 : (group ? getAvatarHtml(group.avatar, name, "w-full h-full text-xl") : '<i class="fa-solid fa-hashtag text-xl"></i>');
             document.getElementById('header-icon').innerHTML = avatarHtml;
 
@@ -1071,7 +1085,7 @@
                 
                 // 【修改点】左侧列表：如果是公共大厅，强制显示官方图标
                 const groupAvatarHtml = g.id === 0 
-                    ? `<img src="/favicon.ico" class="w-6 h-6 rounded-full object-cover shadow-sm shrink-0 mr-3">` 
+                    ? `<img src="/icon-192.png" class="w-6 h-6 rounded-full object-cover shadow-sm shrink-0 mr-3">` 
                     : getAvatarHtml(g.avatar, g.name, "w-6 h-6 text-[10px] shrink-0 mr-3");
                     
                 btn.innerHTML = `${groupAvatarHtml}<span class="flex-1 truncate">${escapeHtml(g.name)}</span>${isConversationPinned(`room:${g.id}`) ? '<i class="fa-solid fa-thumbtack text-[9px] text-blue-400 mr-1"></i>' : ''}${isMine ? '<i class="fa-solid fa-crown text-[10px] text-yellow-500"></i>' : ''}`;
@@ -2011,7 +2025,7 @@
 
             (globalGroups || []).forEach(group => {
                 const icon = group.id === 0
-                    ? '<img src="/favicon.ico" class="w-8 h-8 rounded-full object-cover shrink-0">'
+                    ? '<img src="/icon-192.png" class="w-8 h-8 rounded-full object-cover shrink-0">'
                     : '';
                 addTarget(group.name, group.avatar, icon, { room_id: group.id });
             });
