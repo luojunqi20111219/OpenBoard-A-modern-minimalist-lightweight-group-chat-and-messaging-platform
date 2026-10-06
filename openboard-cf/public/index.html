@@ -1014,8 +1014,28 @@
         }
 
         async function loadGroups() {
-            const res = await fetch('/api/groups'); globalGroups = (await res.json()).data;
-            const list = document.getElementById('channel-list'); list.innerHTML = '';
+            // ⚠️ 这里必须做三层兜底，少一层都会崩：
+            //   1. 未登录时 /api/groups 返回 401，响应体根本不是 {data:[...]}
+            //   2. 网络异常时 res.json() 会抛
+            //   3. 接口正常但 data 为空
+            // 之前直接 `globalGroups = (await res.json()).data` 拿到 undefined，
+            // 下一行 `[...globalGroups]` 立刻抛 "globalGroups is not iterable"，
+            // 整个页面的 JS 从这里开始全部停摆（包括扫码登录的轮询）。
+            let groups = [];
+            try {
+                const res = await fetch('/api/groups');
+                if (res.ok) {
+                    const payload = await res.json();
+                    if (Array.isArray(payload?.data)) groups = payload.data;
+                }
+            } catch (e) {
+                console.warn('[groups] 加载失败，降级为空列表', e);
+            }
+            globalGroups = groups;
+
+            const list = document.getElementById('channel-list');
+            if (!list) return;
+            list.innerHTML = '';
             [...globalGroups].sort((a, b) => Number(isConversationPinned(`room:${b.id}`)) - Number(isConversationPinned(`room:${a.id}`))).forEach(g => {
                 const btn = document.createElement('button'); btn.id = `room-btn-${g.id}`;
                 btn.className = "room-btn w-full text-left px-3 py-2.5 rounded-lg text-gray-300 hover:bg-gray-800 transition flex items-center";
@@ -1344,7 +1364,14 @@
                 const originalUrl = safeLocalUrl(originalValue);
                 const thumbnailUrl = safeLocalUrl(thumbnailValue || originalValue);
                 if (!originalUrl || !thumbnailUrl) return '[无效图片]';
-                return stash(`<img src="${escapeHtml(thumbnailUrl)}" data-original="${escapeHtml(originalUrl)}" loading="lazy" decoding="async" class="max-w-[200px] sm:max-w-xs mt-1 rounded-lg cursor-pointer hover:opacity-90 transition" onclick="window.open(this.dataset.original, '_blank', 'noopener')">`);
+                // ⚠️ onerror 兜底不能省：
+                // 历史数据里有 12 条消息引用了早已不存在的 *.thumb.jpg（缩略图功能
+                // 后来被停用，旧文件也没留在 R2）。没有 onerror 时这些图片直接裂成
+                // 破图标 —— 而原图其实好端端在 data-original 里。
+                // 这里让它在缩略图加载失败时自动回退到原图，失败则退化成一个
+                // 可点击的「图片加载失败」占位，不再显示裂图。
+                // data-fallback 标记防止原图也失败时无限递归。
+                return stash(`<img src="${escapeHtml(thumbnailUrl)}" data-original="${escapeHtml(originalUrl)}" loading="lazy" decoding="async" class="max-w-[200px] sm:max-w-xs mt-1 rounded-lg cursor-pointer hover:opacity-90 transition" onclick="window.open(this.dataset.original, '_blank', 'noopener')" onerror="if(!this.dataset.fallback){this.dataset.fallback='1';this.src=this.dataset.original;}else{this.replaceWith(Object.assign(document.createElement('span'),{className:'inline-flex items-center gap-1 text-xs text-gray-400 mt-1 cursor-pointer',textContent:'🖼 图片加载失败（点击重试）',onclick:()=>window.open(this.dataset.original,'_blank','noopener')}))}">`);
             });
             text = text.replace(/\[file:([^|]+)\|([^\]]+)\]/g, (match, value, filename) => {
                 const url = safeLocalUrl(value);
