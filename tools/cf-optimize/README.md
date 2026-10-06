@@ -78,8 +78,15 @@ logformat "- +_L%t.%. %N.%p %E %U %C:%c %R:%r %O %I %h %T"
 # ---- 在这里填入你扫出来的优选 IP ----
 # 格式：fakeresolve 域名 IP
 # 一个域名可以写多条，3proxy 会轮询
-fakeresolve liuyan.luojunqi.xyz 104.27.102.99
-fakeresolve liuyan.luojunqi.xyz 104.25.51.50
+#
+# ⚠️ 下面这组是 2026-10-06 实测（中国大陆，229 候选 → 25 可用）的结果。
+#    已剔除「握手快但总耗时 > 1s」的 11 个丢包节点。
+#    但 IP 会失效，用之前建议重跑一次 cf_ip_optimize.py 刷新。
+fakeresolve liuyan.luojunqi.xyz 104.17.153.152   # SJC 154ms  最快
+fakeresolve liuyan.luojunqi.xyz 103.31.4.83      # DEN 175ms
+fakeresolve liuyan.luojunqi.xyz 162.159.153.144  # HKG 188ms
+fakeresolve liuyan.luojunqi.xyz 103.21.244.204   # LAX 198ms
+fakeresolve liuyan.luojunqi.xyz 104.25.255.254   # LAX 247ms  总耗时最低的 LAX
 
 # 允许本机使用
 allow *
@@ -107,10 +114,16 @@ curl --resolve liuyan.luojunqi.xyz:443:127.0.0.1 https://liuyan.luojunqi.xyz/cdn
 
 > **更省事的替代**：如果懒得折腾代理，直接改 `C:\Windows\System32\drivers\etc\hosts`：
 > ```
-> 104.27.102.99  liuyan.luojunqi.xyz
+> 104.17.153.152  liuyan.luojunqi.xyz
 > ```
 > 缺点：一个域名一条记录，改完要重启浏览器；而且 IP 失效时网页直接打不开。
 > 好处：零成本，先验证思路够用了。
+
+> **改 hosts 之前先跑这条命令确认 IP 还有效**（Windows PowerShell）：
+> ```powershell
+> curl.exe -k --resolve liuyan.luojunqi.xyz:443:104.17.153.152 https://liuyan.luojunqi.xyz/cdn-cgi/trace
+> ```
+> 返回里能看到 `colo=SJC` 就说明这个 IP 当前可用。
 
 ---
 
@@ -189,7 +202,7 @@ plugins:
   - tag: rewrite_to_best_ip
     type: blackhole
     args:
-      ipv4: "104.27.102.99"    # ← 改成你扫出来的最优 IP
+      ipv4: "104.17.153.152"    # ← 改成你扫出来的最优 IP（2026-10-06 实测 SJC 154ms）
 
   - tag: main_sequence
     type: sequence

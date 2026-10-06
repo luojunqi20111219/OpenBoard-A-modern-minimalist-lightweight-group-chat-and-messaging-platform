@@ -247,41 +247,108 @@ def main():
         print("   · 域名没有接入 Cloudflare")
         return 1
 
-    results.sort(key=lambda x: x["time_connect"])
+    # ── 质量评级与排序 ────────────────────────────────────────────
+    #
+    # ⚠️ 不能只按 time_connect 排序。实测见过大量这种 IP：
+    #       time_connect=200ms  但 time_total=2200ms
+    #   握手只要 200ms 说明 TCP 通畅，但整个请求要 2.2 秒说明
+    #   【连上之后严重丢包重传】—— 这种 IP 实际体验比慢的还差。
+    #
+    # 所以用「握手延迟 + 总耗时」综合评分，并单独标记异常节点。
+    def score(r):
+        # 主项：握手延迟（决定首个包多快到）
+        # 次项：总耗时超出握手的那部分（反映传输质量），给它较小权重
+        tc = r["time_connect"]
+        tt = r["time_total"]
+        extra = max(0.0, tt - tc)      # 握手之后花的时间
+        return tc + extra * 0.35
+
+    for r in results:
+        r["score"] = score(r)
+        # 握手后耗时异常放大 → 判定为丢包
+        r["lossy"] = r["time_total"] > max(1000.0, r["time_connect"] * 5)
+        r["extra"] = r["time_total"] - r["time_connect"]
+
+    results.sort(key=lambda x: x["score"])
+
+    clean = [r for r in results if not r["lossy"]]
+    lossy = [r for r in results if r["lossy"]]
 
     print()
-    print("=" * 78)
+    print("=" * 88)
     print(f"扫描完成，用时 {elapsed:.0f} 秒")
-    print(f"可用 {len(results)} / {len(candidates)} 个")
-    print("=" * 78)
+    print(f"可用 {len(results)} / {len(candidates)} 个"
+          f"   （其中 {len(clean)} 个质量正常，{len(lossy)} 个丢包严重已排除）")
+    print("=" * 88)
     print()
-    print(f"{'排名':<5}{'IP':<18}{'握手(ms)':<11}{'总耗时(ms)':<13}{'接入节点':<10}")
-    print("-" * 78)
-    for i, r in enumerate(results[:args.top], 1):
+    print(f"{'排名':<5}{'IP':<18}{'握手(ms)':<11}{'总耗时(ms)':<13}{'握手后(ms)':<13}{'接入节点':<10}")
+    print("-" * 88)
+    for i, r in enumerate(clean[:args.top], 1):
         print(f"{i:<5}{r['ip']:<18}{r['time_connect']:<11.1f}"
-              f"{r['time_total']:<13.1f}{r['colo']:<10}")
+              f"{r['time_total']:<13.1f}{r['extra']:<13.1f}{r['colo']:<10}")
 
-    # 写入结果文件
+    if lossy:
+        print()
+        print(f"⚠️ 以下 {len(lossy)} 个 IP 握手正常但传输严重丢包，已从推荐列表剔除：")
+        print(f"{'':<5}{'IP':<18}{'握手(ms)':<11}{'总耗时(ms)':<13}{'握手后(ms)':<13}{'接入节点':<10}")
+        print("-" * 88)
+        for r in sorted(lossy, key=lambda x: x["time_total"])[:10]:
+            print(f"{'✗':<5}{r['ip']:<18}{r['time_connect']:<11.1f}"
+                  f"{r['time_total']:<13.1f}{r['extra']:<13.1f}{r['colo']:<10}")
+        if len(lossy) > 10:
+            print(f"     ... 还有 {len(lossy) - 10} 个，详见 report.csv 的 lossy 列")
+
+    # ── 写结果文件 ────────────────────────────────────────────────
+    # 只把质量正常的写进 best_ips.txt，丢包的单独列在注释里
     with open("best_ips.txt", "w", encoding="utf-8") as f:
         f.write(f"# Cloudflare 优选 IP · 目标域名 {args.host}\n")
         f.write(f"# 生成时间 {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write(f"# 按 TLS 握手延迟升序排列\n")
-        for r in results[:args.top]:
-            f.write(f"{r['ip']}  # {r['colo']} {r['time_connect']:.0f}ms\n")
+        f.write(f"# 候选 {len(candidates)} 个，可用 {len(results)} 个，"
+                f"其中质量正常 {len(clean)} 个\n")
+        f.write(f"# 排序依据：综合评分（握手延迟 + 握手后耗时×0.35），非单纯握手延迟\n")
+        f.write("#\n")
+        if len(clean) >= 4:
+            f.write("# ─── 第一梯队（优先用）───\n")
+            for r in clean[:4]:
+                f.write(f"{r['ip']:<18} # {r['colo']} 握手{r['time_connect']:.0f}ms "
+                        f"总{r['time_total']:.0f}ms\n")
+            f.write("\n# ─── 备选 ───\n")
+            for r in clean[4:args.top]:
+                f.write(f"{r['ip']:<18} # {r['colo']} 握手{r['time_connect']:.0f}ms "
+                        f"总{r['time_total']:.0f}ms\n")
+        else:
+            for r in clean[:args.top]:
+                f.write(f"{r['ip']:<18} # {r['colo']} 握手{r['time_connect']:.0f}ms "
+                        f"总{r['time_total']:.0f}ms\n")
+
+        if lossy:
+            f.write("\n# ─── 已排除：握手快但丢包严重，别用 ───\n")
+            for r in sorted(lossy, key=lambda x: x["time_total"]):
+                f.write(f"# {r['ip']:<18} # {r['colo']} 握手{r['time_connect']:.0f}ms "
+                        f"但总耗时{r['time_total']:.0f}ms\n")
 
     with open("report.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=[
-            "ip", "time_connect", "time_total", "colo", "loc"])
+            "ip", "time_connect", "time_total", "extra", "score",
+            "lossy", "colo", "loc"])
         w.writeheader()
         for r in results:
-            w.writerow({**r,
-                        "time_connect": round(r["time_connect"], 1),
-                        "time_total": round(r["time_total"], 1)})
+            w.writerow({
+                "ip": r["ip"],
+                "time_connect": round(r["time_connect"], 1),
+                "time_total": round(r["time_total"], 1),
+                "extra": round(r["extra"], 1),
+                "score": round(r["score"], 1),
+                "lossy": "1" if r["lossy"] else "",
+                "colo": r["colo"],
+                "loc": r["loc"],
+            })
 
     print()
-    print(f"✅ 已写入 best_ips.txt（前 {args.top} 个，可直接用）")
-    print(f"✅ 已写入 report.csv（完整数据）")
+    print(f"✅ 已写入 best_ips.txt（质量正常的前 {min(args.top, len(clean))} 个，可直接用）")
+    print(f"✅ 已写入 report.csv（完整数据，含 score / extra / lossy 列）")
     print()
+    print("提示：report.csv 里 lossy=1 的是丢包节点，别用。")
     print("下一步：把 best_ips.txt 里的 IP 填进 3Proxy / mosdns 配置，")
     print("       或加一条 CNAME 记录（见同目录 README.md）")
     return 0
