@@ -61,41 +61,43 @@ curl --version | head -1
 
 ---
 
-## 三、把脚本放进手机
+## 三、一条命令搞定（推荐）
 
-### 方式 A · 直接下载（最简单）
-
-如果手机能访问 GitHub：
+**不用拷文件，不用建目录**。Termux 里粘这一行：
 
 ```bash
-pkg install -y wget
-cd ~
-wget https://ghfast.top/https://raw.githubusercontent.com/luojunqi20111219/OpenBoard-.../main/tools/cf-optimize/cf_ip_optimize.py
+pkg update -y && pkg install -y python curl && curl -sL "https://cdn.jsdelivr.net/gh/luojunqi20111219/OpenBoard-A-modern-minimalist-lightweight-group-chat-and-messaging-platform@main/tools/cf-optimize/install.sh" -o install.sh && bash install.sh
 ```
 
-### 方式 B · 从电脑拷过去（推荐）
+`install.sh` 里已经**内嵌**了扫描脚本（base64），下载完直接就能跑，
+不需要再去拉第二个文件。
 
-1. 电脑上把 `cf-optimize` 整个目录传到手机（微信/QQ/数据线都行）
-2. 文件会落在手机的 `Download` 目录
-3. Termux 里：
+> **为什么用 jsDelivr 而不用 GitHub raw？**
+> `raw.githubusercontent.com` 在国内基本连不上。实测多个镜像：
+>
+> | 镜像 | 结果 |
+> |---|---|
+> | **cdn.jsdelivr.net** | **200 ✅ 可用** |
+> | ghfast.top | 404 ❌ |
+> | ghproxy.net | 404 ❌ |
+> | raw.gitmirror.com | 失败 ❌ |
+>
+> jsDelivr 在国内有 CDN 节点，是当前唯一实测稳定的。**如果它也失效了**，
+> 用下面的「方式 C」——直接把脚本内容贴进 Termux。
 
-```bash
-cd ~
-cp -r ~/storage/downloads/cf-optimize .
-cd cf-optimize
-```
+---
 
-> **注意**：如果出现 `cp: cannot access` 之类的报错，
-> 说明 `termux-setup-storage` 没执行或没给权限。
+## 三·补充 · 如果 jsDelivr 也不通
 
-### 方式 C · 直接手输（不想传文件的话）
+最坏情况下，你可以**完全离线**跑：
 
-实在嫌麻烦，也可以只拷 `cf_ip_optimize.py` 一个文件，
-然后 `termux_setup.sh` 不用管，直接跑 Python：
+1. 在能上网的设备上打开
+   https://cdn.jsdelivr.net/gh/luojunqi20111219/OpenBoard-A-modern-minimalist-lightweight-group-chat-and-messaging-platform@main/tools/cf-optimize/install.sh
+2. 全选复制
+3. Termux 里执行 `cat > install.sh`，粘贴，然后按 `Ctrl+D` 结束输入
+4. `bash install.sh`
 
-```bash
-python cf_ip_optimize.py --host liuyan.luojunqi.xyz --timeout 4 --concurrency 24
-```
+> **注意**：微信传输可能会截断长文本，用「文件传输助手」发文件比发文本可靠。
 
 ---
 
