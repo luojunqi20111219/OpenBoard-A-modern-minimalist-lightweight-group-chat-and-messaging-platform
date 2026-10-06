@@ -6,11 +6,35 @@
     <title>信语 (OpenBoard) | 现代群聊与私聊</title>
     <link rel="icon" href="/favicon.ico" type="image/x-icon">
     
-    <script src="/static/vendor/tailwindcss-3.4.17.js"></script>
+    <!-- ⚠️ Tailwind 已改为预编译静态 CSS（构建产物 public/static/vendor/tailwind.css）。
+         原来用的是 tailwindcss-3.4.17.js（Play CDN 运行时编译器，397KB 同步阻塞脚本）。
+         现在这份是构建期从 index.html 扫描类名生成的，只含实际用到的规则：
+         28KB（gzip 5.9KB），比原来小 93%，且零运行时开销、不再阻塞首屏渲染。
+
+         ⚠️ 加载顺序不能动！Tailwind 必须在 FontAwesome 之后。
+         原因：原来 Play CDN 是运行时把 <style> 注入到 head 末尾（即在 FA 之后），
+         所以 Tailwind 的 line-height 能覆盖 FA 图标的。改 <link> 后如果排在 FA 前面，
+         FA 会反过来覆盖 Tailwind，导致所有 <i class="fa-* text-xl"> 图标行高偏小、整体变瘦。
+         这正是 tailwind-parity-test.mjs 抓出来的回归，别再把这两行调换。
+
+         ⚠️ 以后新增/修改 class 后必须重新生成，否则新类名没有样式：
+             cp public/index.html /tmp/twbuild/src/index.html
+             cd /tmp/twbuild && npx tailwindcss@3.4.17 -c tailwind.config.js \
+                 -i src/input.css -o out.css --minify \
+                 && cp out.css /workspace/openboard/openboard-cf/public/static/vendor/tailwind.css
+         改完务必跑：node scripts/tailwind-parity-test.mjs（应为 0 差异） -->
     <link href="/static/vendor/fontawesome/css/all.min.css" rel="stylesheet">
-    <script type="module" src="/static/vendor/emoji-picker-element/index.js"></script>
+    <link href="/static/vendor/tailwind.css" rel="stylesheet">
+    <!-- ⚠️ emoji-picker-element 不再在这里引入。
+         原来这行 <script type="module" src=".../index.js"> 会在首屏就拉起
+         picker.js + database.js（约 100KB），加 data.json 总共 540KB。
+         现在由 ensureEmojiPicker() 在首次点开表情面板时动态加载。
+         别改回来。 -->
     <script defer src="/static/vendor/qrcode.min.js"></script>
-    <script defer src="/static/vendor/html5-qrcode.min.js"></script>
+    <!-- ⚠️ html5-qrcode.min.js（366KB）改为按需加载 —— 见 ensureHtml5Qrcode()。
+         它只在「开启摄像头扫码」和「扫描二维码图片」两个入口用到，
+         没必要让每个访问首页的人都下载这 366KB。改为点击时才动态插入 <script>。
+         不要改回 <script defer src> 常驻加载。 -->
     <style>
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
@@ -177,7 +201,11 @@
                             <!-- 动态加载 -->
                         </div>
                     </div>
-                    <emoji-picker data-source="/static/vendor/emoji-picker-element/data.json"></emoji-picker>
+                    <!-- ⚠️ 这里原来是静态的 <emoji-picker data-source=".../data.json">。
+                         它会在页面解析时就去拉 439KB 的 data.json + 组件 JS（实测占首屏解码量的 51%），
+                         而绝大多数用户根本不会点表情面板。
+                         现在改成空容器，由 ensureEmojiPicker() 在首次点击时才动态注入。
+                         别改回静态标签。 -->
                 </div>
                 
                 <div class="flex items-end gap-2 bg-gray-100 rounded-2xl p-2 shadow-inner">
@@ -2081,12 +2109,76 @@
 
         // --- 表情包逻辑 ---
         let emojiPickerVisible = false;
-        function toggleEmojiPicker(e) {
+        let emojiPickerReady = null;
+
+        /**
+         * 按需加载表情选择器。
+         *
+         * 组件本体（picker.js + database.js ≈ 100KB）和表情数据（data.json ≈ 439KB）
+         * 原本由静态 <emoji-picker> 标签在页面解析时触发加载 —— 实测占首屏解码量的 51%。
+         * 现在改为首次点开表情面板时才注入。
+         *
+         * 注意：注入后要立刻绑事件（emoji-click / contextmenu / touchstart），
+         * 这些监听原本是在脚本加载时直接绑在静态元素上的。
+         */
+        function ensureEmojiPicker() {
+            if (emojiPickerReady) return emojiPickerReady;
+            emojiPickerReady = new Promise((resolve, reject) => {
+                const container = document.getElementById('emoji-picker-container');
+                if (!container) return reject(new Error('缺少 emoji-picker-container'));
+
+                // 1. 先加载组件定义（ES module）
+                const mod = document.createElement('script');
+                mod.type = 'module';
+                mod.src = '/static/vendor/emoji-picker-element/index.js';
+                mod.onload = () => {
+                    // 2. 组件定义就绪后再插入自定义元素
+                    const el = document.createElement('emoji-picker');
+                    el.setAttribute('data-source', '/static/vendor/emoji-picker-element/data.json');
+                    container.appendChild(el);
+
+                    // 3. 绑事件（等价于原来静态标签上的监听）
+                    bindEmojiPickerEvents(el);
+                    resolve(el);
+                };
+                mod.onerror = () => {
+                    emojiPickerReady = null; // 允许重试
+                    reject(new Error('emoji-picker 组件加载失败'));
+                };
+                document.head.appendChild(mod);
+            });
+            return emojiPickerReady;
+        }
+
+        async function toggleEmojiPicker(e) {
             e.stopPropagation();
             const container = document.getElementById('emoji-picker-container');
             emojiPickerVisible = !emojiPickerVisible;
-            if (emojiPickerVisible) container.classList.remove('hidden');
-            else container.classList.add('hidden');
+            if (emojiPickerVisible) {
+                container.classList.remove('hidden');
+                // 打开时才加载。加个占位提示，避免白屏等待。
+                if (!emojiPickerReady) {
+                    const ph = document.createElement('div');
+                    ph.id = 'emoji-loading-hint';
+                    ph.className = 'p-6 text-center text-xs text-gray-400 animate-pulse';
+                    ph.textContent = '表情加载中…';
+                    container.appendChild(ph);
+                    try {
+                        const el = await ensureEmojiPicker();
+                        ph.remove();
+                        // 等组件真正渲染完（内部还在拉 data.json）
+                        if (el && el.updateComplete && typeof el.updateComplete.then === 'function') {
+                            el.updateComplete.then(() => {}).catch(() => {});
+                        }
+                    } catch (err) {
+                        console.error('[emoji] 加载失败', err);
+                        ph.textContent = '表情加载失败，请检查网络后重试';
+                        ph.classList.remove('animate-pulse');
+                    }
+                }
+            } else {
+                container.classList.add('hidden');
+            }
         }
 
         document.addEventListener('click', (e) => {
@@ -2104,65 +2196,74 @@
             }
         });
 
-        document.querySelector('emoji-picker').addEventListener('emoji-click', event => {
-            const input = document.getElementById('msg-input');
-            const start = input.selectionStart;
-            const end = input.selectionEnd;
-            const text = input.value;
-            input.value = text.slice(0, start) + event.detail.unicode + text.slice(end);
-            input.focus();
-            input.selectionStart = input.selectionEnd = start + event.detail.unicode.length;
-        });
+        /**
+         * 绑定表情选择器的全部事件。
+         * 原来这些是直接绑在静态 <emoji-picker> 上的（脚本一加载就执行），
+         * 现在组件是动态注入的，所以必须等注入完成后再绑。
+         */
+        function bindEmojiPickerEvents(pickerEl) {
+            // 选中表情 → 插入输入框
+            pickerEl.addEventListener('emoji-click', event => {
+                const input = document.getElementById('msg-input');
+                const start = input.selectionStart;
+                const end = input.selectionEnd;
+                const text = input.value;
+                input.value = text.slice(0, start) + event.detail.unicode + text.slice(end);
+                input.focus();
+                input.selectionStart = input.selectionEnd = start + event.detail.unicode.length;
+            });
+
+            // --- 收藏表情逻辑（favoriteEmojis 在外层作用域声明）---
+
+            // 绑定右键菜单（长按）事件，支持跨 Shadow DOM 收藏表情
+            pickerEl.addEventListener('contextmenu', e => {
+                e.preventDefault();
+                const path = e.composedPath();
+                const button = path.find(el => el.tagName === 'BUTTON');
+                if (button) {
+                    const emoji = button.textContent.trim();
+                    // 校验是否是正常的表情符号 (避免误触空按钮)
+                    if (emoji && emoji.length <= 8) {
+                        toggleFavoriteEmoji(emoji);
+                    }
+                }
+            });
+
+            // 移动端 Touch 长按收藏逻辑支持
+            let touchStartTimer = null;
+            pickerEl.addEventListener('touchstart', e => {
+                const path = e.composedPath();
+                const button = path.find(el => el.tagName === 'BUTTON');
+                if (button) {
+                    if (touchStartTimer) clearTimeout(touchStartTimer);
+                    touchStartTimer = setTimeout(() => {
+                        const emoji = button.textContent.trim();
+                        if (emoji && emoji.length <= 8) {
+                            if (navigator.vibrate) navigator.vibrate(50);
+                            toggleFavoriteEmoji(emoji);
+                        }
+                        touchStartTimer = null;
+                    }, 800); // 800ms
+                }
+            }, { passive: true });
+
+            pickerEl.addEventListener('touchend', () => {
+                if (touchStartTimer) {
+                    clearTimeout(touchStartTimer);
+                    touchStartTimer = null;
+                }
+            });
+
+            pickerEl.addEventListener('touchmove', () => {
+                if (touchStartTimer) {
+                    clearTimeout(touchStartTimer);
+                    touchStartTimer = null;
+                }
+            });
+        }
 
         // --- 收藏表情逻辑 ---
         let favoriteEmojis = [];
-
-        // 绑定右键菜单（长按）事件，支持跨 Shadow DOM 收藏表情
-        const pickerElement = document.querySelector('emoji-picker');
-        pickerElement.addEventListener('contextmenu', e => {
-            e.preventDefault();
-            const path = e.composedPath();
-            const button = path.find(el => el.tagName === 'BUTTON');
-            if (button) {
-                const emoji = button.textContent.trim();
-                // 校验是否是正常的表情符号 (避免误触空按钮)
-                if (emoji && emoji.length <= 8) { 
-                    toggleFavoriteEmoji(emoji);
-                }
-            }
-        });
-
-        // 移动端 Touch 长按收藏逻辑支持
-        let touchStartTimer = null;
-        pickerElement.addEventListener('touchstart', e => {
-            const path = e.composedPath();
-            const button = path.find(el => el.tagName === 'BUTTON');
-            if (button) {
-                if (touchStartTimer) clearTimeout(touchStartTimer);
-                touchStartTimer = setTimeout(() => {
-                    const emoji = button.textContent.trim();
-                    if (emoji && emoji.length <= 8) {
-                        if (navigator.vibrate) navigator.vibrate(50);
-                        toggleFavoriteEmoji(emoji);
-                    }
-                    touchStartTimer = null;
-                }, 800); // 800ms
-            }
-        }, { passive: true });
-
-        pickerElement.addEventListener('touchend', () => {
-            if (touchStartTimer) {
-                clearTimeout(touchStartTimer);
-                touchStartTimer = null;
-            }
-        });
-
-        pickerElement.addEventListener('touchmove', () => {
-            if (touchStartTimer) {
-                clearTimeout(touchStartTimer);
-                touchStartTimer = null;
-            }
-        });
 
         async function loadFavoriteEmojis() {
             if (!currentUser) return;
@@ -3365,7 +3466,7 @@
                         </div>
                         <div class="flex gap-1.5 shrink-0 ml-2">
                             <button onclick="respondFriendRequest('${item.from_user}', 'accept')" class="bg-green-600 hover:bg-green-700 text-white w-7 h-7 rounded-lg flex items-center justify-center text-xs transition" title="同意"><i class="fa-solid fa-check"></i></button>
-                            <button onclick="respondFriendRequest('${item.from_user}', 'reject')" class="bg-red-50 hover:bg-red-750 text-white w-7 h-7 rounded-lg flex items-center justify-center text-xs transition" title="拒绝"><i class="fa-solid fa-xmark"></i></button>
+                            <button onclick="respondFriendRequest('${item.from_user}', 'reject')" class="bg-red-50 hover:bg-red-100 text-red-500 w-7 h-7 rounded-lg flex items-center justify-center text-xs transition" title="拒绝"><i class="fa-solid fa-xmark"></i></button>
                         </div>
                     `;
                     listDiv.appendChild(reqItem);
@@ -3424,13 +3525,37 @@
         }
 
         // --- 扫码加好友逻辑 ---
-        function startCameraScan() {
+
+        /**
+         * 按需加载 html5-qrcode（366KB），只加载一次。
+         * 原来它是常驻 <script defer>，导致每个访客（包括根本不扫码的）都要下这 366KB。
+         * 现在改成首次点「开启摄像头」或「选择图片」时才拉，国内弱网下首屏能省一大截。
+         */
+        let html5QrcodeLoading = null;
+        function ensureHtml5Qrcode() {
+            if (window.Html5Qrcode) return Promise.resolve();
+            if (html5QrcodeLoading) return html5QrcodeLoading;
+            html5QrcodeLoading = new Promise((resolve, reject) => {
+                const s = document.createElement('script');
+                s.src = '/static/vendor/html5-qrcode.min.js';
+                s.onload = () => resolve();
+                s.onerror = () => {
+                    html5QrcodeLoading = null; // 允许重试
+                    reject(new Error('html5-qrcode 加载失败'));
+                };
+                document.head.appendChild(s);
+            });
+            return html5QrcodeLoading;
+        }
+
+        async function startCameraScan() {
             const placeholder = document.getElementById('qr-reader-placeholder');
             placeholder.innerHTML = '<div class="text-xs text-gray-400 animate-pulse">正在初始化摄像头...</div>';
-            
+
             document.getElementById('btn-stop-scan').classList.remove('hidden');
-            
+
             try {
+                await ensureHtml5Qrcode();
                 html5QrcodeScanner = new Html5Qrcode("qr-reader");
                 const qrCodeSuccessCallback = (decodedText, decodedResult) => {
                     console.log(`QR code scan result: ${decodedText}`);
@@ -3475,12 +3600,19 @@
             }
         }
 
-        function scanQrFile(input) {
+        async function scanQrFile(input) {
             if (!input.files || !input.files[0]) return;
             const file = input.files[0];
-            
-            const html5QrCode = new Html5Qrcode("qr-reader");
+
             showToast("正在识别图片...");
+            try {
+                await ensureHtml5Qrcode();
+            } catch (e) {
+                showToast("扫码组件加载失败，请检查网络后重试");
+                return;
+            }
+
+            const html5QrCode = new Html5Qrcode("qr-reader");
             
             html5QrCode.scanFile(file, true)
                 .then(decodedText => {

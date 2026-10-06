@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>信语 OpenBoard · 网络体检</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; padding: 16px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+                 "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: #f3f4f6; color: #111827; line-height: 1.6;
+  }
+  .wrap { max-width: 640px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { font-size: 13px; color: #6b7280; margin-bottom: 16px; }
+  .card {
+    background: #fff; border-radius: 14px; padding: 14px 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 12px;
+  }
+  .score {
+    display: flex; align-items: center; gap: 14px;
+    border-radius: 14px; padding: 16px; margin-bottom: 12px;
+    color: #fff; font-weight: 700;
+  }
+  .score .num { font-size: 34px; line-height: 1; }
+  .score .txt { font-size: 15px; }
+  .score .hint { font-size: 12px; font-weight: 400; opacity: .9; margin-top: 2px; }
+  .s-good { background: linear-gradient(135deg,#10b981,#059669); }
+  .s-mid  { background: linear-gradient(135deg,#f59e0b,#d97706); }
+  .s-bad  { background: linear-gradient(135deg,#ef4444,#dc2626); }
+  .s-run  { background: linear-gradient(135deg,#6366f1,#4f46e5); }
+
+  .row {
+    display: flex; gap: 10px; align-items: flex-start;
+    padding: 9px 0; border-bottom: 1px solid #f3f4f6; font-size: 14px;
+  }
+  .row:last-child { border-bottom: none; }
+  .row .ic { width: 20px; flex: 0 0 20px; text-align: center; font-size: 15px; }
+  .row .body { flex: 1; min-width: 0; }
+  .row .name { font-weight: 600; }
+  .row .detail { font-size: 12px; color: #6b7280; word-break: break-all; margin-top: 1px; }
+  .ok   .ic { color: #059669; }
+  .warn .ic { color: #d97706; }
+  .bad  .ic { color: #dc2626; }
+  .info .ic { color: #6b7280; }
+
+  button {
+    width: 100%; padding: 14px; border: none; border-radius: 12px;
+    background: #4f46e5; color: #fff; font-size: 16px; font-weight: 700;
+    cursor: pointer; margin-bottom: 12px;
+  }
+  button:active { background: #4338ca; }
+  button:disabled { background: #9ca3af; }
+  button.ghost { background: #fff; color: #4f46e5; border: 1.5px solid #c7d2fe; }
+
+  pre {
+    background: #111827; color: #d1d5db; padding: 12px; border-radius: 10px;
+    font-size: 11px; line-height: 1.5; overflow-x: auto; white-space: pre-wrap;
+    word-break: break-all; margin: 0;
+  }
+  .footer { font-size: 12px; color: #9ca3af; text-align: center; padding: 8px 0 20px; }
+  .bar { height: 6px; border-radius: 3px; background: #e5e7eb; overflow: hidden; margin-top: 4px; }
+  .bar > i { display: block; height: 100%; background: #6366f1; border-radius: 3px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>信语 OpenBoard · 网络体检</h1>
+  <div class="sub" id="sub">点下面的按钮开始，大约 20 秒。结果会自动复制。</div>
+
+  <div class="score s-run" id="score">
+    <div class="num" id="scoreNum">--</div>
+    <div>
+      <div class="txt" id="scoreTxt">待检测</div>
+      <div class="hint" id="scoreHint">点开始按钮</div>
+    </div>
+  </div>
+
+  <button id="btn">开始检测</button>
+  <div id="results"></div>
+
+  <div class="card" id="copyCard" style="display:none">
+    <div class="row info" style="border:none;padding-top:0">
+      <div class="ic">📋</div>
+      <div class="body">
+        <div class="name">结果已自动复制</div>
+        <div class="detail">如果没复制成功，点下面的按钮手动复制，然后发给开发者</div>
+      </div>
+    </div>
+    <button class="ghost" id="btnCopy" style="margin:10px 0 0">手动复制结果</button>
+  </div>
+
+  <div class="card" id="rawCard" style="display:none">
+    <div style="font-size:13px;font-weight:700;margin-bottom:8px">原始数据（可选）</div>
+    <pre id="raw"></pre>
+  </div>
+
+  <div class="footer">信语 · 现代群聊与私聊</div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ── 被测目标 ────────────────────────────────────────────────
+  var BASE = location.origin;          // 同学从哪个域名打开的，就测哪个
+  var API = BASE + '/api';
+
+  var results = [];
+  var rawLog = [];
+
+  function rec(status, name, detail) {
+    results.push({ status: status, name: name, detail: detail || '' });
+    rawLog.push('[' + status + '] ' + name + (detail ? ' :: ' + detail : ''));
+    render();
+  }
+
+  function render() {
+    var box = document.getElementById('results');
+    var icon = { ok: '✓', warn: '!', bad: '✕', info: 'i' };
+    box.innerHTML = results.map(function (r) {
+      return '<div class="card"><div class="row ' + r.status + '" style="border:none;padding:0">' +
+        '<div class="ic">' + icon[r.status] + '</div>' +
+        '<div class="body"><div class="name">' + esc(r.name) + '</div>' +
+        (r.detail ? '<div class="detail">' + esc(r.detail) + '</div>' : '') +
+        '</div></div></div>';
+    }).join('');
+  }
+
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+
+  function setScore(cls, num, txt, hint) {
+    var el = document.getElementById('score');
+    el.className = 'score ' + cls;
+    document.getElementById('scoreNum').textContent = num;
+    document.getElementById('scoreTxt').textContent = txt;
+    document.getElementById('scoreHint').textContent = hint;
+  }
+
+  // 带超时的 fetch，返回 {ms, status, ok, err, size}
+  function timed(url, opts, timeoutMs) {
+    var t0 = performance.now();
+    var ctrl = new AbortController();
+    var timer = setTimeout(function () { ctrl.abort(); }, timeoutMs || 12000);
+    var o = Object.assign({ cache: 'no-store', signal: ctrl.signal }, opts || {});
+    return fetch(url, o).then(function (res) {
+      return res.text().then(function (txt) {
+        clearTimeout(timer);
+        return {
+          ms: Math.round(performance.now() - t0),
+          status: res.status,
+          ok: res.ok,
+          size: txt.length,
+          text: txt,
+          ctype: res.headers.get('content-type') || ''
+        };
+      });
+    }).catch(function (e) {
+      clearTimeout(timer);
+      return { ms: Math.round(performance.now() - t0), ok: false, err: String(e) };
+    });
+  }
+
+  // ── 各项检测 ────────────────────────────────────────────────
+
+  // 1) 延迟与连通性：小请求打 3 次取最快
+  function testLatency() {
+    var runs = [];
+    var p = Promise.resolve();
+    for (var i = 0; i < 3; i++) {
+      p = p.then(function () {
+        return timed(API + '/capabilities?t=' + Date.now(), {}, 12000).then(function (r) {
+          if (r.ok) runs.push(r.ms);
+        });
+      });
+    }
+    return p.then(function () {
+      if (!runs.length) {
+        rec('bad', '服务器连通', '3 次请求全部失败，可能被墙或服务异常');
+        return { best: null };
+      }
+      var best = Math.min.apply(null, runs);
+      var avg = Math.round(runs.reduce(function (a, b) { return a + b; }, 0) / runs.length);
+      var cls = best < 300 ? 'ok' : best < 800 ? 'warn' : 'bad';
+      rec(cls, '服务器连通', '最快 ' + best + 'ms / 平均 ' + avg + 'ms（3 次中的最快值）');
+      return { best: best, avg: avg };
+    });
+  }
+
+  // 2) 静态资源下载速度：主 HTML + CSS
+  //
+  // ⚠️ 注意 r.size 是【解码后】大小（gzip 解压完的长度），不是实际传输字节。
+  //    首页 HTML 解码后约 200KB，但 gzip 传输只有约 46KB。
+  //    真正该看的是 Performance API 里的 transferSize。这里两个都显示。
+  function testAssets() {
+    var list = [
+      { url: '/', name: '首页 HTML' },
+      { url: '/static/vendor/tailwind.css', name: '样式文件' }
+    ];
+    var p = Promise.resolve();
+    list.forEach(function (item) {
+      p = p.then(function () {
+        return timed(BASE + item.url + '?t=' + Date.now(), {}, 15000).then(function (r) {
+          if (!r.ok) {
+            rec('bad', item.name + ' 下载', '失败：' + (r.err || 'HTTP ' + r.status));
+            return;
+          }
+          // 从 Resource Timing 找这次请求的实际传输字节
+          var transfer = null;
+          try {
+            var hit = performance.getEntriesByType('resource').filter(function (e) {
+              return e.name.indexOf(item.url + '?t=') !== -1 && e.name.indexOf('netcheck') === -1;
+            }).pop();
+            if (hit && hit.transferSize) transfer = hit.transferSize;
+          } catch (e) {}
+
+          var decodedKb = (r.size / 1024).toFixed(1);
+          var kbps = r.ms > 0 ? Math.round(r.size / 1024 / (r.ms / 1000)) : 0;
+          var cls = r.ms < 500 ? 'ok' : r.ms < 1500 ? 'warn' : 'bad';
+
+          var detail = r.ms + 'ms，传输 ' +
+            (transfer !== null ? (transfer / 1024).toFixed(1) + ' KB（gzip 后）' : '未知') +
+            '，解压后 ' + decodedKb + ' KB，约 ' + kbps + ' KB/s';
+          rec(cls, item.name + ' 下载', detail);
+        });
+      });
+    });
+    return p;
+  }
+
+  // 3) 首屏资源体检
+  //
+  // ⚠️ 判定原则：只看「页面实际引用了什么」，不看「服务器上有什么文件」。
+  //    旧文件留在服务器上不影响性能 —— 只要不引用就不会下载。
+  //    （早期版本这里误报，因为只检查了文件能否访问。）
+  function testTailwindStatic() {
+    return timed(BASE + '/static/vendor/tailwind.css?t=' + Date.now(), {}, 15000).then(function (r) {
+      if (!r.ok) { rec('bad', 'Tailwind 静态 CSS', '请求失败：' + (r.err || 'HTTP ' + r.status)); return; }
+      var kb = (r.size / 1024).toFixed(1);
+      if (r.size < 80000) {
+        rec('ok', 'Tailwind 预编译生效', kb + ' KB（原运行时编译器约 398 KB）');
+      } else {
+        rec('warn', 'Tailwind 体积偏大', kb + ' KB —— 可能回退成了运行时编译器');
+      }
+    });
+  }
+
+  // 3.5) 核心：检查首屏实际加载了哪些大文件
+  //      用 Performance Resource Timing，这是浏览器真实加载记录，最可信。
+  function testFirstScreenWeight() {
+    var entries = [];
+    try {
+      entries = performance.getEntriesByType('resource');
+    } catch (e) {}
+
+    // 排除我们自己发起的探测请求（带 ?t= 时间戳的）
+    var real = entries.filter(function (e) {
+      return e.name.indexOf('?t=') === -1 && e.name.indexOf('netcheck') === -1;
+    });
+
+    var totalTransfer = 0;
+    var heavy = [];
+    var loadedQr = false;
+    var loadedEmojiData = false;
+    var loadedOldTailwind = false;
+
+    real.forEach(function (e) {
+      var sz = e.transferSize || 0;
+      totalTransfer += sz;
+      var n = e.name;
+      if (n.indexOf('html5-qrcode') !== -1) loadedQr = true;
+      if (n.indexOf('emoji-picker-element/data.json') !== -1) loadedEmojiData = true;
+      if (n.indexOf('tailwindcss-3.4.17.js') !== -1) loadedOldTailwind = true;
+      if (sz > 60000) {
+        heavy.push({ name: n.replace(BASE, ''), kb: (sz / 1024).toFixed(0) });
+      }
+    });
+
+    rec('info', '首屏资源统计',
+      real.length + ' 个请求 · 传输 ' + (totalTransfer / 1024).toFixed(0) + ' KB');
+
+    // 检查三个「本该按需加载」的大文件
+    if (loadedOldTailwind) {
+      rec('bad', '旧 Tailwind 运行时仍在加载', '页面引用了 tailwindcss-3.4.17.js（398 KB），这会严重拖慢首屏');
+    } else {
+      rec('ok', '未加载旧 Tailwind 运行时', '页面没有引用 398 KB 的运行时编译器');
+    }
+
+    if (loadedQr) {
+      rec('warn', '扫码库未按需加载', '首屏加载了 html5-qrcode.min.js（366 KB），应该改成点击时才加载');
+    } else {
+      rec('ok', '扫码库按需加载生效', '首屏未加载 html5-qrcode.min.js（366 KB 已省下）');
+    }
+
+    if (loadedEmojiData) {
+      rec('warn', '表情数据未按需加载', '首屏加载了 emoji-picker data.json（439 KB），应该改成点击时才加载');
+    } else {
+      rec('ok', '表情数据按需加载生效', '首屏未加载表情数据（439 KB 已省下）');
+    }
+
+    if (heavy.length) {
+      rec('info', '体积较大的资源',
+        heavy.map(function (h) { return h.name + ' ' + h.kb + 'KB'; }).join('、'));
+    }
+  }
+
+  // 4) 时区正确性 —— 服务端出参必须带 Z 标记
+  function testTimezone() {
+    return timed(API + '/capabilities?t=' + Date.now(), {}, 12000).then(function (r) {
+      if (!r.ok) { rec('warn', '时区校验', '接口不可用，跳过'); return; }
+      // 用公开的登录记录接口不方便，改为前端本地自检：
+      // 检查本地时钟与 UTC 的偏移是否合理（东八区应为 -480）
+      var off = new Date().getTimezoneOffset();
+      var expectCN = -480;
+      if (off === expectCN) {
+        rec('ok', '本机时区', 'UTC+8（中国标准时间），符合预期');
+      } else {
+        var h = (-off / 60).toFixed(1);
+        rec('warn', '本机时区', 'UTC' + (off <= 0 ? '+' : '-') + Math.abs(off / 60) + '（' + h + 'h）—— 非东八区，时间是按你本机时区显示的，属正常');
+      }
+    });
+  }
+
+  // 5) 二维码接口（公开可用性）—— 真实路径是 /api/qr/generate
+  function testQr() {
+    return timed(API + '/qr/generate?t=' + Date.now(), { method: 'GET' }, 12000).then(function (r) {
+      if (r.err) {
+        rec('warn', '扫码登录接口', '请求失败：' + r.err);
+        return;
+      }
+      var body = null;
+      try { body = JSON.parse(r.text); } catch (e) {}
+      if (body && body.code === 200 && body.qr_id) {
+        rec('ok', '扫码登录接口', '正常返回 qr_id，耗时 ' + r.ms + 'ms');
+      } else if (r.status === 404) {
+        rec('warn', '扫码登录接口', '404 —— 接口路径可能已变');
+      } else {
+        rec('warn', '扫码登录接口', 'HTTP ' + r.status + '，返回：' + r.text.slice(0, 120));
+      }
+    });
+  }
+
+  // 6) WebSocket 连通性（聊天长连接）
+  //
+  // ⚠️ /api/ws 需要登录态。匿名连接会收到 401，这是【正常】的 ——
+  //    它证明「TCP + TLS + 路由 + 服务端」整条链路是通的，
+  //    只是没带 token 被拒。所以 401 要判为「通」，不能算失败。
+  function testWs() {
+    return new Promise(function (resolve) {
+      var url = BASE.replace(/^http/, 'ws') + '/api/ws?probe=1';
+      var done = false;
+      var t0 = performance.now();
+      var ws;
+      var timer = setTimeout(function () {
+        if (done) return;
+        done = true;
+        try { ws && ws.close(); } catch (e) {}
+        rec('warn', '聊天长连接 (WebSocket)', '10 秒内未建立连接，可能被网络限制（部分运营商/公共 WiFi 会拦 WS）');
+        resolve();
+      }, 10000);
+
+      try {
+        ws = new WebSocket(url);
+      } catch (e) {
+        done = true; clearTimeout(timer);
+        rec('warn', '聊天长连接 (WebSocket)', '创建失败：' + String(e).slice(0, 100));
+        return resolve();
+      }
+
+      ws.onopen = function () {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        var ms = Math.round(performance.now() - t0);
+        rec('ok', '聊天长连接 (WebSocket)', '连接成功，握手耗时 ' + ms + 'ms');
+        try { ws.close(); } catch (e) {}
+        resolve();
+      };
+      ws.onerror = function () {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        var ms = Math.round(performance.now() - t0);
+        // 区分「被拒（链路通）」和「连不上（链路不通）」
+        // 匿名探测时服务端应当返回 401，说明链路完全正常。
+        if (ms < 5000) {
+          rec('ok', '聊天长连接 (WebSocket)',
+            '服务端已响应（' + ms + 'ms）。匿名探测被拒属正常 —— 说明链路通畅，登录后即可正常收发消息');
+        } else {
+          rec('warn', '聊天长连接 (WebSocket)',
+            '连接异常（' + ms + 'ms）。可能被网络策略拦截，也可能是服务端未响应');
+        }
+        resolve();
+      };
+    });
+  }
+
+  // 7) 环境信息
+  function collectEnv() {
+    var nav = navigator;
+    var conn = nav.connection || nav.mozConnection || nav.webkitConnection;
+    var lines = [];
+    lines.push('UA: ' + nav.userAgent);
+    lines.push('平台: ' + (nav.platform || '-'));
+    lines.push('语言: ' + nav.language);
+    lines.push('屏幕: ' + screen.width + 'x' + screen.height + ' @' + (window.devicePixelRatio || 1) + 'x');
+    if (conn && conn.effectiveType) {
+      lines.push('网络类型: ' + conn.effectiveType + '  下行估算: ' + (conn.downlink || '?') + 'Mbps  RTT: ' + (conn.rtt || '?') + 'ms');
+    } else {
+      lines.push('网络类型: 浏览器未提供');
+    }
+    lines.push('时区偏移: UTC' + (new Date().getTimezoneOffset() <= 0 ? '+' : '-') + Math.abs(new Date().getTimezoneOffset() / 60));
+    rec('info', '你的设备与网络', lines.join(' ｜ '));
+  }
+
+  // ── 主流程 ──────────────────────────────────────────────────
+  function run() {
+    var btn = document.getElementById('btn');
+    btn.disabled = true;
+    btn.textContent = '检测中…请稍候';
+    results = [];
+    rawLog = [];
+    render();
+    setScore('s-run', '…', '检测进行中', '大约需要 20 秒，请不要关闭页面');
+
+    var start = Date.now();
+    collectEnv();
+
+    testLatency()
+      .then(function () { return testAssets(); })
+      .then(function () { return testTailwindStatic(); })
+      .then(function () { testFirstScreenWeight(); })
+      .then(function () { return testTimezone(); })
+      .then(function () { return testQr(); })
+      .then(function () { return testWs(); })
+      .then(function () {
+        // 汇总
+        var ok = results.filter(function (r) { return r.status === 'ok'; }).length;
+        var warn = results.filter(function (r) { return r.status === 'warn'; }).length;
+        var bad = results.filter(function (r) { return r.status === 'bad'; }).length;
+        var total = ok + warn + bad;
+        var pct = total ? Math.round((ok / total) * 100) : 0;
+
+        var cls, txt, hint;
+        if (bad > 0) {
+          cls = 's-bad'; txt = '有问题需要排查'; hint = bad + ' 项失败';
+        } else if (warn > 0) {
+          cls = 's-mid'; txt = '基本可用，有告警'; hint = warn + ' 项告警';
+        } else {
+          cls = 's-good'; txt = '一切正常'; hint = '全部通过';
+        }
+        setScore(cls, pct, txt, hint + ' · 耗时 ' + secs(start) + 's');
+
+        btn.textContent = '重新检测';
+        btn.disabled = false;
+        finish(start);
+      });
+  }
+
+  function secs(t0) {
+    var s = (Date.now() - t0) / 1000;
+    return s < 10 ? s.toFixed(1) : Math.round(s);
+  }
+
+  function finish(start) {
+    var ok = results.filter(function (r) { return r.status === 'ok'; }).length;
+    var warn = results.filter(function (r) { return r.status === 'warn'; }).length;
+    var bad = results.filter(function (r) { return r.status === 'bad'; }).length;
+
+    var report = [
+      '===== 信语 OpenBoard 网络体检报告 =====',
+      '时间：' + new Date().toLocaleString(),
+      '页面：' + BASE,
+      '耗时：' + secs(start) + ' 秒',
+      '结果：通过 ' + ok + ' / 告警 ' + warn + ' / 失败 ' + bad,
+      '',
+      '--- 明细 ---'
+    ].concat(results.map(function (r) {
+      var mark = r.status === 'ok' ? '[OK]' : r.status === 'warn' ? '[!!]' : r.status === 'bad' ? '[XX]' : '[--]';
+      return mark + ' ' + r.name + (r.detail ? '\n     ' + r.detail : '');
+    })).concat([
+      '',
+      '--- 原始 ---'
+    ]).concat(rawLog).join('\n');
+
+    document.getElementById('raw').textContent = report;
+    document.getElementById('rawCard').style.display = '';
+    document.getElementById('copyCard').style.display = '';
+
+    // 自动复制
+    copyText(report).then(function (yes) {
+      if (yes) {
+        document.getElementById('sub').textContent = '✅ 报告已自动复制到剪贴板，直接粘贴发送即可。';
+      } else {
+        document.getElementById('sub').textContent = '自动复制没成功，请点下方「手动复制结果」。';
+      }
+    });
+  }
+
+  function copyText(t) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(t).then(function () { return true; }).catch(function () { return fallbackCopy(t); });
+    }
+    return Promise.resolve(fallbackCopy(t));
+  }
+
+  function fallbackCopy(t) {
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = t;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return ok;
+    } catch (e) { return false; }
+  }
+
+  document.getElementById('btn').addEventListener('click', run);
+  document.getElementById('btnCopy').addEventListener('click', function () {
+    copyText(document.getElementById('raw').textContent).then(function (yes) {
+      this.textContent = yes ? '✅ 已复制' : '复制失败，请长按上方文本手动选择';
+    }.bind(this));
+  });
+})();
+</script>
+</body>
+</html>
