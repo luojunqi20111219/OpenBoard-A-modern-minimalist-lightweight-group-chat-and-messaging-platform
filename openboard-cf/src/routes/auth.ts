@@ -1069,7 +1069,12 @@ authRoutes.get('/qr/generate', async (c) => {
   const e = env(c);
   const qrId = randomId(16);
   await exec(e.DB, 'INSERT INTO qr_sessions (qr_id, status) VALUES (?, ?)', qrId, 'pending');
-  return c.json({ qr_id: qrId, expires_in: 300 });
+  // ⚠️ code: 200 不能省。网页端判断的是 `if (res.code === 200)`，
+  // 少了这个字段就是 undefined !== 200，扫码登录直接走 else 分支，
+  // 表现为「点击扫码登录永远显示『生成失败，点击重试』」。
+  // 这是从 FastAPI 迁到 Workers 时丢掉的字段（老后端所有响应都带 code）。
+  // 保留 qr_id 在顶层，是为了不破坏已经发布出去的客户端。
+  return c.json({ code: 200, qr_id: qrId, expires_in: 300 });
 });
 
 authRoutes.get('/qr/status', async (c) => {
